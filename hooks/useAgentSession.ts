@@ -20,6 +20,7 @@ import {
   getSessionViewSnapshot,
   setSessionViewSnapshot,
 } from "@/lib/session-view-cache";
+import type { SettingChangeResult } from "@/lib/model-command";
 import { clearDraft, rekeyDraft, restoreDraftSubmission } from "@/lib/draft-store";
 import { getPreferredToolPreset, setPreferredToolPreset } from "@/lib/tool-preset-preference";
 import { CONFIGURED_TOOL_PRESET, getPresetFromToolNames, getToolNamesForPreset, type ToolEntry, type ToolPreset } from "@/lib/tool-presets";
@@ -153,7 +154,7 @@ export interface SlashCommandInfo {
 
 export type BuiltinSlashCommandResult =
   | { handled: false }
-  | { handled: true; message?: string; error?: string; action?: "openSessionStats" };
+  | { handled: true; message?: string; error?: string; action?: "openSessionStats" | "openModelSelector" | "openThinkingSelector"; query?: string };
 
 export interface UseAgentSessionOptions {
   session: SessionInfo | null;
@@ -1735,9 +1736,24 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [loadContext]);
 
-  const handleModelChange = useCallback(async (provider: string, modelId: string) => {
+  const handleModelChange = useCallback(async (provider: string, modelId: string, requestedLevel?: string): Promise<SettingChangeResult> => {
+    if (agentRunningRef.current || bashRunningRef.current || isCompacting || modelSwitchPendingRef.current) {
+      const error = "Cannot switch model while the session is busy";
+      addNotice({ type: "error", message: error });
+      return { error };
+    }
+    if (requestedLevel !== undefined && (!modelThinkingLevels[`${provider}:${modelId}`]?.includes(requestedLevel)
+      || !["off", "minimal", "low", "medium", "high", "xhigh", "max"].includes(requestedLevel))) {
+      return { error: `Unsupported thinking level for ${provider}/${modelId}: ${requestedLevel}` };
+    }
+    const levelOption = requestedLevel === undefined ? {} : { thinkingLevel: requestedLevel };
     if (isNew) {
+      const previousThinkingOverride = thinkingLevelOverrideRef.current;
       const selectedModel = { provider, modelId };
+      if (requestedLevel !== undefined) {
+        thinkingLevelOverrideRef.current = requestedLevel as Exclude<ThinkingLevelOption, "auto">;
+        setNewSessionThinkingLevel(requestedLevel as ConcreteThinkingLevel);
+      }
       newSessionModelOverrideRef.current = selectedModel;
       setNewSessionModel(selectedModel);
       setPendingModel(selectedModel);
@@ -1748,28 +1764,42 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         );
       }
       const sid = sessionIdRef.current ?? await ensuringNewSessionRef.current;
-      if (!sid) return;
+      if (!sid) return {};
+      modelSwitchPendingRef.current = true;
+      setModelSwitching(true);
       try {
-        await sendAgentCommand(sid, { type: "set_model", provider, modelId });
+        await sendAgentCommand(sid, { type: "set_model", provider, modelId, ...levelOption });
+        await loadSession(sid);
+        return {};
       } catch (e) {
-        console.error("Failed to set model:", e);
+        const error = e instanceof Error ? e.message : String(e);
+        newSessionModelOverrideRef.current = newSessionModel;
+        thinkingLevelOverrideRef.current = previousThinkingOverride;
+        setNewSessionThinkingLevel(previousThinkingOverride);
+        setNewSessionModel(newSessionModel);
+        setPendingModel(newSessionModel);
+        addNotice({ type: "error", message: error });
+        await loadSession(sid, false, true);
+        return { error };
+      } finally {
+        modelSwitchPendingRef.current = false;
+        setModelSwitching(false);
       }
-      return;
     }
     const sid = sessionIdRef.current;
-    if (!sid || modelSwitchPendingRef.current) return;
+    if (!sid) return { error: "No active session" };
     const target = { provider, modelId };
     const previousOverride = currentModelOverride;
     modelSwitchPendingRef.current = true;
     setCurrentModelOverride(target);
     setModelSwitching(true);
     try {
-      const selected = await sendAgentCommand<{ provider: string; id: string }>(sid, { type: "set_model", provider, modelId });
+      const selected = await sendAgentCommand<{ provider: string; id: string; thinkingLevel?: ThinkingLevelOption }>(sid, { type: "set_model", provider, modelId, ...levelOption });
+      if (selected.thinkingLevel !== undefined) setLiveThinkingLevel(asConcreteThinkingLevel(selected.thinkingLevel));
       setLiveModel({ provider: selected.provider, modelId: selected.id });
-      // Pi persists model_change synchronously. Reload the canonical session so
-      // the model, thinking level, and active leaf all advance together.
       modelSwitchPendingRef.current = false;
-      await loadSession(sid);
+      await loadSession(sid, false, true);
+      return {};
     } catch (e) {
       console.error("Failed to set model:", e);
       modelSwitchPendingRef.current = false;
@@ -1781,11 +1811,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       // A failed response can still follow a server-side write (for example, a
       // dropped connection), so let the session file settle the displayed model.
       await loadSession(sid, false, true);
+      return { error: e instanceof Error ? e.message : String(e) };
     } finally {
       modelSwitchPendingRef.current = false;
       setModelSwitching(false);
     }
-  }, [addNotice, currentModelOverride, isNew, loadSession, setNewSessionModel]);
+  }, [addNotice, currentModelOverride, isNew, isCompacting, loadSession, modelThinkingLevels, newSessionModel, setNewSessionModel]);
 
   const handleCompact = useCallback(async () => {
     const sid = sessionIdRef.current;
@@ -1860,6 +1891,57 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [isNew, newSessionCwd, session?.cwd]);
 
+  const handleThinkingLevelChange = useCallback(async (level: ThinkingLevelOption): Promise<SettingChangeResult> => {
+    const fail = (error: string): SettingChangeResult => {
+      addNotice({ type: "error", message: error });
+      return { error };
+    };
+    if (agentRunningRef.current || bashRunningRef.current || isCompacting || modelSwitchPendingRef.current) {
+      return fail("Cannot change thinking level while the session is busy");
+    }
+    const levels = displayModel ? modelThinkingLevels[`${displayModel.provider}:${displayModel.modelId}`] : undefined;
+    if (level !== "auto" && (!levels || !levels.includes(level))) {
+      return fail(`Unsupported thinking level "${level}". Available: ${levels?.join(", ") ?? "select a model first"}`);
+    }
+    if (level === "auto") {
+      thinkingLevelOverrideRef.current = null;
+      setNewSessionThinkingLevel(null);
+      setCurrentThinkingOverride(null);
+      return { level: "auto" };
+    }
+    const previousThinkingOverride = thinkingLevelOverrideRef.current;
+    if (isNew) {
+      thinkingLevelOverrideRef.current = level;
+      setNewSessionThinkingLevel(level);
+    } else {
+      setCurrentThinkingOverride(level);
+    }
+    const sid = sessionIdRef.current ?? await ensuringNewSessionRef.current;
+    if (!sid) return { level };
+    modelSwitchPendingRef.current = true;
+    setModelSwitching(true);
+    try {
+      const result = await sendAgentCommand<{ level: ThinkingLevelOption }>(sid, { type: "set_thinking_level", level });
+      if (sessionHookMountedRef.current && sessionIdRef.current === sid) {
+        setLiveThinkingLevel(asConcreteThinkingLevel(result?.level ?? level));
+        setCurrentThinkingOverride(null);
+      }
+      await loadSession(sid, false, true);
+      return { level: result?.level ?? level };
+    } catch (e) {
+      if (isNew) {
+        thinkingLevelOverrideRef.current = previousThinkingOverride;
+        setNewSessionThinkingLevel(previousThinkingOverride);
+      }
+      setCurrentThinkingOverride(null);
+      await loadSession(sid, false, true);
+      return fail(e instanceof Error ? e.message : String(e));
+    } finally {
+      modelSwitchPendingRef.current = false;
+      setModelSwitching(false);
+    }
+  }, [addNotice, displayModel, isNew, isCompacting, loadSession, modelThinkingLevels]);
+
   const handleBuiltinSlashCommand = useCallback(async (text: string): Promise<BuiltinSlashCommandResult> => {
     if (!text.startsWith("/")) return { handled: false };
     const match = text.match(/^\/([^\s]+)(?:\s+([\s\S]*))?$/);
@@ -1867,18 +1949,37 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
     const [, commandName, rawArgs = ""] = match;
     const args = rawArgs.trim();
-    const sid = sessionIdRef.current ?? await ensureNewSession();
     const complete = (result: BuiltinSlashCommandResult): BuiltinSlashCommandResult => {
       if (!result.handled) return result;
       if (result.error) {
         addNotice({ type: "error", message: result.error });
-      } else if (result.action !== "openSessionStats") {
+      } else if (!result.action) {
         addNotice({ type: "success", message: result.message ?? "Command completed" });
       }
       return result;
     };
 
     try {
+      // Settings must be routed before ensureNewSession: opening a selector or
+      // choosing startup preferences must not create an otherwise empty session.
+      if (commandName === "model" || commandName === "thinking") {
+        if (agentRunningRef.current || bashRunningRef.current || isCompacting || modelSwitchPendingRef.current) {
+          return complete({ handled: true, error: "Cannot change settings while the session is busy" });
+        }
+        if (commandName === "model") {
+          // Even an exact reference is a draft: choose thinking before applying.
+          return { handled: true, action: "openModelSelector", query: args };
+        }
+        if (!args) return { handled: true, action: "openThinkingSelector" };
+        const level = args.toLowerCase();
+        if (!["auto", "off", "minimal", "low", "medium", "high", "xhigh", "max"].includes(level)) {
+          return complete({ handled: true, error: "Usage: /thinking <auto|off|minimal|low|medium|high|xhigh|max> (model-dependent)" });
+        }
+        const result = await handleThinkingLevelChange(level as ThinkingLevelOption);
+        if (result.error) return { handled: true, error: result.error };
+        return complete({ handled: true, message: result.level ? `Thinking level: ${result.level}` : "Kept current thinking level" });
+      }
+      const sid = sessionIdRef.current ?? await ensureNewSession();
       switch (commandName) {
         case "compact": {
           if (!sid || isCompacting) return complete({ handled: true, error: "No active session to compact" });
@@ -1977,7 +2078,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } finally {
       if (commandName === "compact") setIsCompacting(false);
     }
-  }, [activeLeafId, addNotice, ensureNewSession, isCompacting, loadModels, loadSession, loadSlashCommands, loadTools, promoteNewSession, onSessionForked, onSessionStatsPanelOpen]);
+  }, [activeLeafId, addNotice, ensureNewSession, handleThinkingLevelChange, isCompacting, loadModels, loadSession, loadSlashCommands, loadTools, promoteNewSession, onSessionForked, onSessionStatsPanelOpen]);
 
   // Let AgentSession.prompt decide atomically whether to queue against the
   // current run or start a new turn if it settled while the request was in
@@ -2058,33 +2159,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       addNotice({ type: "error", message: "Failed to recall queued messages" });
     }
   }, [opts.chatInputRef, addNotice]);
-
-  const handleThinkingLevelChange = useCallback(async (level: ThinkingLevelOption) => {
-    if (level === "auto") {
-      thinkingLevelOverrideRef.current = null;
-      setNewSessionThinkingLevel(null);
-      setCurrentThinkingOverride(null);
-      return;
-    }
-    if (isNew) {
-      thinkingLevelOverrideRef.current = level;
-      setNewSessionThinkingLevel(level);
-    } else {
-      setCurrentThinkingOverride(level);
-    }
-    const sid = sessionIdRef.current ?? await ensuringNewSessionRef.current;
-    if (!sid) return;
-    try {
-      await sendAgentCommand(sid, { type: "set_thinking_level", level });
-      if (sessionHookMountedRef.current && sessionIdRef.current === sid) {
-        setLiveThinkingLevel(level);
-        setCurrentThinkingOverride(null);
-      }
-    } catch (e) {
-      console.error("Failed to set thinking level:", e);
-      setCurrentThinkingOverride(null);
-    }
-  }, [isNew]);
 
   const handleToolPresetChange = useCallback(async (preset: ToolPreset) => {
     const toolNames = getToolNamesForPreset(preset);
@@ -2232,20 +2306,21 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
       loadSession(session.id, !cached, true, { force: true }).then((loadedAgentState) => {
         const agentState = loadedAgentState as { running: boolean; state?: AgentStateResponse } | null;
-        if (agentState?.running) {
+        const liveState = agentState?.state;
+        if (liveState?.isStreaming || liveState?.isPromptRunning || liveState?.isBashRunning || liveState?.isCompacting) {
           loadTools(session.id);
-          if (agentState.state?.isStreaming || agentState.state?.isPromptRunning) {
-            sdkAgentActiveRef.current = Boolean(agentState.state.isStreaming);
-            rpcPromptPendingRef.current = Boolean(agentState.state.isPromptRunning);
+          if (liveState.isStreaming || liveState.isPromptRunning) {
+            sdkAgentActiveRef.current = Boolean(liveState.isStreaming);
+            rpcPromptPendingRef.current = Boolean(liveState.isPromptRunning);
             agentRunningRef.current = true;
             setAgentRunning(true);
-            setAgentPhase(agentState.state.isStreaming ? { kind: "waiting_model" } : { kind: "running_command" });
+            setAgentPhase(liveState.isStreaming ? { kind: "waiting_model" } : { kind: "running_command" });
             dispatch({ type: "resume" });
-            if (!agentState.state.isStreaming && agentState.state.isPromptRunning) {
+            if (!liveState.isStreaming && liveState.isPromptRunning) {
               void waitForPromptSettlement(session.id);
             }
           }
-          if (agentState.state?.isBashRunning) {
+          if (liveState.isBashRunning) {
             bashRunningRef.current = true;
             setBashRunning(true);
             void waitForBashSettlement(session.id);

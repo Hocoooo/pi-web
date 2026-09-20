@@ -28,9 +28,11 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { useI18n } from "@/hooks/useI18n";
 import { useChatAppearance } from "@/hooks/useChatAppearance";
 import type { ToolPreset } from "@/lib/tool-presets";
-import { ModelSelector, type ModelSelectorOption } from "./ModelSelector";
+import { ChatInputModelControl } from "./ChatInputModelControl";
+import { isSettingsSlashCommand, type SettingChangeResult } from "@/lib/model-command";
+import { focusPickerOption, getSelectedPickerOption, movePickerFocus } from "@/lib/picker-keyboard";
 
-export { filterModelOptions } from "./ModelSelector";
+export { filterModelOptions } from "@/lib/model-picker";
 
 export interface AttachedImage {
   data: string;   // base64, no prefix
@@ -55,6 +57,9 @@ interface Props {
   /** Diagnostics from resolving `enabledModels`, e.g. a pattern that matched nothing. */
   modelScopeWarnings?: string[];
   onModelChange?: (provider: string, modelId: string) => void;
+  onModelThinkingChange?: (provider: string, modelId: string, level: string) => Promise<SettingChangeResult>;
+  modelThinkingLevels?: Record<string, string[]>;
+  modelThinkingLevelMaps?: Record<string, Record<string, string | null>>;
   modelSwitching?: boolean;
   onCompact?: () => void;
   onAbortCompaction?: () => void;
@@ -222,6 +227,8 @@ type SlashCommandPaletteItem = SlashCommandInfo | BuiltinSlashCommand;
 type SlashCommandSource = SlashCommandPaletteItem["source"];
 
 const BUILTIN_SLASH_COMMANDS: BuiltinSlashCommand[] = [
+  { name: "model", description: "chat.commandModel", source: "builtin" },
+  { name: "thinking", description: "chat.commandThinking", source: "builtin" },
   { name: "compact", description: "chat.commandCompact", source: "builtin" },
   { name: "auto-compact", description: "chat.commandAutoCompact", source: "builtin" },
   { name: "reload", description: "chat.commandReload", source: "builtin" },
@@ -551,6 +558,7 @@ export function ModelScopeWarningBanner({ warnings }: { warnings?: string[] }) {
 export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   onSend, onAbort, onSteer, onFollowUp, isStreaming, model, isAutoModelSelection, modelNames, modelList, modelError, modelScopeWarnings, onModelChange, modelSwitching,
   onCompact, onAbortCompaction, isCompacting, compactError, compactResult, toolPreset, onToolPresetChange,
+  onModelThinkingChange, modelThinkingLevels, modelThinkingLevelMaps,
   thinkingLevel, isAutoThinkingSelection = false, onThinkingLevelChange, availableThinkingLevels, thinkingLevelMap,
   retryInfo, queuedMessages, inputHistory = [], onRecallQueue,
   slashCommands, slashCommandsLoading, onLoadSlashCommands,
@@ -567,6 +575,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const [value, setValue] = useState(() => (draftKey ? getDraft(draftKey)?.value ?? "" : ""));
   const [toolDropdownOpen, setToolDropdownOpen] = useState(false);
   const [thinkingDropdownOpen, setThinkingDropdownOpen] = useState(false);
+  const [focusedThinkingLevel, setFocusedThinkingLevel] = useState<string | null>(null);
+  const [modelOpenRequest, setModelOpenRequest] = useState<{ query: string }>();
   const [controlsMenuOpen, setControlsMenuOpen] = useState(false);
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>(() => (
     draftKey ? draftImagesToAttachedImages(getDraft(draftKey)?.images) : []
@@ -600,6 +610,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const toolDropdownRef = useRef<HTMLDivElement>(null);
   const thinkingDropdownRef = useRef<HTMLDivElement>(null);
+  const thinkingOptionsRef = useRef<HTMLDivElement>(null);
+  const thinkingButtonRef = useRef<HTMLButtonElement>(null);
+  const thinkingOpenedFromCommand = useRef(false);
   const controlsMenuRef = useRef<HTMLDivElement>(null);
   const historyMenuRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -925,15 +938,45 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     };
   }, []);
 
+  const closeThinkingPicker = useCallback(() => {
+    setThinkingDropdownOpen(false);
+    const fromCommand = thinkingOpenedFromCommand.current;
+    if (fromCommand) setControlsMenuOpen(false);
+    requestAnimationFrame(() => {
+      (fromCommand ? textareaRef.current : thinkingButtonRef.current)?.focus({ preventScroll: true });
+    });
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!thinkingDropdownOpen || builtinCommandPending) return;
+    if (isStreaming || isCompacting || modelSwitching) {
+      setThinkingDropdownOpen(false);
+      return;
+    }
+    focusPickerOption(getSelectedPickerOption(thinkingOptionsRef.current));
+  }, [thinkingDropdownOpen, builtinCommandPending, isStreaming, isCompacting, modelSwitching]);
+
   const runBuiltinCommand = useCallback(async (msg: string): Promise<boolean> => {
-    if (attachedImages.length || !msg.startsWith("/") || !onBuiltinCommand) return false;
+    if (!msg.startsWith("/") || !onBuiltinCommand) return false;
+    // Settings commands must never become prompts, even with attached images.
+    if (attachedImages.length && !isSettingsSlashCommand(msg)) return false;
     if (builtinCommandPendingRef.current) return true;
     builtinCommandPendingRef.current = true;
     setBuiltinCommandPending(true);
     try {
       const result = await onBuiltinCommand(msg);
       if (!result.handled) return false;
+      if (result.action === "openModelSelector") setModelOpenRequest({ query: result.query ?? "" });
+      if (result.action === "openThinkingSelector") {
+        thinkingOpenedFromCommand.current = true;
+        setControlsMenuOpen(true);
+        setThinkingDropdownOpen(true);
+      }
       if (!result.error && canClearBuiltinCommandInput(valueRef.current, attachedImagesRef.current.length, msg)) clearInput();
+      else if (!result.error && isSettingsSlashCommand(msg) && valueRef.current.trim() === msg) {
+        // A settings command does not consume attachments intended for the next prompt.
+        setValue("");
+      }
       return true;
     } finally {
       builtinCommandPendingRef.current = false;
@@ -945,7 +988,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     const msg = value.trim();
     if (!msg && !attachedImages.length) return;
     onAudioUnlock?.();
-    const builtinAllowed = !isStreaming || canRunBuiltinSlashCommandWhileStreaming(msg);
+    const builtinAllowed = !isStreaming || canRunBuiltinSlashCommandWhileStreaming(msg) || isSettingsSlashCommand(msg);
     if (builtinAllowed && await runBuiltinCommand(msg)) return;
     if (isStreaming) return;
     clearInput();
@@ -1183,7 +1226,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     const msg = value.trim();
     if (!msg && !attachedImages.length) return;
     onAudioUnlock?.();
-    if (!attachedImages.length && onBuiltinCommand && canRunBuiltinSlashCommandWhileStreaming(msg)) {
+    if (onBuiltinCommand && (isSettingsSlashCommand(msg) || (!attachedImages.length && canRunBuiltinSlashCommandWhileStreaming(msg)))) {
       void runBuiltinCommand(msg);
       return;
     }
@@ -1512,18 +1555,6 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       setAtMenuMaxHeight((current) => current === nextHeight ? current : nextHeight);
     });
   }, [atMenuOpen, atQuery]);
-
-  // Build model options: prefer modelList (has provider info), fallback to modelNames
-  const modelOptions: ModelSelectorOption[] = (() => {
-    if (modelList && modelList.length > 0) {
-      return modelList.map((m) => ({ provider: m.provider, modelId: m.id, name: m.name }));
-    }
-    return Object.entries(modelNames ?? {}).map(([modelId, name]) => ({
-      provider: model?.provider ?? "unknown",
-      modelId,
-      name,
-    }));
-  })();
 
   const compactSavedTokens = compactResult
     ? Math.max(0, compactResult.tokensBefore - compactResult.estimatedTokensAfter)
@@ -2306,14 +2337,21 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               </svg>
             </button>
             {/* Model selector - visible always, disabled while the session or switch is busy */}
-            {(modelOptions.length > 0 || model || modelError) && onModelChange && (
-              <ModelSelector
-                options={modelOptions}
-                value={model}
-                onChange={onModelChange}
-                disabled={isStreaming}
-                busy={modelSwitching}
-                isAutoSelection={isAutoModelSelection}
+            {onModelChange && (
+              <ChatInputModelControl
+                model={model}
+                isAutoModelSelection={isAutoModelSelection}
+                modelNames={modelNames}
+                modelList={modelList}
+                onModelChange={onModelChange}
+                onModelThinkingChange={onModelThinkingChange}
+                modelThinkingLevels={modelThinkingLevels}
+                modelThinkingLevelMaps={modelThinkingLevelMaps}
+                modelSwitching={modelSwitching}
+                thinkingLevel={thinkingLevel}
+                disabled={isStreaming || isCompacting || builtinCommandPending}
+                openRequest={modelOpenRequest}
+                onRequestClose={() => textareaRef.current?.focus({ preventScroll: true })}
               />
             )}
           </div>
@@ -2397,8 +2435,16 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             {onThinkingLevelChange && (
               <div ref={thinkingDropdownRef} style={{ position: "relative" }}>
                 <button
-                  onClick={() => !isStreaming && setThinkingDropdownOpen((v) => !v)}
-                  disabled={isStreaming}
+                  ref={thinkingButtonRef}
+                  type="button"
+                  aria-haspopup="listbox"
+                  aria-expanded={thinkingDropdownOpen}
+                  onClick={() => {
+                    if (isStreaming || isCompacting || modelSwitching) return;
+                    thinkingOpenedFromCommand.current = false;
+                    setThinkingDropdownOpen((v) => !v);
+                  }}
+                  disabled={isStreaming || isCompacting || modelSwitching}
                   title={isStreaming
                     ? t("chat.currentReasoning", { level: thinkingDisplayLabel })
                     : t("chat.changeReasoning", { level: thinkingDisplayLabel })}
@@ -2435,7 +2481,22 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   {(!isMobile || controlsMenuOpen) && <span style={{ whiteSpace: "nowrap" }}>{thinkingDisplayLabel}</span>}
                 </button>
                 {thinkingDropdownOpen && (
-                  <div style={{
+                  <div
+                    ref={thinkingOptionsRef}
+                    role="listbox"
+                    aria-label={t("chat.changeReasoningLabel")}
+                    onKeyDown={(event) => {
+                      if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+                      if (event.key === "Escape") {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        closeThinkingPicker();
+                      } else if (movePickerFocus(thinkingOptionsRef.current, event.key)) {
+                        event.preventDefault();
+                        event.stopPropagation();
+                      }
+                    }}
+                    style={{
                     position: "absolute", bottom: "calc(100% + 6px)",
                     ...(isMobile ? { left: 0 } : { right: 0 }),
                     zIndex: 100, background: "var(--bg)", border: "1px solid var(--border)",
@@ -2457,8 +2518,13 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                       return (
                         <button
                           key={lvl}
+                          type="button"
+                          role="option"
+                          aria-selected={isActive}
+                          onFocus={() => setFocusedThinkingLevel(lvl)}
+                          onBlur={() => setFocusedThinkingLevel(null)}
                           onClick={() => {
-                            setThinkingDropdownOpen(false);
+                            closeThinkingPicker();
                             if (lvl === "auto") {
                               if (!isAutoThinkingSelection) onThinkingLevelChange("auto");
                               return;
@@ -2468,7 +2534,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                           style={{
                             display: "flex", alignItems: "center", gap: 8,
                             width: "100%", padding: "7px 12px",
-                            background: isActive ? "var(--bg-selected)" : "none",
+                            background: isActive ? "var(--bg-selected)" : focusedThinkingLevel === lvl ? "var(--bg-hover)" : "none",
+                            outline: focusedThinkingLevel === lvl ? "2px solid var(--accent)" : undefined,
+                            outlineOffset: -2,
                             border: "none",
                             color: isActive ? "var(--text)" : "var(--text-muted)",
                             cursor: "pointer", fontSize: 12, textAlign: "left",

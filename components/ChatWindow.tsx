@@ -877,6 +877,9 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
       modelError={modelError}
       modelScopeWarnings={modelScopeWarnings}
       onModelChange={handleModelChange}
+      onModelThinkingChange={handleModelChange}
+      modelThinkingLevels={modelThinkingLevels}
+      modelThinkingLevelMaps={modelThinkingLevelMaps}
       modelSwitching={modelSwitching}
       onCompact={session || isNew ? handleCompact : undefined}
       onAbortCompaction={handleAbortCompaction}
