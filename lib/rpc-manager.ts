@@ -122,6 +122,7 @@ type ExtensionCommandContextActionsLike = {
 type AgentSessionWrapperOptions = {
   exactSystemPrompt?: () => string;
   chatOnly?: boolean;
+  headless?: boolean;
   onAgentRunComplete?: AgentRunCompleteListener;
   suppressCompletionNotifications?: boolean;
   /** Connects the session's MCP servers before a prompt starts a run, and lets go of them when it closes (lib/mcp-host.ts). */
@@ -200,6 +201,8 @@ const COMMANDS_ALLOWED_DURING_SESSION_REPLACEMENT = new Set([
 ]);
 
 export interface RpcSessionStartOptions {
+  /** No extension UI: enables native headless background-work draining. */
+  headless?: boolean;
   toolNames?: string[];
   initialModel?: { provider: string; modelId: string };
   allowInitialModelFallback?: boolean;
@@ -301,6 +304,7 @@ export class AgentSessionWrapper {
   private extensionBindingError: unknown = null;
   private readonly exactSystemPrompt?: () => string;
   private readonly chatOnly: boolean;
+  private readonly headless: boolean;
   private readonly onAgentRunComplete?: AgentRunCompleteListener;
   private readonly suppressCompletionNotifications: boolean;
   private readonly mcpHost?: Pick<McpHost, "prepareForPrompt" | "dispose">;
@@ -328,6 +332,7 @@ export class AgentSessionWrapper {
   ) {
     this.exactSystemPrompt = options.exactSystemPrompt;
     this.chatOnly = options.chatOnly ?? false;
+    this.headless = options.headless ?? false;
     this.onAgentRunComplete = options.onAgentRunComplete;
     this.suppressCompletionNotifications = options.suppressCompletionNotifications ?? false;
     this.mcpHost = options.mcpHost;
@@ -872,6 +877,7 @@ export class AgentSessionWrapper {
         return {
           sessionId: this.inner.sessionId,
           sessionFile: this.inner.sessionFile ?? "",
+          headless: this.headless,
           isStreaming: this.inner.isStreaming,
           isPromptRunning: this.pendingPromptCount > 0,
           isBashRunning: this.inner.isBashRunning,
@@ -1758,7 +1764,8 @@ export class AgentSessionWrapper {
     });
   }
 
-  private createExtensionUiContext(): ExtensionUiContextLike {
+  private createExtensionUiContext(): ExtensionUiContextLike | undefined {
+    if (this.headless) return undefined;
     return {
       select: (title, options, opts) => this.requestExtensionUi(
         { method: "select", title, options, ...(opts?.timeout ? { timeout: opts.timeout } : {}) },
@@ -2479,6 +2486,7 @@ export async function startRpcSession(
     const wrapper = new AgentSessionWrapper(inner, {
       exactSystemPrompt,
       chatOnly,
+      headless: options.headless,
       onAgentRunComplete: (completedSessionId) => {
         void notifySessionComplete(completedSessionId).catch((error) => {
           console.error("[pi-web] failed to send completion push:", error instanceof Error ? error.message : error);
