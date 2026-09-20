@@ -79,8 +79,8 @@ test("opening System or Tools lazily starts a dormant session without sending a 
     source.indexOf("  const loadSlashCommands = useCallback"),
   );
   const loaderEffectSource = source.slice(
-    source.indexOf("  useEffect(() => {\n    onSystemInfoLoaderChange"),
-    source.indexOf("  useEffect(() => {\n    if (!onBranchDataChange) return;"),
+    source.indexOf("    onSystemInfoLoaderChange?.(loadSystemInfo);"),
+    source.indexOf("  }, [loadSystemInfo, onSystemInfoLoaderChange]);"),
   );
 
   assert.match(loadSystemInfoSource, /sessionIdRef\.current \?\? await ensureNewSession\(\)/);
@@ -137,7 +137,7 @@ test("fresh sessions use the preference while persisted and live sessions restor
     preferenceSource,
     /const existingSessionId = session\?\.id;[\s\S]*?useLayoutEffect\(\(\) => \{\s*if \(!existingSessionId && \(!isNew \|\| sessionIdRef\.current\)\) return;\s*setToolPresetState\(getPreferredToolPreset\(\)\)/,
   );
-  assert.match(source, /if \(agentState\?\.running\) \{\s*loadTools\(session\.id\)/);
+  assert.match(source, /if \(liveState\?\.isStreaming \|\| liveState\?\.isPromptRunning \|\| liveState\?\.isBashRunning \|\| liveState\?\.isCompacting\) \{\s*loadTools\(session\.id\)/);
   assert.match(source, /d\.toolNames !== undefined \? getPresetFromToolNames\(d\.toolNames\) : CONFIGURED_TOOL_PRESET/);
   assert.match(changeSource, /setPreferredToolPreset\(preset\)/);
   assert.match(changeSource, /type: "set_tools",\s*\.\.\.\(toolNames !== undefined \? \{ toolNames \} : \{\}\),/);
@@ -250,6 +250,16 @@ test("the selector prefers the live wrapper model over persisted response metada
   assert.match(source, /const currentModel = currentModelOverride \?\? liveModel \?\? data\?\.context\.model \?\? pendingModel \?\? null/);
   assert.match(source, /syncLiveModel\(liveState\)/);
   assert.match(source, /syncLiveModel\(state\);[\s\S]*?const busy = data\.running/);
+});
+
+test("an idle live wrapper does not lock the composer as a running session", () => {
+  const loadSource = source.slice(
+    source.indexOf("loadSession(session.id, true, true)"),
+    source.indexOf("if (abandonedDraftKey)"),
+  );
+  assert.match(loadSource, /const liveState = agentState\?\.state;/);
+  assert.match(loadSource, /if \(liveState\?\.isStreaming \|\| liveState\?\.isPromptRunning \|\| liveState\?\.isBashRunning \|\| liveState\?\.isCompacting\)/);
+  assert.doesNotMatch(loadSource, /if \(agentState\?\.running\) \{/);
 });
 
 test("existing-session prompts rely on the persisted tool selection", () => {
@@ -723,8 +733,8 @@ test("keeps a newly sent user message at the top while its response starts", () 
     source.indexOf("const handleScrollPositionChange"),
   );
   const scrollEffectSource = source.slice(
-    source.indexOf("useLayoutEffect(() => {\n    if (messages.length > 0)"),
-    source.indexOf("// Load model list"),
+    source.indexOf("    if (messages.length > 0) {"),
+    source.indexOf("  }, [messages.length, agentRunning, scrollToBottom, scrollUserMsgToTop]);"),
   );
 
   assert.match(streamUpdateSource, /!pendingScrollToUserRef\.current && isNearBottomRef\.current/);
@@ -744,14 +754,9 @@ test("keeps a newly sent user message at the top while its response starts", () 
 });
 
 test("keeps prompt anchor measurement outside the React update cycle", () => {
-  const anchorEffectStart = chatWindowSource.indexOf(
-    "useLayoutEffect(() => {\n    const spacer = promptAnchorSpacerRef.current;",
-  );
+  const anchorEffectStart = chatWindowSource.indexOf("    const spacer = promptAnchorSpacerRef.current;");
   assert.notEqual(anchorEffectStart, -1);
-  const syncEffectStart = chatWindowSource.indexOf(
-    "useLayoutEffect(() => {\n    promptAnchorUpdateRef.current?.();",
-    anchorEffectStart,
-  );
+  const syncEffectStart = chatWindowSource.indexOf("    promptAnchorUpdateRef.current?.();", anchorEffectStart);
   assert.notEqual(syncEffectStart, -1);
   const anchorLifecycleEffectSource = chatWindowSource.slice(
     anchorEffectStart,
@@ -785,8 +790,8 @@ test("uses the prompt anchor as the only trailing message spacer", () => {
 
 test("keeps a detached viewport in place when streaming completes", () => {
   const scrollEffectSource = source.slice(
-    source.indexOf("useLayoutEffect(() => {\n    if (messages.length > 0)"),
-    source.indexOf("// Load model list"),
+    source.indexOf("    if (messages.length > 0) {"),
+    source.indexOf("  }, [messages.length, agentRunning, scrollToBottom, scrollUserMsgToTop]);"),
   );
 
   assert.match(scrollEffectSource, /!agentRunningRef\.current && isNearBottomRef\.current[\s\S]*?scrollToBottom\("auto"\)/);

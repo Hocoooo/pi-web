@@ -1,4 +1,5 @@
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
+import { getSupportedThinkingLevels, type Api, type Model } from "@earendil-works/pi-ai";
 import { createAgentSessionFromServices, createAgentSessionServices, getAgentDir, initTheme, SessionManager, SettingsManager, Theme, type ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { KeybindingsManager as TuiKeybindingsManager, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
 import { randomUUID } from "crypto";
@@ -305,6 +306,7 @@ export class AgentSessionWrapper {
   private readonly exactSystemPrompt?: () => string;
   private readonly chatOnly: boolean;
   private readonly headless: boolean;
+  private suppressModelSelectDialog = false;
   private readonly onAgentRunComplete?: AgentRunCompleteListener;
   private readonly suppressCompletionNotifications: boolean;
   private readonly mcpHost?: Pick<McpHost, "prepareForPrompt" | "dispose">;
@@ -909,6 +911,9 @@ export class AgentSessionWrapper {
       }
 
       case "set_model": {
+        if (this.pendingPromptCount > 0 || this.inner.isStreaming || this.inner.isCompacting || this.inner.isBashRunning) {
+          throw new Error("Cannot switch model while the session is busy");
+        }
         const { provider, modelId } = command as { provider: string; modelId: string };
         let model = this.inner.modelRuntime.getModel(provider, modelId);
         if (!model) {
@@ -916,10 +921,26 @@ export class AgentSessionWrapper {
           model = this.inner.modelRuntime.getModel(provider, modelId);
         }
         if (!model) throw new Error(`Model not found: ${provider}/${modelId}`);
-        await this.inner.setModel(model);
-        invalidateModelsCache();
+        const requestedLevel = command.thinkingLevel;
+        // modelRuntime supplies a full SDK model; the local wrapper type is deliberately narrow.
+        if (requestedLevel !== undefined && (typeof requestedLevel !== "string"
+          || !getSupportedThinkingLevels(model as Model<Api>).some(level => level === requestedLevel))) {
+          throw new Error(`Unsupported thinking level for ${provider}/${modelId}: ${String(requestedLevel)}`);
+        }
+        if (this.pendingPromptCount > 0 || this.inner.isStreaming || this.inner.isCompacting || this.inner.isBashRunning) {
+          throw new Error("Cannot switch model while the session is busy");
+        }
+        this.suppressModelSelectDialog = requestedLevel !== undefined;
+        try {
+          await this.inner.setModel(model);
+          if (typeof requestedLevel === "string") this.inner.setThinkingLevel(requestedLevel);
+        } finally {
+          this.suppressModelSelectDialog = false;
+        }
         invalidateSessionListCache();
-        return { id: model.id, provider: model.provider };
+        return { id: model.id, provider: model.provider,
+          ...(requestedLevel !== undefined ? { thinkingLevel: this.inner.agent.state?.thinkingLevel ?? requestedLevel } : {}),
+        };
       }
 
       case "fork": {
@@ -1036,7 +1057,13 @@ export class AgentSessionWrapper {
       }
 
       case "set_thinking_level": {
-        const level = command.level as string;
+        if (this.pendingPromptCount > 0 || this.inner.isStreaming || this.inner.isCompacting || this.inner.isBashRunning) {
+          throw new Error("Cannot change thinking level while the session is busy");
+        }
+        const level = command.level;
+        if (typeof level !== "string" || !["off", "minimal", "low", "medium", "high", "xhigh", "max"].includes(level)) {
+          throw new Error("Invalid thinking level");
+        }
         this.inner.setThinkingLevel(level);
         // setThinkingLevel clamps xhigh→high for models where supportsXhigh()===false.
         // If the model has DeepSeek thinking compat (reasoningEffortMap maps xhigh→max),
@@ -1045,7 +1072,7 @@ export class AgentSessionWrapper {
           this.inner.agent.state.thinkingLevel = "xhigh";
         }
         invalidateSessionListCache();
-        return null;
+        return { level: this.inner.agent.state?.thinkingLevel ?? level };
       }
 
       case "compact": {
@@ -1767,13 +1794,16 @@ export class AgentSessionWrapper {
   private createExtensionUiContext(): ExtensionUiContextLike | undefined {
     if (this.headless) return undefined;
     return {
-      select: (title, options, opts) => this.requestExtensionUi(
-        { method: "select", title, options, ...(opts?.timeout ? { timeout: opts.timeout } : {}) },
-        undefined,
-        (response) => "value" in response ? response.value : undefined,
-        opts?.timeout,
-        opts?.signal,
-      ),
+      select: (title, options, opts) => {
+        if (this.suppressModelSelectDialog) return Promise.resolve(undefined);
+        return this.requestExtensionUi(
+          { method: "select", title, options, ...(opts?.timeout ? { timeout: opts.timeout } : {}) },
+          undefined,
+          (response) => "value" in response ? response.value : undefined,
+          opts?.timeout,
+          opts?.signal,
+        );
+      },
       confirm: (title, message, opts) => this.requestExtensionUi(
         { method: "confirm", title, message, ...(opts?.timeout ? { timeout: opts.timeout } : {}) },
         false,

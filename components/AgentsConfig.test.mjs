@@ -9,6 +9,7 @@ const source = await readFile(new URL("./AgentsConfig.tsx", import.meta.url), "u
 const cssSource = await readFile(new URL("../app/settings.css", import.meta.url), "utf8");
 const chatInputSource = await readFile(new URL("./ChatInput.tsx", import.meta.url), "utf8");
 const modelSelectorSource = await readFile(new URL("./ModelSelector.tsx", import.meta.url), "utf8");
+const modelPickerSource = await readFile(new URL("./ModelPicker.tsx", import.meta.url), "utf8");
 
 test("editor draft preserves named and empty selections independently of activation", () => {
   const declaration = source.slice(source.indexOf("function editableProfile("), source.indexOf("function profileKey("));
@@ -109,12 +110,14 @@ test("persists existing profile toggles immediately without submitting unsaved f
 test("reuses the ChatInput model selector with scoped models", () => {
   assert.match(source, /fetch\(`\/api\/models\?cwd=\$\{encodeURIComponent\(cwd\)\}`/);
   assert.match(source, /import \{ ModelSelector \} from "\.\/ModelSelector"/);
-  assert.match(chatInputSource, /import \{ ModelSelector, type ModelSelectorOption \} from "\.\/ModelSelector"/);
+  assert.match(chatInputSource, /import \{ ChatInputModelControl \} from "\.\/ChatInputModelControl"/);
+  assert.doesNotMatch(chatInputSource, /from "\.\/ModelSelector"/);
   assert.match(source, /<ModelSelector[\s\S]*?options=\{modelSelectorOptions\}[\s\S]*?variant="field"/);
-  assert.match(chatInputSource, /<ModelSelector[\s\S]*?options=\{modelOptions\}/);
-  assert.match(modelSelectorSource, /filterModelOptions\(sortedOptions, filter\)/);
-  assert.match(modelSelectorSource, /modelsByProvider\.map/);
-  assert.match(modelSelectorSource, /event\.key !== "Escape" \|\| !open[\s\S]*?event\.preventDefault\(\)[\s\S]*?event\.stopPropagation\(\)/);
+  assert.match(chatInputSource, /<ChatInputModelControl[\s\S]*?modelList=\{modelList\}/);
+  assert.match(modelSelectorSource, /from "\.\/ModelPicker"/);
+  assert.match(modelSelectorSource, /export \{ filterModelOptions \} from "@\/lib\/model-picker"/);
+  assert.match(modelPickerSource, /filterModelOptions\(options, filter\)/);
+  assert.match(modelPickerSource, /event\.key === "ArrowLeft" && target/);
   assert.match(source, /agents\.modelUnavailable/);
   assert.doesNotMatch(source, /placeholder="provider\/modelId"/);
 });

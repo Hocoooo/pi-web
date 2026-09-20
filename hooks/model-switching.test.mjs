@@ -16,7 +16,8 @@ test("existing-session model changes are optimistic and serialized", () => {
   const optimisticIndex = switchSource.indexOf("setCurrentModelOverride(target)");
   const requestIndex = switchSource.indexOf("await sendAgentCommand", optimisticIndex);
 
-  assert.match(switchSource, /if \(!sid \|\| modelSwitchPendingRef\.current\) return/);
+  assert.match(switchSource, /if \(agentRunningRef\.current \|\| bashRunningRef\.current \|\| isCompacting \|\| modelSwitchPendingRef\.current\)/);
+  assert.match(switchSource, /if \(!sid\) return \{ error: "No active session" \}/);
   assert.ok(optimisticIndex >= 0);
   assert.ok(requestIndex > optimisticIndex);
   assert.match(switchSource, /setModelSwitching\(true\)/);
@@ -31,7 +32,7 @@ test("session reloads cannot clear an in-flight optimistic model", () => {
 });
 
 test("a completed model switch reloads canonical session state and reports failures", () => {
-  assert.match(switchSource, /modelSwitchPendingRef\.current = false;\s*await loadSession\(sid\)/);
+  assert.match(switchSource, /modelSwitchPendingRef\.current = false;\s*await loadSession\(sid, false, true\)/);
   assert.match(switchSource, /setCurrentModelOverride\(previousOverride\)[\s\S]*?await loadSession\(sid, false, true\)/);
   assert.match(switchSource, /setCurrentModelOverride\(previousOverride\)/);
   assert.match(switchSource, /Failed to switch model:/);
