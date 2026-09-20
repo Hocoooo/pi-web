@@ -12,7 +12,12 @@ page.on("pageerror", (error) => errors.push(error.message));
 const sessions = [
   { id: "sidebar-alpha", cwd: "/fixtures/alpha", projectRoot: "/fixtures/alpha", projectKey: "alpha", name: "Alpha session", modified: "2026-08-23T00:00:00Z" },
   { id: "sidebar-beta", cwd: "/fixtures/beta", projectRoot: "/fixtures/beta", projectKey: "beta", name: "Beta session", modified: "2026-08-22T00:00:00Z" },
-].map((session) => ({ ...session, created: session.modified, messageCount: 1, firstMessage: session.name, path: `/fixtures/${session.id}.jsonl` }));
+].flatMap((session, projectIndex) => [session, ...Array.from({ length: projectIndex === 0 ? 6 : 5 }, (_, index) => ({
+  ...session,
+  id: `${session.id}-older-${index + 1}`,
+  name: `${projectIndex === 0 ? "Alpha" : "Beta"} older ${index + 1}`,
+  modified: `2026-08-${String(20 - index).padStart(2, "0")}T00:00:00Z`,
+}))]).map((session) => ({ ...session, created: session.modified, messageCount: 1, firstMessage: session.name, path: `/fixtures/${session.id}.jsonl` }));
 
 await page.route("**/api/**", async (route) => {
   const url = new URL(route.request().url());
@@ -37,6 +42,7 @@ try {
   const beta = page.getByText("Beta session", { exact: true });
   await alpha.waitFor();
   assert.equal(await beta.count(), 0, "default view contains only the active project");
+  await page.getByText("Alpha older 6", { exact: true }).waitFor();
   const projectSelector = page.locator('button[title^="/fixtures/"]:not([aria-expanded])');
   const branchSelector = page.getByRole("button").filter({ hasText: isGit ? "sidebar-test-branch" : "Git repo root only" });
   await branchSelector.waitFor();
@@ -55,6 +61,18 @@ try {
   await directoryPicker.waitFor();
   await directoryPicker.getByRole("button", { name: "Cancel", exact: true }).click();
   const project = (name) => page.locator(`button[aria-expanded][title="/fixtures/${name}"]`);
+  const showMoreAlpha = page.getByRole("button", { name: "Show more (2)", exact: true });
+  const showMoreBeta = page.getByRole("button", { name: "Show more (1)", exact: true });
+  await showMoreAlpha.waitFor();
+  await showMoreBeta.waitFor();
+  assert.equal(await page.getByText("Alpha older 5", { exact: true }).count(), 0);
+  assert.equal(await page.getByText("Beta older 5", { exact: true }).count(), 0);
+  await showMoreAlpha.click();
+  await page.getByText("Alpha older 6", { exact: true }).waitFor();
+  assert.equal(await page.getByText("Beta older 5", { exact: true }).count(), 0, "expanding one project does not expand another");
+  await page.getByRole("button", { name: "Show fewer", exact: true }).click();
+  assert.equal(await page.getByText("Alpha older 5", { exact: true }).count(), 0);
+  await showMoreAlpha.waitFor();
   const originalUrl = page.url();
   await project("beta").click();
   assert.equal(await beta.count(), 0);
@@ -84,7 +102,7 @@ try {
   await beta.waitFor();
   assert.equal(await project("beta").count(), 0, "current-project mode also persists");
   assert.deepEqual(errors, []);
-  console.log(`PASS (${isGit ? "Git" : "non-Git"}): selector visibility, directory picker access, default mode, live settings toggle, independent folding, persistence, cross-project selection, and return to original view`);
+  console.log(`PASS (${isGit ? "Git" : "non-Git"}): five-session previews, show more/fewer, selector visibility, directory picker access, default mode, live settings toggle, independent folding, persistence, cross-project selection, and return to original view`);
 } finally {
   await browser.close();
 }
