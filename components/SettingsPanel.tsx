@@ -3,6 +3,8 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { useTheme } from "@/hooks/useTheme";
+import { useSidebarView } from "@/hooks/useSidebarView";
+import { setSidebarViewMode } from "@/lib/sidebar-view-preference";
 import { THEME_OPTIONS } from "@/lib/theme";
 import { ThemeIcon } from "./ThemeIcon";
 import {
@@ -76,6 +78,7 @@ export function SettingsSectionIcon({ section, size = 16, strokeWidth = 1.8 }: {
 function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, onQuoteSelectionChange }: Pick<Props, "sessionId" | "onSessionReloaded" | "quoteSelectionEnabled" | "onQuoteSelectionChange">) {
   const { locale, setLocale, supportedLocales, t } = useI18n();
   const { preference, setThemePreference } = useTheme();
+  const sidebarView = useSidebarView();
   const { width: chatContentWidth, setWidth: setChatContentWidth, fontSize, setFontSize } = useChatAppearance();
   const enterSendMode = useEnterSendMode();
   const [shellSettings, setShellSettings] = useState<ToolSettingsResponse | null>(null);
@@ -197,6 +200,19 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
             );
           })}
         </div>
+      </section>
+
+      <section className="settings-general-section">
+        <h3 className="settings-general-heading">{t("settings.sidebar")}</h3>
+        <div className="settings-chat-option settings-chat-switch-option">
+          <span>{t("settings.sidebarAllProjects")}</span>
+          <ConfigSwitch
+            checked={sidebarView.mode === "all"}
+            label={t("settings.sidebarAllProjects")}
+            onChange={(enabled) => setSidebarViewMode(enabled ? "all" : "current")}
+          />
+        </div>
+        <p className="settings-general-description">{t("settings.sidebarAllProjectsHelp")}</p>
       </section>
 
       <section className="settings-general-section">
