@@ -390,6 +390,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
   const sidebarView = useSidebarView();
   const showAllProjects = sidebarView.mode === "all";
+  const [expandedProjects, setExpandedProjects] = useState<string[]>([]);
   // Tracked in a ref only: the version is compared against the polled value to
   // decide whether the list needs reloading, and no render reads it.
   const sessionListVersionRef = useRef<number | null>(null);
@@ -1100,7 +1101,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     allSessions,
     sidebarView.collapsedProjects,
     activeProjectKey && activeProjectRoot ? { key: activeProjectKey, root: activeProjectRoot } : null,
-  ) : [], [showAllProjects, allSessions, sidebarView.collapsedProjects, activeProjectKey, activeProjectRoot]);
+    expandedProjects,
+  ) : [], [showAllProjects, allSessions, sidebarView.collapsedProjects, activeProjectKey, activeProjectRoot, expandedProjects]);
   const listRows = useMemo<SidebarProjectRow[]>(() => showAllProjects
     ? projectRows
     : sessionFamilies.map((family) => ({ kind: "session", family })), [showAllProjects, projectRows, sessionFamilies]);
@@ -1885,6 +1887,25 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                       <PathLabel text={displayCwd(project.root, homeDir)} style={{ color: "var(--text-dim)", fontSize: 10, fontWeight: 400 }} />
                     </span>
                     {showProjectActivity(projectActivity.get(project.key), t)}
+                  </button>
+                );
+              }
+              if (row.kind === "more") {
+                return (
+                  <button
+                    key={`more:${row.project.key}`}
+                    type="button"
+                    aria-expanded={row.expanded}
+                    onClick={() => setExpandedProjects((current) => row.expanded
+                      ? current.filter((key) => key !== row.project.key)
+                      : [...current, row.project.key])}
+                    style={{
+                      position: "absolute", top: index * SESSION_LIST_ITEM_HEIGHT, left: 12, right: 0,
+                      height: SESSION_LIST_ITEM_HEIGHT, padding: "0 16px", border: "none",
+                      background: "none", color: "var(--text-muted)", cursor: "pointer", textAlign: "left", fontSize: 12,
+                    }}
+                  >
+                    {row.expanded ? t("sidebar.showFewerSessions") : t("sidebar.showMoreSessions", { count: row.remaining })}
                   </button>
                 );
               }

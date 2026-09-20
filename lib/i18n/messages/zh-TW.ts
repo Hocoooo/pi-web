@@ -221,6 +221,8 @@ export const zhTWLocale: LocalePlugin = {
     "sidebar.noMatchingProjects": "找不到相符的專案",
     "sidebar.useDefaultDirectory": "使用預設目錄",
     "sidebar.customPath": "自訂路徑…",
+  "sidebar.showMoreSessions": "展開更多（{count} 筆）",
+  "sidebar.showFewerSessions": "收合更多",
     "directoryPicker.selectDirectory": "選擇目錄",
     "directoryPicker.goToParent": "前往上一層目錄",
     "directoryPicker.directoryPath": "目錄路徑",
