@@ -1,8 +1,9 @@
 "use client";
 
-import { createContext, useContext, useMemo, type ComponentProps, type MouseEvent } from "react";
+import { createContext, useContext, useMemo, type ComponentProps } from "react";
 import ReactMarkdown, { type Components, type ExtraProps } from "react-markdown";
-import { parsePdfPageFragment, resolveLocalFileHref, shouldOpenLocalFileInApp } from "@/lib/file-links";
+import { resolveLocalFileHref } from "@/lib/file-links";
+import { LocalFileLink } from "./LocalFileLink";
 import { encodeFilePathForApi } from "@/lib/file-paths";
 import { markdownRehypePlugins, markdownRemarkPlugins, markdownUrlTransform, markdownUserRemarkPlugins, normalizeDisplayMath } from "@/lib/markdown";
 import { ImagePreview } from "./ImagePreview";
@@ -15,6 +16,7 @@ interface MarkdownBodyProps {
   className?: string;
   isStreaming?: boolean;
   cwd?: string;
+  sessionId?: string;
   onOpenFile?: (filePath: string, page?: number) => void;
   /** Render every line ending as a line break, for text the user typed. */
   keepLineBreaks?: boolean;
@@ -44,7 +46,7 @@ function MarkdownImage({
   );
 }
 
-export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile, keepLineBreaks }: MarkdownBodyProps) {
+export function MarkdownBody({ children, className, isStreaming, cwd, sessionId, onOpenFile, keepLineBreaks }: MarkdownBodyProps) {
   const normalizedMarkdown = useMemo(() => normalizeDisplayMath(children), [children]);
   // Stable renderer identities keep stateful blocks mounted across message hover updates.
   const components = useMemo<Components>(() => ({
@@ -91,19 +93,11 @@ export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile
         );
       }
 
-      const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
-        if (!shouldOpenLocalFileInApp(event)) return;
-        const target = event.currentTarget.getAttribute("target");
-        if (target && target !== "_self") return;
-        event.preventDefault();
-        openFile(filePath, parsePdfPageFragment(href) ?? undefined);
-      };
-
       return (
         <MarkdownLinkContext.Provider value={true}>
-          <a href={href} {...props} onClick={handleClick}>
+          <LocalFileLink href={href} {...props} filePath={filePath} sessionId={sessionId} onOpenFile={openFile}>
             {children}
-          </a>
+          </LocalFileLink>
         </MarkdownLinkContext.Provider>
       );
     },
@@ -117,7 +111,7 @@ export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile
         </div>
       );
     },
-  }), [cwd, isStreaming, onOpenFile]);
+  }), [cwd, sessionId, isStreaming, onOpenFile]);
 
   return (
     <div className={["markdown-body", className].filter(Boolean).join(" ")}>

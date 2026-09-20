@@ -5,6 +5,11 @@ export const zhTWLocale: LocalePlugin = {
   id: "zh-TW",
   label: "繁體中文",
   messages: {
+    "files.desktopMenu": "本機檔案操作",
+    "files.openDefaultApp": "使用系統預設應用程式開啟",
+    "files.revealInFolder": "開啟檔案所在資料夾",
+    "files.desktopOpening": "正在開啟…",
+    "files.desktopFailed": "無法開啟檔案",
     "common.ok": "確定",
     "common.language": "語言",
     "common.models": "模型",

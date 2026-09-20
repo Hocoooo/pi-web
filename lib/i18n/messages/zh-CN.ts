@@ -5,6 +5,11 @@ export const zhCNLocale: LocalePlugin = {
   id: "zh-CN",
   label: "简体中文",
   messages: {
+    "files.desktopMenu": "本地文件操作",
+    "files.openDefaultApp": "使用系统默认应用打开",
+    "files.revealInFolder": "打开文件所在文件夹",
+    "files.desktopOpening": "正在打开…",
+    "files.desktopFailed": "无法打开文件",
     "common.ok": "确定",
     "common.language": "语言",
     "common.models": "模型",
