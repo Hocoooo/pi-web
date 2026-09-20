@@ -12,6 +12,9 @@ import { formatRelativeTime } from "@/lib/i18n/format";
 import { useI18n } from "@/hooks/useI18n";
 import { useResizablePanel } from "@/hooks/useResizablePanel";
 import { useScrollbarVisibility } from "@/hooks/useScrollbarVisibility";
+import { useSidebarView } from "@/hooks/useSidebarView";
+import { setSidebarProjectCollapsed } from "@/lib/sidebar-view-preference";
+import { buildSidebarProjectRows, type SidebarProjectRow } from "@/lib/sidebar-project-rows";
 import { DirectoryPicker } from "./DirectoryPicker";
 import { FileExplorer, type FileExplorerHandle } from "./FileExplorer";
 import { SessionSearch } from "./SessionSearch";
@@ -385,6 +388,8 @@ function PiWebTitle() {
 export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onOpenTerminal, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionsChange }: Props) {
   const { t } = useI18n();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
+  const sidebarView = useSidebarView();
+  const showAllProjects = sidebarView.mode === "all";
   // Tracked in a ref only: the version is compared against the polled value to
   // decide whether the list needs reloading, and no render reads it.
   const sessionListVersionRef = useRef<number | null>(null);
@@ -1012,8 +1017,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const handleSelectSessionFromList = useCallback((s: SessionInfo, entryId?: string, blockIndex?: number) => {
     setAllSessions((current) => current.some((session) => session.id === s.id) ? current : [s, ...current]);
     if (s.cwd) setSelectedCwd(s.cwd);
+    if (showAllProjects) setSidebarProjectCollapsed(workspaceKeyOf(s), false);
     onSelectSession(s, false, entryId, blockIndex);
-  }, [onSelectSession]);
+  }, [onSelectSession, showAllProjects]);
 
   const handleNewSession = useCallback(() => {
     if (!selectedCwd) return;
@@ -1088,13 +1094,36 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       : null);
 
   const sessionFamilies = useMemo(() => listSessionFamilies(filteredSessions), [filteredSessions]);
+  const activeProjectKey = selectedProject?.key;
+  const activeProjectRoot = selectedProject?.root;
+  const projectRows = useMemo(() => showAllProjects ? buildSidebarProjectRows(
+    allSessions,
+    sidebarView.collapsedProjects,
+    activeProjectKey && activeProjectRoot ? { key: activeProjectKey, root: activeProjectRoot } : null,
+  ) : [], [showAllProjects, allSessions, sidebarView.collapsedProjects, activeProjectKey, activeProjectRoot]);
+  const listRows = useMemo<SidebarProjectRow[]>(() => showAllProjects
+    ? projectRows
+    : sessionFamilies.map((family) => ({ kind: "session", family })), [showAllProjects, projectRows, sessionFamilies]);
+
+  // Selection via URL/search/another panel should reveal its project, while
+  // manually collapsing the active project must not immediately reopen it.
+  useEffect(() => {
+    if (showAllProjects && activeProjectKey) setSidebarProjectCollapsed(activeProjectKey, false);
+  }, [showAllProjects, activeProjectKey, selectedSessionId]);
+
+  useEffect(() => {
+    if (listScrollRef.current) listScrollRef.current.scrollTop = 0;
+    setListScrollTop(0);
+    setDropdownOpen(false);
+    setWtDropdownOpen(false);
+  }, [showAllProjects]);
 
   const virtualIndices = useMemo(() => getSessionListIndices(
-    sessionFamilies.length,
+    listRows.length,
     listScrollTop,
     listViewportH,
-    sessionFamilies.findIndex((family) => family.root.id === focusedSessionId),
-  ), [focusedSessionId, listScrollTop, listViewportH, sessionFamilies]);
+    listRows.findIndex((row) => row.kind === "session" && row.family.root.id === focusedSessionId),
+  ), [focusedSessionId, listScrollTop, listViewportH, listRows]);
 
   return (
     <div
@@ -1130,6 +1159,20 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
           <PiWebTitle />
           <div style={{ display: "flex", gap: 6 }}>
+            {showAllProjects && (
+              <button
+                type="button"
+                onClick={handleCustomPathClick}
+                title={t("sidebar.customPath")}
+                aria-label={t("sidebar.customPath")}
+                className="flex h-[32px] w-[32px] shrink-0 cursor-pointer items-center justify-center rounded-[7px] border border-border bg-bg-hover text-text-muted hover:bg-bg-selected focus-visible:outline-2 focus-visible:outline-accent"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M20 20H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2Z" />
+                  <path d="M12 10v7M8.5 13.5h7" />
+                </svg>
+              </button>
+            )}
             <button
               onClick={handleNewSession}
               disabled={!selectedCwd}
@@ -1187,7 +1230,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           </div>
         </div>
 
-        {/* CWD picker */}
+        {/* The single-project selectors are replaced by project groups in all-project mode. */}
+        {!showAllProjects && (
         <div ref={dropdownRef} style={{ position: "relative" }}>
           <button
             onClick={() => setDropdownOpen((v) => !v)}
@@ -1391,6 +1435,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
               </button>
           </AnimatedDropdown>
         </div>
+        )}
 
         {sessionSearchOpen && (
           <input
@@ -1419,7 +1464,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             switching between worktrees of one project keeps the row mounted
             instead of flickering while data refetches: all worktrees of a
             project share the same list anyway. */}
-        {!sessionSearchOpen && showWorktreeSwitcher && (() => {
+        {!showAllProjects && !sessionSearchOpen && showWorktreeSwitcher && (() => {
           if (!worktreeState) return null;
           const showWtFilter = worktreeState.worktrees.length >= 8;
           const visibleWorktrees = showWtFilter && wtFilter.trim()
@@ -1727,7 +1772,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             </div>
           );
         })()}
-        {!sessionSearchOpen && inactiveWorktreeSelector && (
+        {!showAllProjects && !sessionSearchOpen && inactiveWorktreeSelector && (
           <button
             type="button"
             aria-disabled="true"
@@ -1800,20 +1845,50 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             {error}
           </div>
         )}
-        {!loading && !error && sessionFamilies.length === 0 && (
+        {!loading && !error && listRows.length === 0 && (
           <div style={{ padding: "16px 14px", color: "var(--text-muted)", fontSize: 12 }}>
             {t("sidebar.noSessions")}
           </div>
         )}
-        {sessionFamilies.length > 0 && (
+        {listRows.length > 0 && (
           <div
             style={{
               position: "relative",
-              height: sessionFamilies.length * SESSION_LIST_ITEM_HEIGHT,
+              height: listRows.length * SESSION_LIST_ITEM_HEIGHT,
             }}
           >
             {virtualIndices.map((index) => {
-              const family = sessionFamilies[index];
+              const row = listRows[index];
+              if (row.kind === "project") {
+                const { project, collapsed } = row;
+                const name = project.root.replace(/\\/g, "/").split("/").filter(Boolean).pop() || project.root;
+                return (
+                  <button
+                    key={`project:${project.key}`}
+                    type="button"
+                    aria-expanded={!collapsed}
+                    title={project.root}
+                    onClick={() => setSidebarProjectCollapsed(project.key, !collapsed)}
+                    style={{
+                      position: "absolute", top: index * SESSION_LIST_ITEM_HEIGHT, left: 0, right: 0,
+                      height: SESSION_LIST_ITEM_HEIGHT, width: "100%", display: "flex", alignItems: "center", gap: 7,
+                      padding: "0 12px", border: "none", borderBottom: "1px solid var(--border)",
+                      background: "var(--bg-panel)", color: "var(--text)", cursor: "pointer", textAlign: "left",
+                      fontSize: 12, fontWeight: 600,
+                    }}
+                  >
+                    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true" style={{ flexShrink: 0, transform: collapsed ? "none" : "rotate(90deg)" }}>
+                      <polyline points="3 2 7 5 3 8" />
+                    </svg>
+                    <span style={{ minWidth: 0, flex: 1 }}>
+                      <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</span>
+                      <PathLabel text={displayCwd(project.root, homeDir)} style={{ color: "var(--text-dim)", fontSize: 10, fontWeight: 400 }} />
+                    </span>
+                    {showProjectActivity(projectActivity.get(project.key), t)}
+                  </button>
+                );
+              }
+              const family = row.family;
               const familySessions = [family.root, ...family.subagents];
               const displaySession = family.latestModified === family.root.modified
                 ? family.root
@@ -1824,7 +1899,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                   key={family.root.id}
                   onFocus={() => setFocusedSessionId(family.root.id)}
                   onBlur={() => setFocusedSessionId(null)}
-                  style={{ position: "absolute", top: index * SESSION_LIST_ITEM_HEIGHT, left: 0, right: 0 }}
+                  style={{ position: "absolute", top: index * SESSION_LIST_ITEM_HEIGHT, left: showAllProjects ? 12 : 0, right: 0 }}
                 >
                   <SessionItem
                     session={displaySession}
