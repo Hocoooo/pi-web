@@ -45,7 +45,10 @@ export async function POST(req: Request) {
     }
 
     // Use a one-time key so startRpcSession's lock doesn't conflict with real session ids
-    const { provider, modelId, toolNames, thinkingLevel, ...promptCommand } = command as { provider?: string; modelId?: string; toolNames?: string[]; thinkingLevel?: unknown; [key: string]: unknown };
+    const { provider, modelId, toolNames, thinkingLevel, headless, ...promptCommand } = command as { provider?: string; modelId?: string; toolNames?: string[]; thinkingLevel?: unknown; headless?: boolean; [key: string]: unknown };
+    if (headless !== undefined && typeof headless !== "boolean") {
+      throw new Error("headless must be a boolean");
+    }
     if ((provider && !modelId) || (!provider && modelId)) {
       throw new Error("provider and modelId must be provided together");
     }
@@ -56,6 +59,7 @@ export async function POST(req: Request) {
     // requests in the same millisecond, merging two new sessions into one.
     const tempKey = `__new__${randomUUID()}`;
     const { session, realSessionId } = await startRpcSession(tempKey, "", cwd, {
+      headless,
       ...(toolNames ? { toolNames } : {}),
       ...(provider && modelId ? { initialModel: { provider, modelId } } : {}),
       ...(explicitThinkingLevel ? { thinkingLevel: explicitThinkingLevel } : {}),
@@ -70,6 +74,7 @@ export async function POST(req: Request) {
     const state = await session.send({ type: "get_state" }) as {
       model?: { id: string; provider: string };
       thinkingLevel?: string;
+      headless: boolean;
     };
 
     if (promptCommand.type === "ensure_session") {
@@ -81,6 +86,7 @@ export async function POST(req: Request) {
           ? { provider: state.model.provider, modelId: state.model.id }
           : null,
         thinkingLevel: state.thinkingLevel,
+        headless: state.headless,
       });
     }
 
@@ -95,6 +101,7 @@ export async function POST(req: Request) {
         ? { provider: state.model.provider, modelId: state.model.id }
         : null,
       thinkingLevel: state.thinkingLevel,
+      headless: state.headless,
     });
   } catch (error) {
     return NextResponse.json({
