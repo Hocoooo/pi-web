@@ -46,6 +46,15 @@ test("keeps local file markdown links in the app", () => {
   assert.doesNotMatch(fileUrlHtml, /target=|rel=|\snode=/);
 });
 
+test("normalizes Windows drive links before sanitization", () => {
+  const html = renderMarkdown("[drive](E:/project/report.md)");
+  assert.match(html, /<a href="file:\/\/\/E:\/project\/report\.md">drive<\/a>/);
+  const inert = renderMarkdown("[drive](E:/project/report.md)", { onOpenFile: undefined });
+  assert.match(inert, /href=""/);
+  const unsafe = renderMarkdown("[bad](javascript:alert%281%29)");
+  assert.doesNotMatch(unsafe, /href="javascript:/);
+});
+
 test("keeps file URLs inert without an in-app file handler", () => {
   const html = renderMarkdown("[report](file:///home/me/project/report.html)", { onOpenFile: undefined });
 

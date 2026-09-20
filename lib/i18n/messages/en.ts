@@ -5,6 +5,11 @@ export const enLocale: LocalePlugin = {
   id: "en",
   label: "English",
   messages: {
+    "files.desktopMenu": "Local file actions",
+    "files.openDefaultApp": "Open with system default app",
+    "files.revealInFolder": "Show in containing folder",
+    "files.desktopOpening": "Opening…",
+    "files.desktopFailed": "Could not open file",
     "common.ok": "OK",
     "common.language": "Language",
     "common.models": "Models",

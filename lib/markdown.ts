@@ -1,10 +1,29 @@
 import { defaultUrlTransform, type Options as ReactMarkdownOptions } from "react-markdown";
 import rehypeKatex from "rehype-katex";
+import type { Root, Element, RootContent } from "hast";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import remarkFrontmatter from "remark-frontmatter";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
+
+/** A drive letter is a path, not an untrusted URL scheme. Normalize before sanitizing. */
+function rehypeWindowsFileLinks() {
+  return (tree: Root) => {
+    const pending: (Root | RootContent)[] = [tree];
+    while (pending.length) {
+      const node = pending.pop()!;
+      if (node.type === "element" && node.tagName === "a") {
+        const element: Element = node;
+        const href = element.properties.href;
+        if (typeof href === "string" && /^[a-z]:[/\\\\]/i.test(href.replace(/%5c/gi, "\\\\"))) {
+          element.properties.href = `file:///${href.replace(/%5c/gi, "/").replace(/\\\\/g, "/")}`;
+        }
+      }
+      if ("children" in node) pending.push(...node.children);
+    }
+  };
+}
 
 const markdownSanitizeSchema = {
   ...defaultSchema,
@@ -374,12 +393,14 @@ export const markdownPreviewRemarkPlugins: ReactMarkdownOptions["remarkPlugins"]
 
 export const markdownRehypePlugins: ReactMarkdownOptions["rehypePlugins"] = [
   rehypeRaw,
+  rehypeWindowsFileLinks,
   [rehypeSanitize, markdownSanitizeSchema],
   [rehypeKatex, { throwOnError: false, strict: false }],
 ];
 
 export const markdownPreviewRehypePlugins: ReactMarkdownOptions["rehypePlugins"] = [
   rehypeRaw,
+  rehypeWindowsFileLinks,
   [rehypeSanitize, markdownSanitizeSchema],
   [rehypeKatex, { throwOnError: false, strict: false }],
 ];
