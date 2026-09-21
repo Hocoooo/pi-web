@@ -807,6 +807,29 @@ export function AppShell() {
     router.replace(`?cwd=${encodeURIComponent(cwd)}`, { scroll: false });
   }, [invalidateWorkspaceRestore, router, isMobile]);
 
+  const handleNewSessionProjectChange = useCallback((cwd: string, projectKey: string) => {
+    if (selectedSession || cwd === (newSessionCwd ?? activeCwd)) return;
+    invalidateWorkspaceRestore();
+    const draftId = crypto.randomUUID();
+    const draftKey = `new:${draftId}:${cwd}`;
+    const previousKey = activeNewSessionDraftKeyRef.current;
+    if (previousKey) rekeyDraft(previousKey, draftKey);
+    activeNewSessionDraftKeyRef.current = draftKey;
+    // Sync identity before the sidebar so it cannot restore an old session.
+    activeProjectKeyRef.current = projectKey;
+    setActiveCwd(cwd);
+    setNewSessionCwd(cwd);
+    setNewSessionDraftId(draftId);
+    setSessionKey((key) => key + 1);
+    setFileTabs([]);
+    setActiveFileTabId(null);
+    setRightPanelOpen(false);
+    setSystemPrompt(null);
+    setSystemTools(null);
+    setSystemInfoLoading(false);
+    setActiveTopPanel(null);
+  }, [activeCwd, invalidateWorkspaceRestore, newSessionCwd, selectedSession]);
+
   // Global keyboard shortcuts (handles Esc, Ctrl+Alt+N etc.)
   useGlobalKeyboardShortcuts({
     onNewSession: (cwd: string) => handleNewSession(`kb-${Date.now()}`, cwd),
@@ -2317,6 +2340,7 @@ export function AppShell() {
               sessionRunning={Boolean(selectedSession && runningSessionIds.has(selectedSession.id))}
               newSessionCwd={effectiveNewSessionCwd}
               newSessionDraftKey={newSessionDraftKey}
+              onNewSessionProjectChange={handleNewSessionProjectChange}
               onAgentEnd={handleAgentEnd}
               onAttentionNeeded={handleAttentionNeeded}
               onSessionCreated={handleSessionCreated}
