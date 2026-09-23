@@ -388,6 +388,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const thinkingLevelPinsRef = useRef<Record<string, string>>({});
   const defaultThinkingLevelRef = useRef<ConcreteThinkingLevel | null>(null);
   const promptRunIdRef = useRef(0);
+  const settledRunSequenceRef = useRef(0);
+  const [settledRun, setSettledRun] = useState<{ sessionId: string; sequence: number } | null>(null);
   const optimisticUserMessageKeyRef = useRef<string | null>(null);
   const modelSwitchPendingRef = useRef(false);
   const draftKeyAliasesRef = useRef(new Map<string, string>());
@@ -1039,6 +1041,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     setRetryInfo(null);
     setActiveToolResults(new Map());
     dispatch({ type: "end" });
+    if (wasRunning && sessionIdRef.current) {
+      setSettledRun({ sessionId: sessionIdRef.current, sequence: ++settledRunSequenceRef.current });
+    }
     return wasRunning;
   }, []);
 
@@ -1274,6 +1279,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         break;
       }
       case "agent_start":
+        setSettledRun(null);
         cancelEventStreamGrace();
         sdkAgentActiveRef.current = true;
         agentRunningRef.current = true;
@@ -1528,6 +1534,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       restoreSubmission(message, images, composerDraftKey);
       return;
     }
+    setSettledRun(null);
     const isSlashCommandPrompt = !images?.length && trimmedMessage.startsWith("/");
 
     const isBashCommand = !images?.length && trimmedMessage.startsWith("!");
@@ -1642,6 +1649,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   const executeBash = useCallback(async (command: string, excludeFromContext: boolean) => {
     if (agentRunningRef.current || bashRunningRef.current) return;
+    setSettledRun(null);
     const inputText = `${excludeFromContext ? "!!" : "!"}${command}`;
     bashRunningRef.current = true;
     setPendingBash({ command, excludeFromContext });
@@ -1709,6 +1717,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   const handleNavigate = useCallback(async (entryId: string): Promise<boolean> => {
     if (bashRunningRef.current) return false;
+    setSettledRun(null);
     const sid = sessionIdRef.current;
     if (!sid) return false;
     try {
@@ -1727,6 +1736,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   const handleLeafChange = useCallback(async (leafId: string | null) => {
     if (bashRunningRef.current) return;
+    setSettledRun(null);
     setActiveLeafId(leafId);
     const sid = sessionIdRef.current;
     if (!sid) return;
@@ -2517,6 +2527,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     isAutoThinkingSelection: isNew && newSessionThinkingLevel === null,
     agentPhase,
     isNew,
+    settledRun,
     promptAnchorActive,
     showScrollToBottom,
     // Refs

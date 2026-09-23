@@ -18,6 +18,7 @@ import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
 import { AnsiText } from "./AnsiText";
 import { useI18n } from "@/hooks/useI18n";
+import { useNextCuePreference } from "@/hooks/useNextCuePreference";
 import { useAgentSession, type AgentPhase, type NoticeItem } from "@/hooks/useAgentSession";
 import { useDragDrop } from "@/hooks/useDragDrop";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -290,7 +291,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     isAutoModelSelection,
     isAutoThinkingSelection,
     agentPhase,
-    isNew,
+    isNew, settledRun,
     showScrollToBottom,
     sessionIdRef, scrollContainerRef,
     lastUserMsgRef, promptAnchorActive,
@@ -306,6 +307,38 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     deferInitialScroll: Boolean(pendingScrollRestore),
   });
   const sessionBusy = agentRunning || bashRunning;
+  const { enabled: nextCueEnabled, model: nextCueModel } = useNextCuePreference();
+  const [nextCue, setNextCue] = useState<string | null>(null);
+  useEffect(() => {
+    if (!nextCueEnabled || !settledRun || sessionBusy || sessionIdRef.current !== settledRun.sessionId) {
+      setNextCue(null);
+      return;
+    }
+    const controller = new AbortController();
+    const sid = settledRun.sessionId;
+    setNextCue(null);
+    // The session GET that refreshes activeLeafId can finish just after the
+    // settled event. Let it land before starting a paid model request.
+    const timer = setTimeout(() => {
+      void fetch(`/api/sessions/${encodeURIComponent(sid)}/next-cue`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model: nextCueModel }),
+        signal: controller.signal,
+      }).then(async (response) => {
+        if (!response.ok || response.status === 204) return;
+        const result = await response.json() as { text?: string; leafId?: string };
+        if (!controller.signal.aborted && sessionIdRef.current === sid
+          && result.leafId && result.leafId === activeLeafId && result.text) {
+          setNextCue(result.text);
+        }
+      }).catch(() => { /* Optional suggestion: fail silently. */ });
+    }, 200);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [nextCueEnabled, nextCueModel, settledRun, sessionBusy, sessionIdRef, activeLeafId]);
   const [quotedSelection, setQuotedSelection] = useState<{
     text: string;
     top: number;
@@ -877,6 +910,8 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
         return true;
       }}
       onSend={handleSend}
+      nextCue={nextCue}
+      onNextCueAccepted={() => setNextCue(null)}
       onAbort={handleAbort}
       onSteer={agentRunning ? handleSteer : undefined}
       onFollowUp={agentRunning ? handleFollowUp : undefined}

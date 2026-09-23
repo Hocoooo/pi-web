@@ -3,6 +3,9 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { useTheme } from "@/hooks/useTheme";
+import { useNextCuePreference } from "@/hooks/useNextCuePreference";
+import type { ModelsData } from "@/lib/models-cache";
+import { loadNextCueModels } from "@/lib/next-cue-models";
 import { useSidebarView } from "@/hooks/useSidebarView";
 import { setSidebarViewMode } from "@/lib/sidebar-view-preference";
 import { THEME_OPTIONS } from "@/lib/theme";
@@ -27,6 +30,7 @@ import {
   setThinkingExpandedByDefault,
 } from "@/lib/thinking-expansion-preference";
 import { ModelsConfig } from "./ModelsConfig";
+import { ModelSelector } from "./ModelSelector";
 import { setupPushSubscription } from "@/lib/push-client";
 import { SkillsConfig } from "./SkillsConfig";
 import { AgentsConfig } from "./AgentsConfig";
@@ -64,11 +68,36 @@ export function SettingsSectionIcon({ section, size = 16, strokeWidth = 1.8 }: {
   return <svg {...common}><path d="M9 7V2M15 7V2M6 13V8a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v5a6 6 0 0 1-12 0ZM12 19v3" /></svg>;
 }
 
-function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, onQuoteSelectionChange }: Pick<Props, "sessionId" | "onSessionReloaded" | "quoteSelectionEnabled" | "onQuoteSelectionChange">) {
+function GeneralSettings({ cwd, active, sessionId, onSessionReloaded, quoteSelectionEnabled, onQuoteSelectionChange }: Pick<Props, "cwd" | "sessionId" | "onSessionReloaded" | "quoteSelectionEnabled" | "onQuoteSelectionChange"> & { active: boolean }) {
   const { locale, setLocale, supportedLocales, t } = useI18n();
   const { preference, setThemePreference } = useTheme();
   const sidebarView = useSidebarView();
   const { width: chatContentWidth, setWidth: setChatContentWidth, fontSize, setFontSize } = useChatAppearance();
+  const { enabled: nextCueEnabled, model: nextCueModel, setNextCueEnabled, setNextCueModel } = useNextCuePreference();
+  const [nextCueModels, setNextCueModels] = useState<ModelsData["modelList"]>([]);
+  const [nextCueModelsLoading, setNextCueModelsLoading] = useState(false);
+  const [nextCueModelsError, setNextCueModelsError] = useState(false);
+
+  useEffect(() => {
+    if (!active || !cwd) return;
+    const controller = new AbortController();
+    setNextCueModelsLoading(true);
+    setNextCueModelsError(false);
+    void loadNextCueModels(cwd, controller.signal)
+      .then((models) => {
+        if (!controller.signal.aborted) setNextCueModels(models);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setNextCueModels([]);
+          setNextCueModelsError(true);
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setNextCueModelsLoading(false);
+      });
+    return () => controller.abort();
+  }, [active, cwd]);
   const [shellSettings, setShellSettings] = useState<ShellToolSettingsResponse | null>(null);
   const [shellSaving, setShellSaving] = useState(false);
   const [shellError, setShellError] = useState<string | null>(null);
@@ -281,6 +310,34 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
               onChange={onQuoteSelectionChange}
             />
           </div>
+          <div className="settings-chat-option settings-chat-switch-option">
+            <span>{t("settings.nextCueEnabled")}</span>
+            <ConfigSwitch
+              checked={nextCueEnabled}
+              label={t("settings.nextCueEnabled")}
+              onChange={setNextCueEnabled}
+            />
+          </div>
+          <div className="settings-chat-option settings-chat-range-option">
+            <label id="settings-next-cue-model-label">{t("settings.nextCueModel")}</label>
+            <ModelSelector
+              variant="field"
+              placement="auto"
+              ariaLabel={t("settings.nextCueModel")}
+              options={nextCueModels.map((model) => ({ provider: model.provider, modelId: model.id, name: model.name }))}
+              value={nextCueModel}
+              emptyLabel={t("settings.nextCueFollowModel")}
+              disabled={!nextCueEnabled || !cwd || nextCueModelsLoading || nextCueModelsError}
+              onChange={(provider, modelId) => setNextCueModel({ provider, modelId })}
+              onClear={() => setNextCueModel(null)}
+            />
+            {nextCueModelsError && <p role="alert" className="settings-general-error">{t("settings.nextCueModelsError")}</p>}
+            {nextCueModel && !nextCueModelsLoading && !nextCueModelsError && cwd
+              && !nextCueModels.some((model) => model.provider === nextCueModel.provider && model.id === nextCueModel.modelId)
+              && <p role="alert" className="settings-general-error">{t("settings.nextCueUnavailable")}</p>}
+            {!cwd && <p className="settings-general-description">{t("settings.nextCueProjectRequired")}</p>}
+            <p className="settings-general-description">{t("settings.nextCueCost")}</p>
+          </div>
         </div>
       </section>
 
@@ -462,7 +519,7 @@ export function SettingsPanel({ cwd, sessionId, initialSection, onClose, onSessi
         </div>
 
         <main className="settings-dialog-main">
-          {sectionHost("general", <GeneralSettings sessionId={sessionId} onSessionReloaded={onSessionReloaded} quoteSelectionEnabled={quoteSelectionEnabled} onQuoteSelectionChange={onQuoteSelectionChange} />)}
+          {sectionHost("general", <GeneralSettings cwd={cwd} active={section === "general"} sessionId={sessionId} onSessionReloaded={onSessionReloaded} quoteSelectionEnabled={quoteSelectionEnabled} onQuoteSelectionChange={onQuoteSelectionChange} />)}
           {sectionHost("models", <ModelsConfig embedded cwd={cwd} onClose={onClose} />)}
           {cwd && sectionHost("skills", <SkillsConfig embedded key={cwd} cwd={cwd} onClose={onClose} />)}
           {cwd && sectionHost("agents", <AgentsConfig embedded key={cwd} cwd={cwd} sessionId={sessionId} onClose={onClose} onReloaded={onSessionReloaded} />)}

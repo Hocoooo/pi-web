@@ -48,7 +48,7 @@ test("Tab enters the messages only when no composer completion or IME is active"
     let prevented = false;
     const handler = runArrow(inputSource, inputHandler, {
       Date, COMPOSITION_END_ENTER_GRACE_MS: 100,
-      isMobile: false, isStreaming: false,
+      isMobile: false, isStreaming: false, compact: false, nextCue: null, attachedImages: [],
       isComposingRef: { current: false }, lastCompositionEndAtRef: { current: 0 },
       historyMenuOpen: false, inputHistory: ["previous"], historyActiveIndex: 0,
       slashMenuOpen: false, slashQuery: null, displayedSlashCommands: [{}], slashActiveIndex: 0,
