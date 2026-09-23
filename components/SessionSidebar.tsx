@@ -15,6 +15,7 @@ import { useScrollbarVisibility } from "@/hooks/useScrollbarVisibility";
 import { useSidebarView } from "@/hooks/useSidebarView";
 import { setSidebarProjectCollapsed } from "@/lib/sidebar-view-preference";
 import { buildSidebarProjectRows, type SidebarProjectRow } from "@/lib/sidebar-project-rows";
+import { sidebarKeyboardAction, sidebarRowKey } from "@/lib/sidebar-keyboard";
 import { DirectoryPicker } from "./DirectoryPicker";
 import { FileExplorer, type FileExplorerHandle } from "./FileExplorer";
 import { SessionSearch } from "./SessionSearch";
@@ -482,6 +483,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [listViewportH, setListViewportH] = useState(0);
   const [listScrollTop, setListScrollTop] = useState(0);
   const [focusedSessionId, setFocusedSessionId] = useState<string | null>(null);
+  const [keyboardRowKey, setKeyboardRowKey] = useState<string | null>(null);
+  const [pendingFocusKey, setPendingFocusKey] = useState<string | null>(null);
+  const focusedRowRef = useRef<{ element: HTMLElement; index: number } | null>(null);
   const listScrollRafRef = useRef<number | null>(null);
   const listScrollTopRef = useRef(0);
   const renderedListScrollTopRef = useRef(0);
@@ -1120,12 +1124,113 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     setWtDropdownOpen(false);
   }, [showAllProjects]);
 
-  const virtualIndices = useMemo(() => getSessionListIndices(
-    listRows.length,
-    listScrollTop,
-    listViewportH,
-    listRows.findIndex((row) => row.kind === "session" && row.family.root.id === focusedSessionId),
-  ), [focusedSessionId, listScrollTop, listViewportH, listRows]);
+  const rowKeys = useMemo(() => listRows.map(sidebarRowKey), [listRows]);
+  const tabStopKey = rowKeys.includes(keyboardRowKey ?? "") ? keyboardRowKey : rowKeys[0];
+  const requestRowFocus = (index: number) => {
+    const key = rowKeys[index];
+    if (key) {
+      setKeyboardRowKey(key);
+      setPendingFocusKey(key);
+    }
+  };
+
+  useEffect(() => {
+    const focusSidebar = () => {
+      setSessionSearchOpen(false);
+      setSessionSearchQuery("");
+      setDropdownOpen(false);
+      setWtDropdownOpen(false);
+      const family = listSessionFamilies(showAllProjects ? allSessions : filteredSessions)
+        .find(({ root, subagents }) => root.id === selectedSessionId || subagents.some((session) => session.id === selectedSessionId));
+      if (family && showAllProjects) {
+        const projectKey = workspaceKeyOf(family.root);
+        setSidebarProjectCollapsed(projectKey, false);
+        // The selected family may be outside the project's five-row preview.
+        if (!listRows.some((row) => row.kind === "session" && row.family.root.id === family.root.id)) {
+          setExpandedProjects((current) => current.includes(projectKey) ? current : [...current, projectKey]);
+        }
+      }
+      const key = family ? `session:${family.root.id}` : rowKeys[0] ?? "";
+      setKeyboardRowKey(key);
+      setPendingFocusKey(key);
+    };
+    window.addEventListener("pi:focus-session-sidebar", focusSidebar);
+    return () => window.removeEventListener("pi:focus-session-sidebar", focusSidebar);
+  });
+
+  // Pin both inline controls and keyboard destinations outside the virtual window.
+  const virtualIndices = useMemo(() => [...new Set([
+    ...getSessionListIndices(
+      listRows.length,
+      listScrollTop,
+      listViewportH,
+      listRows.findIndex((row) => row.kind === "session" && row.family.root.id === focusedSessionId),
+    ),
+    ...[keyboardRowKey, pendingFocusKey].map((key) => rowKeys.indexOf(key ?? "")).filter((index) => index >= 0),
+  ])].sort((a, b) => a - b), [listRows, listScrollTop, listViewportH, focusedSessionId, keyboardRowKey, pendingFocusKey, rowKeys]);
+
+  useLayoutEffect(() => {
+    const list = listScrollRef.current;
+    if (!list) return;
+    let index = pendingFocusKey === null ? -1 : rowKeys.indexOf(pendingFocusKey);
+    if (pendingFocusKey === null) {
+      const previous = focusedRowRef.current;
+      // Deletion, collapse or refresh can remove a focused row. Restore a nearby
+      // row only when the browser lost that focus, never after moving elsewhere.
+      if (!previous || previous.element.isConnected || document.activeElement !== document.body) return;
+      index = Math.min(previous.index, listRows.length - 1);
+      if (index >= 0) {
+        setKeyboardRowKey(rowKeys[index]);
+        setPendingFocusKey(rowKeys[index]);
+        return;
+      }
+    }
+    const target = Array.from(list.querySelectorAll<HTMLElement>("[data-sidebar-row]"))
+      .find((element) => element.dataset.sidebarRow === rowKeys[index]);
+    if (index >= 0 && !target) return;
+    if (target) {
+      const top = index * SESSION_LIST_ITEM_HEIGHT;
+      if (top < list.scrollTop) list.scrollTop = top;
+      else if (top + SESSION_LIST_ITEM_HEIGHT > list.scrollTop + list.clientHeight) {
+        list.scrollTop = Math.max(0, top + SESSION_LIST_ITEM_HEIGHT - list.clientHeight);
+      }
+      setListScrollTop(list.scrollTop);
+      target.focus({ preventScroll: true });
+      focusedRowRef.current = { element: target, index };
+    } else {
+      list.focus({ preventScroll: true });
+      focusedRowRef.current = null;
+    }
+    setPendingFocusKey(null);
+  }, [pendingFocusKey, rowKeys, listRows.length]);
+
+  const handleListKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.nativeEvent.isComposing) return;
+    const target = event.target as HTMLElement;
+    // Primary project/more buttons are rows; nested controls and editors are not.
+    if (target !== event.currentTarget && !target.hasAttribute("data-sidebar-row")) return;
+    if (!["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "End", "Enter"].includes(event.key)) return;
+    const index = rowKeys.indexOf(target.dataset.sidebarRow ?? "");
+    const action = sidebarKeyboardAction(listRows, index, event.key);
+    event.preventDefault();
+    event.stopPropagation();
+    if (action.kind === "focus") requestRowFocus(action.index);
+    else if (action.kind === "activate") {
+      if (listRows[index].kind === "more") requestRowFocus(index);
+      target.click();
+    }
+    else if (action.kind === "expand") {
+      const row = listRows[index];
+      if (row.kind === "project") setSidebarProjectCollapsed(row.project.key, !action.expanded);
+      if (row.kind === "more") {
+        setExpandedProjects((current) => action.expanded
+          ? [...current.filter((key) => key !== row.project.key), row.project.key]
+          : current.filter((key) => key !== row.project.key));
+        // The more row moves when its preview expands/collapses.
+        requestRowFocus(index);
+      }
+    }
+  };
 
   return (
     <div
@@ -1828,8 +1933,22 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         <SessionSearch open={sessionSearchOpen} query={sessionSearchQuery} selectedSessionId={selectedSessionId} onSelectSession={handleSelectSessionFromList}>
         <div
           ref={listScrollRef}
+        tabIndex={listRows.length === 0 ? 0 : -1}
+        className="scrollbar-subtle focus-visible:outline-2 focus-visible:outline-accent focus-visible:-outline-offset-2"
+        onKeyDown={handleListKeyDown}
+        onFocusCapture={(event) => {
+          const row = (event.target as HTMLElement).closest<HTMLElement>("[data-sidebar-row]");
+          if (!row) return;
+          const key = row.dataset.sidebarRow!;
+          setKeyboardRowKey(key);
+          focusedRowRef.current = { element: row, index: rowKeys.indexOf(key) };
+        }}
+        onBlurCapture={(event) => {
+          if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget as Node)) {
+            focusedRowRef.current = null;
+          }
+        }}
           onScroll={handleListScroll}
-          className="scrollbar-subtle"
           style={{
             flex: "1 1 auto",
             minHeight: 0,
@@ -1867,6 +1986,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 return (
                   <button
                     key={`project:${project.key}`}
+                    data-sidebar-row={sidebarRowKey(row)}
+                    tabIndex={tabStopKey === sidebarRowKey(row) ? 0 : -1}
+                    className="focus:outline-2 focus:outline-accent focus:-outline-offset-2"
                     type="button"
                     aria-expanded={!collapsed}
                     title={project.root}
@@ -1894,6 +2016,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 return (
                   <button
                     key={`more:${row.project.key}`}
+                    data-sidebar-row={sidebarRowKey(row)}
+                    tabIndex={tabStopKey === sidebarRowKey(row) ? 0 : -1}
+                    className="focus:outline-2 focus:outline-accent focus:-outline-offset-2"
                     type="button"
                     aria-expanded={row.expanded}
                     onClick={() => setExpandedProjects((current) => row.expanded
@@ -1923,6 +2048,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                   style={{ position: "absolute", top: index * SESSION_LIST_ITEM_HEIGHT, left: showAllProjects ? 12 : 0, right: 0 }}
                 >
                   <SessionItem
+                    rowKey={sidebarRowKey(row)}
+                    tabIndex={tabStopKey === sidebarRowKey(row) ? 0 : -1}
                     session={displaySession}
                     isSelected={familySessions.some((session) => session.id === selectedSessionId)}
                     isRunning={familySessions.some((session) => runningSessionIds.has(session.id))}
@@ -2220,6 +2347,8 @@ function showProjectActivity(
 }
 
 function SessionItem({
+  rowKey,
+  tabIndex,
   session,
   isSelected,
   isRunning,
@@ -2232,6 +2361,8 @@ function SessionItem({
   collapsed = false,
   onToggleCollapse,
 }: {
+  rowKey: string;
+  tabIndex: number;
   session: SessionInfo;
   isSelected: boolean;
   isRunning?: boolean;
@@ -2251,6 +2382,36 @@ function SessionItem({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const rowRef = useRef<HTMLDivElement>(null);
+  const deleteCancelRef = useRef<HTMLButtonElement>(null);
+  const keyboardDeleteRef = useRef(false);
+
+  useLayoutEffect(() => {
+    if (confirmDelete && keyboardDeleteRef.current) deleteCancelRef.current?.focus();
+  }, [confirmDelete]);
+
+  const cancelDelete = () => {
+    setConfirmDelete(false);
+    if (keyboardDeleteRef.current) rowRef.current?.focus();
+    keyboardDeleteRef.current = false;
+  };
+
+  const handleRowKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.nativeEvent.isComposing) return;
+    if (confirmDelete && event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      cancelDelete();
+      return;
+    }
+    if (event.target !== event.currentTarget || renaming || confirmDelete || deleting) return;
+    if (event.key === "Delete" && !session.transient) {
+      event.preventDefault();
+      event.stopPropagation();
+      keyboardDeleteRef.current = true;
+      setConfirmDelete(true);
+    }
+  };
 
   // Select the whole name once the rename input is mounted (startRename's
   // immediate setTimeout can fire before the input exists).
@@ -2297,6 +2458,8 @@ function SessionItem({
   const performDelete = useCallback(async () => {
     if (session.transient) return;
     setConfirmDelete(false);
+    if (keyboardDeleteRef.current) rowRef.current?.focus();
+    keyboardDeleteRef.current = false;
     setDeleting(true);
     try {
       await fetch(`/api/sessions/${encodeURIComponent(session.id)}`, { method: "DELETE" });
@@ -2320,10 +2483,10 @@ function SessionItem({
     void performDelete();
   }, [performDelete]);
 
-  const handleDeleteCancel = useCallback((e: React.MouseEvent) => {
+  const handleDeleteCancel = (e: React.MouseEvent) => {
     e.stopPropagation();
-    setConfirmDelete(false);
-  }, []);
+    cancelDelete();
+  };
 
   const handleContextMenu = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const handled = dispatchSessionRowContextMenu({
@@ -2343,6 +2506,14 @@ function SessionItem({
   // Fixed-height outer wrapper — content swaps in place so the list never reflows
   return (
     <div
+      ref={rowRef}
+      data-sidebar-row={rowKey}
+      tabIndex={tabIndex}
+      role="group"
+      aria-label={title}
+      aria-current={isSelected ? "true" : undefined}
+      className="focus:outline-2 focus:outline-accent focus:-outline-offset-2"
+      onKeyDown={handleRowKeyDown}
       onClick={confirmDelete || renaming ? undefined : onClick}
       onContextMenu={confirmDelete || renaming ? undefined : handleContextMenu}
       onMouseEnter={() => setHovered(true)}
@@ -2393,6 +2564,7 @@ function SessionItem({
               {t("sidebar.delete")}
             </button>
             <button
+              ref={deleteCancelRef}
               onClick={handleDeleteCancel}
               style={{
                 display: "flex", alignItems: "center", justifyContent: "center",
