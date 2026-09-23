@@ -788,6 +788,11 @@ pre, code {
   font-family: var(--font-mono);
 }
 
+.chat-message-region:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
 /* react-markdown output styles */
 .chat-content {
   --chat-font-size-offset: calc(var(--chat-content-font-size, 14px) - 14px);
