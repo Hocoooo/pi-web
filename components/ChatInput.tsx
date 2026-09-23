@@ -49,6 +49,8 @@ interface Props {
   isStreaming: boolean;
   /** Text-only composer without the session controls or outer spacing. */
   compact?: boolean;
+  /** Focus the session message region on Tab when no completion menu is open. */
+  onFocusMessages?: () => boolean;
   model?: { provider: string; modelId: string } | null;
   isAutoModelSelection?: boolean;
   modelNames?: Record<string, string>;
@@ -91,6 +93,7 @@ interface Props {
 }
 
 export interface ChatInputHandle {
+  focusComposer: () => void;
   insertText: (text: string) => void;
   insertIfEmpty: (text: string) => void;
   replaceMessage: (message: UserMessage) => void;
@@ -568,6 +571,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   draftKey,
   cwd,
   compact = false,
+  onFocusMessages,
 }: Props, ref) {
   const { t } = useI18n();
   const { fontSize } = useChatAppearance();
@@ -634,6 +638,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   attachedImagesRef.current = attachedImages;
 
   useImperativeHandle(ref, () => ({
+    focusComposer() {
+      textareaRef.current?.focus({ preventScroll: true });
+    },
     insertIfEmpty(text: string) {
       const ta = textareaRef.current;
       const current = ta ? ta.value : value;
@@ -1352,7 +1359,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           return;
         }
         const selectedCommand = displayedSlashCommands[slashActiveIndex];
-        if (e.key === "Tab" && selectedCommand) {
+        if (e.key === "Tab" && !isComposing && selectedCommand) {
           e.preventDefault();
           applySlashCommand(selectedCommand);
           return;
@@ -1396,6 +1403,14 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         }
       }
 
+      // Keep Tab completion priority; only leave the composer when no menu is active.
+      if (e.key === "Tab" && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey
+        && !isComposing && !historyMenuOpen && !slashMenuOpen && !atMenuOpen
+        && onFocusMessages?.()) {
+        e.preventDefault();
+        return;
+      }
+
       if (e.key === "ArrowUp" && !isComposing && !isStreaming && inputHistory.length > 0 && value.trim().length === 0) {
         e.preventDefault();
         setSlashMenuOpen(false);
@@ -1421,7 +1436,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         }
       }
     },
-    [isMobile, isStreaming, onSteer, onFollowUp, onAbort, slashMenuOpen, slashQuery, displayedSlashCommands, slashActiveIndex, applySlashCommand, sendQueued, handleSend, getNextSlashIndex, atMenuOpen, atQuery, atMatches, atActiveIndex, applyAtCompletion, historyMenuOpen, inputHistory, historyActiveIndex, applyHistoryInput, value]
+    [isMobile, isStreaming, onSteer, onFollowUp, onAbort, onFocusMessages, slashMenuOpen, slashQuery, displayedSlashCommands, slashActiveIndex, applySlashCommand, sendQueued, handleSend, getNextSlashIndex, atMenuOpen, atQuery, atMatches, atActiveIndex, applyAtCompletion, historyMenuOpen, inputHistory, historyActiveIndex, applyHistoryInput, value]
   );
 
   const handleInput = useCallback(() => {

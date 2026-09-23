@@ -248,6 +248,8 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
   const { t } = useI18n();
   const isMobile = useIsMobile();
   const sidebarView = useSidebarView();
+  const fallbackChatInputRef = useRef<ChatInputHandle | null>(null);
+  const composerRef = chatInputRef ?? fallbackChatInputRef;
   const completionNotificationsEnabled = session?.relation?.kind !== "subagent";
 
   // Wrap onAgentEnd to play the completion sound. This is more reliable than
@@ -268,8 +270,8 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
 
   // 稳定化 onEditContent 引用，配合 React.memo 防止历史消息重渲染
   const handleEditContent = useCallback((message: UserMessage) => {
-    chatInputRef?.current?.replaceMessage(message);
-  }, [chatInputRef]);
+    composerRef.current?.replaceMessage(message);
+  }, [composerRef]);
 
   const initialScrollPositionRef = useRef(searchTarget ? null : initialScrollPosition ?? null);
   const [pendingScrollRestore, setPendingScrollRestore] = useState<Extract<ChatScrollPosition, { atBottom: false }> | null>(() => {
@@ -300,7 +302,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     loadContext, activeLeafId, scrollToBottom, scrollToMessage,
   } = useAgentSession({
     session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd: wrappedOnAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked,
-    modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsPanelOpen,
+    modelsRefreshKey, chatInputRef: composerRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsPanelOpen,
     deferInitialScroll: Boolean(pendingScrollRestore),
   });
   const sessionBusy = agentRunning || bashRunning;
@@ -867,7 +869,13 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
 
   const chatInputElement = (
     <ChatInput
-      ref={chatInputRef}
+      ref={composerRef}
+      onFocusMessages={() => {
+        const container = scrollContainerRef.current;
+        if (!container || pendingScrollRestore || extensionDialog || extensionCustomUi) return false;
+        container.focus({ preventScroll: true });
+        return true;
+      }}
       onSend={handleSend}
       onAbort={handleAbort}
       onSteer={agentRunning ? handleSteer : undefined}
@@ -1000,11 +1008,18 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
         {!isEmptyNew && <>
         <div
           ref={scrollContainerRef}
-          // The message list is the one place long output has to be dragged through,
-          // so it shows its scrollbar instead of hiding it behind the minimap (#788).
-          // A stable gutter keeps the centred column from shifting when a short
-          // session grows past one screen.
-          className="scrollbar-subtle min-w-0 flex-1 overflow-x-hidden overflow-y-auto pt-4 [scrollbar-gutter:stable]"
+          role="region"
+          aria-label={t("chat.messageArea")}
+          tabIndex={0}
+          onKeyDown={(event) => {
+            // Toggle from the region itself; descendants keep their native Tab order.
+            if (event.target !== event.currentTarget || event.key !== "Tab" || event.shiftKey
+              || event.ctrlKey || event.altKey || event.metaKey || event.nativeEvent.isComposing) return;
+            if (!composerRef.current) return;
+            event.preventDefault();
+            composerRef.current.focusComposer();
+          }}
+          className="chat-message-region scrollbar-subtle min-w-0 flex-1 overflow-x-hidden overflow-y-auto pt-4 [scrollbar-gutter:stable]"
           style={{ visibility: pendingScrollRestore ? "hidden" : undefined }}
         >
           <div style={{ minWidth: 0, padding: `0 ${CHAT_COLUMN_PADDING}px` }}>
