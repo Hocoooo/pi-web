@@ -49,6 +49,9 @@ interface Props {
   onAbort: () => void;
   onSteer?: (message: string, images?: AttachedImage[]) => void;
   onFollowUp?: (message: string, images?: AttachedImage[]) => void;
+  /** Optional next-prompt hint. Only shown while the composer is empty. */
+  nextCue?: string | null;
+  onNextCueAccepted?: () => void;
   onPromptWithStreamingBehavior?: (message: string, behavior: "steer" | "followUp", images?: AttachedImage[]) => void;
   isStreaming: boolean;
   /** Text-only composer without the session controls or outer spacing. */
@@ -605,6 +608,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   slashCommands, slashCommandsLoading, onLoadSlashCommands,
   onBuiltinCommand,
   soundEnabled, onSoundToggle, onAudioUnlock,
+  nextCue, onNextCueAccepted,
   onPromptWithStreamingBehavior,
   draftKey,
   cwd,
@@ -1478,6 +1482,24 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         }
       }
 
+      // Menus and IME take priority. Accepting a cue only fills the draft;
+      // Enter still requires a separate user action to submit it.
+      if (e.key === "Tab" && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey
+        && !isComposing && !compact && !isStreaming && nextCue
+        && value.length === 0 && attachedImages.length === 0
+        && !historyMenuOpen && !slashMenuOpen && !atMenuOpen) {
+        e.preventDefault();
+        valueRef.current = nextCue;
+        setValue(nextCue);
+        onNextCueAccepted?.();
+        requestAnimationFrame(() => {
+          const ta = textareaRef.current;
+          ta?.focus();
+          ta?.setSelectionRange(ta.value.length, ta.value.length);
+        });
+        return;
+      }
+
       // Keep Tab completion priority; only leave the composer when no menu is active.
       if (e.key === "Tab" && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey
         && !isComposing && !historyMenuOpen && !slashMenuOpen && !atMenuOpen
@@ -1511,7 +1533,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         }
       }
     },
-    [isMobile, enterSendMode, isStreaming, onSteer, onFollowUp, onAbort, onFocusMessages, slashMenuOpen, slashQuery, displayedSlashCommands, slashActiveIndex, applySlashCommand, sendQueued, handleSend, getNextSlashIndex, atMenuOpen, atQuery, atMatches, atActiveIndex, applyAtCompletion, historyMenuOpen, inputHistory, historyActiveIndex, applyHistoryInput, value]
+    [isMobile, enterSendMode, isStreaming, onSteer, onFollowUp, onAbort, onFocusMessages, slashMenuOpen, slashQuery, displayedSlashCommands, slashActiveIndex, applySlashCommand, sendQueued, handleSend, getNextSlashIndex, atMenuOpen, atQuery, atMatches, atActiveIndex, applyAtCompletion, historyMenuOpen, inputHistory, historyActiveIndex, applyHistoryInput, value, nextCue, onNextCueAccepted, attachedImages.length, compact]
   );
 
   const handleInput = useCallback(() => {
@@ -2277,7 +2299,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               isStreaming && (onSteer || onFollowUp)
                 ? t("chat.steerPlaceholder")
                 : isStreaming ? t("chat.agentPlaceholder")
-                : t("chat.messagePlaceholder")
+                : !compact && nextCue && value.length === 0 && attachedImages.length === 0
+                  ? `${nextCue}  (Tab)`
+                  : t("chat.messagePlaceholder")
             }
             rows={1}
             style={{

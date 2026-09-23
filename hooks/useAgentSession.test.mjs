@@ -61,6 +61,17 @@ test("keeps the session event stream open through the idle grace window", () => 
   );
 });
 
+test("next cue is requested only after settlement and discarded on a new run", () => {
+  const settlement = source.slice(source.indexOf("  const settleUiStage = useCallback"), source.indexOf("  const notifyPromptStage = useCallback"));
+  const agentEnd = source.slice(source.indexOf('case "agent_end"'), source.indexOf('case "agent_settled"'));
+  const agentStart = source.slice(source.indexOf('case "agent_start"'), source.indexOf('case "agent_end"'));
+  assert.match(settlement, /if \(wasRunning && sessionIdRef\.current\) \{\s*setSettledRun/);
+  assert.doesNotMatch(agentEnd, /setSettledRun\(/);
+  assert.match(agentStart, /setSettledRun\(null\)/);
+  assert.match(chatWindowSource, /clearTimeout\(timer\);\s*controller\.abort\(\)/);
+  assert.match(chatWindowSource, /result\.leafId === activeLeafId/);
+});
+
 test("a rejected submission preserves a different run reported by the server", () => {
   const reconcileSource = source.slice(
     source.indexOf("  const reconcileAgentState = useCallback"),

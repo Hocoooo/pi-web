@@ -111,6 +111,56 @@ test("follow-up shortcuts preserve newline, IME, mobile and completion behavior"
   }
 });
 
+test("next cue appears inside the empty composer and Tab fills without sending", () => {
+  const html = renderToStaticMarkup(React.createElement(I18nProvider, null,
+    React.createElement(ChatInput, { onSend() {}, isStreaming: false, nextCue: "Run the tests" })));
+  assert.match(html, /placeholder="Run the tests  \(Tab\)"/);
+
+  const source = ts.createSourceFile("ChatInput.tsx", readFileSync(new URL("./ChatInput.tsx", import.meta.url), "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  function findHandler(node) {
+    if (ts.isVariableDeclaration(node) && node.name.getText(source) === "handleKeyDown") return node.initializer.arguments[0];
+    return ts.forEachChild(node, findHandler);
+  }
+  const script = new Script(ts.transpileModule(findHandler(source).getText(source), {
+    compilerOptions: { target: ts.ScriptTarget.ES2020 },
+  }).outputText);
+  function press(overrides = {}) {
+    const actions = [];
+    const valueRef = { current: "" };
+    const textareaRef = { current: { value: "Run the tests", focus() {}, setSelectionRange() {} } };
+    const handler = script.runInNewContext({
+      Date: { now: () => 1000 }, COMPOSITION_END_ENTER_GRACE_MS: 100,
+      isMobile: false, isStreaming: false, compact: false,
+      isComposingRef: { current: false }, lastCompositionEndAtRef: { current: 0 },
+      historyMenuOpen: false, inputHistory: [], historyActiveIndex: 0,
+      slashMenuOpen: false, slashQuery: null, displayedSlashCommands: [],
+      atMenuOpen: false, atQuery: null, atMatches: [],
+      nextCue: "Run the tests", value: "", valueRef, textareaRef, attachedImages: [],
+      onNextCueAccepted: () => actions.push("accepted"),
+      setValue: (text) => actions.push(`filled:${text}`),
+      requestAnimationFrame: () => {},
+      onFocusMessages: () => { actions.push("focus"); return true; },
+      ...overrides,
+    });
+    handler({
+      key: "Tab", shiftKey: false, ctrlKey: false, altKey: false, metaKey: false,
+      nativeEvent: { isComposing: false, keyCode: 9 },
+      preventDefault: () => actions.push("prevented"),
+    });
+    return { actions, valueRef };
+  }
+  const result = press();
+  assert.deepEqual(result.actions, ["prevented", "filled:Run the tests", "accepted"]);
+  assert.equal(result.valueRef.current, "Run the tests");
+  for (const blocked of [
+    { value: "draft" }, { attachedImages: [{}] }, { isStreaming: true },
+    { isComposingRef: { current: true } }, { historyMenuOpen: true },
+    { slashMenuOpen: true }, { atMenuOpen: true }, { nextCue: null },
+  ]) {
+    assert.ok(!press(blocked).actions.includes("accepted"), JSON.stringify(blocked));
+  }
+});
+
 test("file mention arrows wrap around the match list", () => {
   const source = ts.createSourceFile("ChatInput.tsx", readFileSync(new URL("./ChatInput.tsx", import.meta.url), "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   function findHandler(node) {

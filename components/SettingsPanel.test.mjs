@@ -162,15 +162,28 @@ test("groups chat display controls together without row backgrounds", () => {
 
   assert.doesNotMatch(appearanceSection, /settings-chat-content/);
   assert.match(chatSection, /className="settings-chat-options"/);
-  assert.equal((chatSection.match(/className="settings-chat-option(?: |")/g) ?? []).length, 5);
-  assert.equal((chatSection.match(/<ConfigSwitch/g) ?? []).length, 2);
-  for (const key of ["thinkingExpandedDefault", "chatContentWidth", "chatContentFontSize", "quoteSelection", "enterSendMode", "enterSendModeEnter", "enterSendModeCtrlEnter"]) {
+  assert.equal((chatSection.match(/className="settings-chat-option(?: |")/g) ?? []).length, 7);
+  assert.equal((chatSection.match(/<ConfigSwitch/g) ?? []).length, 3);
+  for (const key of ["thinkingExpandedDefault", "chatContentWidth", "chatContentFontSize", "quoteSelection", "enterSendMode", "enterSendModeEnter", "enterSendModeCtrlEnter", "nextCueEnabled", "nextCueModel"]) {
     assert.match(chatSection, new RegExp(`t\\("settings\\.${key}"\\)`));
   }
   assert.doesNotMatch(panelSource, /ThinkingIcon|settings-thinking-/);
   const chatOptionStyles = cssSource.match(/\.settings-chat-option \{[\s\S]*?\}/)?.[0] ?? "";
   assert.match(chatOptionStyles, /font-size: 12px/);
   assert.doesNotMatch(chatOptionStyles, /background/);
+});
+
+test("lets users toggle next-prompt suggestions and choose a separate model", () => {
+  assert.match(panelSource, /useNextCuePreference\(\)/);
+  assert.match(panelSource, /checked=\{nextCueEnabled\}[\s\S]*?onChange=\{setNextCueEnabled\}/);
+  assert.match(panelSource, /<ModelSelector[\s\S]*?value=\{nextCueModel\}[\s\S]*?onClear=\{\(\) => setNextCueModel\(null\)\}/);
+  assert.match(panelSource, /loadNextCueModels\(cwd, controller\.signal\)/);
+  assert.match(panelSource, /!nextCueModelsError && cwd/);
+  assert.match(panelSource, /settings\.nextCueUnavailable/);
+  for (const source of [enSource, zhSource]) {
+    assert.match(source, /"settings\.nextCueEnabled"/);
+    assert.match(source, /"settings\.nextCueModel"/);
+  }
 });
 
 test("keeps General free of divider rows", () => {
