@@ -55,10 +55,12 @@ test("persists and exposes a vertical session/explorer resize handle", () => {
   assert.match(source, /minHeight: explorerOpen \? EXPLORER_PANE_MIN_HEIGHT : 0/);
 });
 
-test("does not register row-level session deletion shortcuts", () => {
-  assert.doesNotMatch(sessionItemSource, /const handleKeyDown/);
-  assert.doesNotMatch(sessionItemSource, /onKeyDown=\{handleKeyDown\}/);
-  assert.doesNotMatch(sessionItemSource, /tabIndex=\{0\}/);
+test("row Delete opens confirmation without bypassing editors or transient-session restrictions", () => {
+  assert.match(sessionItemSource, /onKeyDown=\{handleRowKeyDown\}/);
+  assert.match(sessionItemSource, /event\.target !== event\.currentTarget \|\| renaming \|\| confirmDelete \|\| deleting/);
+  assert.match(sessionItemSource, /event\.key === "Delete" && !session\.transient[\s\S]*?setConfirmDelete\(true\)/);
+  assert.match(sessionItemSource, /confirmDelete && keyboardDeleteRef\.current\) deleteCancelRef\.current\?\.focus\(\)/);
+  assert.match(sessionItemSource, /confirmDelete && event\.key === "Escape"/);
 });
 
 test("polls running sessions only while the tab is visible", () => {

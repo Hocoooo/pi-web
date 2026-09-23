@@ -850,10 +850,42 @@ export function AppShell() {
     setActiveTopPanel(null);
   }, [activeCwd, invalidateWorkspaceRestore, newSessionCwd, selectedSession]);
 
+  const chatPanelRef = useRef<HTMLDivElement>(null);
+  const [panelFocusRequest, setPanelFocusRequest] = useState<{ panel: "sidebar" | "chat" } | null>(null);
+  const handleFocusSessionPanel = useCallback((panel: "sidebar" | "chat") => {
+    if (panel === "sidebar") {
+      setSidebarOpen(true);
+      if (isMobile) {
+        setRightPanelOpen(false);
+        setActiveTopPanel(null);
+      }
+    } else if (isMobile) {
+      setSidebarOpen(false);
+      setRightPanelOpen(false);
+      setActiveTopPanel(null);
+    }
+    setPanelFocusRequest({ panel });
+  }, [isMobile]);
+
+  useEffect(() => {
+    if (!panelFocusRequest) return;
+    const frame = requestAnimationFrame(() => {
+      if (panelFocusRequest.panel === "sidebar") {
+        window.dispatchEvent(new Event("pi:focus-session-sidebar"));
+      } else if (chatInputRef.current) {
+        chatInputRef.current.focusComposer();
+      } else {
+        chatPanelRef.current?.focus({ preventScroll: true });
+      }
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [panelFocusRequest]);
+
   // Global keyboard shortcuts (handles Esc, Ctrl+Alt+N etc.)
   useGlobalKeyboardShortcuts({
     onNewSession: (cwd: string) => handleNewSession(`kb-${Date.now()}`, cwd),
     activeCwd,
+    onFocusSessionPanel: handleFocusSessionPanel,
   });
 
   // Client-built transient SessionInfo (new session / fork) lacks the
@@ -2372,7 +2404,7 @@ export function AppShell() {
         </div>
 
         {/* Chat content */}
-        <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>
+        <div ref={chatPanelRef} tabIndex={-1} style={{ flex: 1, overflow: "hidden", position: "relative" }}>
           {showChat ? (
             <ChatWindow
               key={sessionKey}
