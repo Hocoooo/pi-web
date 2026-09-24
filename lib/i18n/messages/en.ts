@@ -464,6 +464,7 @@ export const enLocale: LocalePlugin = {
     "chat.commandSession": "Show session message, token, and cost stats",
     "chat.commandCopy": "Copy the last assistant message",
     "chat.commandClone": "Clone the current branch into a new session",
+    "chat.commandNew": "Open a blank session in the current directory",
     "chat.compacted": "Compacted",
     "chat.imageNotSupportedTitle": "Images may not be sent",
     "chat.imageNotSupportedBody": "The selected model ({model}) does not support image input. The attached images will likely be ignored.",

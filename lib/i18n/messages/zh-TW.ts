@@ -464,6 +464,7 @@ export const zhTWLocale: LocalePlugin = {
     "chat.commandSession": "顯示工作階段的訊息、Token 和費用統計",
     "chat.commandCopy": "複製最後一則助理訊息",
     "chat.commandClone": "將目前分支複製為獨立新工作階段",
+    "chat.commandNew": "在目前目錄開啟空白新工作階段",
     "chat.compacted": "已壓縮",
     "chat.imageNotSupportedTitle": "圖片可能無法傳送",
     "chat.imageNotSupportedBody": "目前選擇的模型（{model}）不支援圖片輸入，附加的圖片可能會被忽略。",
