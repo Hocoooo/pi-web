@@ -29,17 +29,19 @@ const chatSource = loadSource("ChatWindow.tsx");
 const inputElement = findNode(chatSource, (node) => ts.isJsxSelfClosingElement(node) && node.tagName.getText(chatSource) === "ChatInput" && attribute(node, "ref")?.getText(chatSource) === "{composerRef}");
 const region = findNode(chatSource, (node) => ts.isJsxOpeningElement(node) && attribute(node, "ref")?.getText(chatSource) === "{scrollContainerRef}");
 
-test("Tab enters the messages only when no composer completion or IME is active", () => {
+test("Alt+ArrowUp enters the messages only when no composer completion or IME is active", () => {
   const cases = [
-    ["plain Tab", {}, {}, true],
-    ["history completion", { historyMenuOpen: true }, {}, false],
-    ["slash completion", { slashMenuOpen: true, slashQuery: "help" }, {}, false],
-    ["file completion", { atMenuOpen: true, atQuery: {} }, {}, false],
+    ["plain Alt+ArrowUp", {}, {}, true],
+    ["history menu", { historyMenuOpen: true }, {}, false],
+    ["slash menu", { slashMenuOpen: true, slashQuery: "help" }, {}, false],
+    ["file menu", { atMenuOpen: true, atQuery: {} }, {}, false],
     ["IME composition", { isComposingRef: { current: true } }, {}, false],
     ["native IME", {}, { nativeEvent: { isComposing: true, keyCode: 229 } }, false],
     ["slash menu during IME", { slashMenuOpen: true, slashQuery: "help", isComposingRef: { current: true } }, {}, false],
-    ["Shift+Tab", {}, { shiftKey: true }, false],
-    ["Ctrl+Tab", {}, { ctrlKey: true }, false],
+    ["ArrowUp without Alt", {}, { altKey: false }, false],
+    ["Alt+Shift+ArrowUp", {}, { shiftKey: true }, false],
+    ["Ctrl+Alt+ArrowUp", {}, { ctrlKey: true }, false],
+    ["plain Tab stays in the composer", {}, { key: "Tab", altKey: false }, false],
     ["no message region", { onFocusMessages: () => false }, {}, false],
     ["compact composer", { onFocusMessages: undefined }, {}, false],
   ];
@@ -58,13 +60,13 @@ test("Tab enters the messages only when no composer completion or IME is active"
       ...state,
     });
     handler({
-      key: "Tab", shiftKey: false, altKey: false, ctrlKey: false, metaKey: false,
-      nativeEvent: { isComposing: false, keyCode: 9 },
+      key: "ArrowUp", shiftKey: false, altKey: true, ctrlKey: false, metaKey: false,
+      nativeEvent: { isComposing: false, keyCode: 38 },
       preventDefault() { prevented = true; },
       ...keys,
     });
     assert.equal(focused, expected, `${name}: focus`);
-    assert.equal(prevented, expected || name === "history completion" || name === "slash completion" || name === "file completion", `${name}: default`);
+    assert.equal(prevented, expected, `${name}: default`);
   }
 });
 
@@ -94,13 +96,14 @@ test("the message region is focusable without jumping the scroll position", () =
   }
 });
 
-test("Tab from the region returns to the composer, without trapping child controls", () => {
+test("Alt+ArrowDown from the region returns to the composer, without trapping child controls", () => {
   const regionKeyDown = attribute(region, "onKeyDown").expression;
-  for (const [name, targetIsRegion, shiftKey, expected] of [
-    ["return to composer", true, false, true],
-    ["Shift+Tab uses native order", true, true, false],
-    ["child link Tab uses native order", false, false, false],
-    ["child link Shift+Tab uses native order", false, true, false],
+  for (const [name, targetIsRegion, keys, expected] of [
+    ["return to composer", true, {}, true],
+    ["ArrowDown without Alt stays in the region", true, { altKey: false }, false],
+    ["Alt+Shift+ArrowDown stays in the region", true, { shiftKey: true }, false],
+    ["Tab uses native order", true, { key: "Tab", altKey: false }, false],
+    ["child control Alt+ArrowDown uses native order", false, {}, false],
   ]) {
     let focused = false;
     let prevented = false;
@@ -109,10 +112,11 @@ test("Tab from the region returns to the composer, without trapping child contro
     });
     const currentTarget = {};
     handler({
-      key: "Tab", shiftKey, ctrlKey: false, altKey: false, metaKey: false,
+      key: "ArrowDown", shiftKey: false, ctrlKey: false, altKey: true, metaKey: false,
       target: targetIsRegion ? currentTarget : {}, currentTarget,
       nativeEvent: { isComposing: false },
       preventDefault() { prevented = true; },
+      ...keys,
     });
     assert.equal(focused, expected, `${name}: focus`);
     assert.equal(prevented, expected, `${name}: default`);

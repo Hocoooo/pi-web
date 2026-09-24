@@ -379,7 +379,7 @@ export const zhCNLocale: LocalePlugin = {
     "chat.steerPlaceholder": "立即引导 / 排队后续消息...",
     "chat.agentPlaceholder": "Agent 运行中…",
     "chat.messagePlaceholder": "消息…输入 / 使用命令，输入 @ 查找文件",
-    "chat.messageArea": "会话消息（Tab 返回输入框）",
+    "chat.messageArea": "会话消息（Alt+下方向键返回输入框）",
     "chat.steer": "引导",
     "chat.followUp": "后续消息",
     "chat.steerHint": "中断当前运行并立即注入此消息",
