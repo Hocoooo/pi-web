@@ -12,6 +12,7 @@ import {
   type SubagentRunInfo,
 } from "./subagents";
 import { MAX_SUBAGENT_INPUT_FILES } from "./subagent-input";
+import { createSubagentAdviceTool } from "./subagent-advice-tool";
 
 export const HOST_SUBAGENT_EXTENSION_NAME = "pi-web-subagents";
 const HOST_SUBAGENT_EXTENSION_PATH = `<inline:${HOST_SUBAGENT_EXTENSION_NAME}>`;
@@ -161,16 +162,20 @@ export function createSubagentExtension(
       const profiles = getProfiles().filter((profile) => profile.enabled);
       const profileNames = profiles.map((profile) => profile.name);
       const availableTypes = profileNames.length > 0 ? profileNames.join(", ") : "none";
+      pi.registerTool(createSubagentAdviceTool(isEnabled));
       pi.registerTool(defineTool({
         name: "Agent",
         label: "Agent",
-        description: `Delegate a focused task to a configured subagent. Each subagent runs as a full, inspectable Pi session. Use background mode for independent work and foreground mode when the result is needed immediately.\n\nAvailable agent types:\n${agentTypeDescription(profiles)}`,
-        promptSnippet: "Delegate a focused task to an inspectable subagent session",
+        description: `Delegate a bounded task to a configured subagent when requested or when independent work/fresh-context benefits outweigh handoff and waiting costs. Keep simple, quick, tightly coupled iterations in the parent. Each subagent runs as a full, inspectable Pi session. Use background mode only when there is useful independent work to do meanwhile; otherwise use foreground mode.\n\nAvailable agent types:\n${agentTypeDescription(profiles)}`,
+        promptSnippet: "Delegate requested or independently valuable work to an inspectable subagent session",
         exposure: SUBAGENT_TOOL_EXPOSURE,
         promptGuidelines: [
-          "Use Agent for a focused task that benefits from an isolated context.",
-          "Use multiple background Agent calls in the same response for independent parallel work.",
-          "Do not duplicate work already delegated to a running subagent.",
+          "Keep simple tasks, quick iterations and tightly coupled sequential work in the parent; do not delegate merely because a task is complex or the conversation is long.",
+          "Respect explicit user requests to use or avoid subagents, subject to existing permissions and availability; do not ask Jev to override those instructions.",
+          "For a genuine delegation tradeoff, use assess_subagent if available with a bounded, authorized summary. Consider it at a planning boundary, before heavy independent exploration, or after materially changed evidence/repeated failures—not every turn or tool call. Skip assessment for simple tasks and explicit delegation instructions; reuse advice while the task and evidence remain unchanged.",
+          "Jev advice is optional, not an execution gate or permission grant. If unknown, unavailable or unsuitable for external transmission, continue with normal judgment and do not retry solely for advice.",
+          "Delegate only a bounded deliverable with concrete isolation, specialist, independent-verification or parallel-work benefits. For fresh-context investigation, prefer inherit_context:false with verified facts and constraints rather than copying a drifting conversation.",
+          "Use parallel background Agents only for genuinely independent work, isolate concurrent writers, and do not duplicate work already delegated to a running subagent.",
         ],
         executionMode: "parallel",
         parameters: Type.Object({
