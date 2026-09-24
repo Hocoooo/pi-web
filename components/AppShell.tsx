@@ -807,10 +807,10 @@ export function AppShell() {
     }
   }, [activeCwd, activeFileTabId, invalidateWorkspaceRestore, router, isMobile, newSessionCwd, selectedSession]);
 
-  const handleNewSession = useCallback((sessionId: string, cwd: string) => {
+  const handleNewSession = useCallback((sessionId: string, cwd: string, restoreParkedDraft = true) => {
     invalidateWorkspaceRestore();
     const draftKey = `new:${sessionId}:${cwd}`;
-    rekeyDraft(parkedNewSessionDraftKey(cwd), draftKey);
+    if (restoreParkedDraft) rekeyDraft(parkedNewSessionDraftKey(cwd), draftKey);
     activeNewSessionDraftKeyRef.current = draftKey;
     setNewSessionDraftId(sessionId);
     setSelectedSession(null);
@@ -2417,6 +2417,7 @@ export function AppShell() {
               newSessionCwd={effectiveNewSessionCwd}
               newSessionDraftKey={newSessionDraftKey}
               onNewSessionProjectChange={handleNewSessionProjectChange}
+              onNewSession={(cwd) => handleNewSession(`command-${Date.now()}`, cwd, false)}
               onAgentEnd={handleAgentEnd}
               onAttentionNeeded={handleAttentionNeeded}
               onSessionCreated={handleSessionCreated}

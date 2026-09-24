@@ -47,6 +47,7 @@ export interface AttachedImage {
 interface Props {
   onSend: (message: string, images?: AttachedImage[]) => void;
   onAbort: () => void;
+  onNewSession?: (cwd: string) => void;
   onSteer?: (message: string, images?: AttachedImage[]) => void;
   onFollowUp?: (message: string, images?: AttachedImage[]) => void;
   /** Optional next-prompt hint. Only shown while the composer is empty. */
@@ -245,6 +246,7 @@ type SlashCommandPaletteItem = SlashCommandInfo | BuiltinSlashCommand;
 type SlashCommandSource = SlashCommandPaletteItem["source"];
 
 const BUILTIN_SLASH_COMMANDS: BuiltinSlashCommand[] = [
+  { name: "new", description: "chat.commandNew", source: "builtin", availableWhileStreaming: true },
   { name: "model", description: "chat.commandModel", source: "builtin" },
   { name: "thinking", description: "chat.commandThinking", source: "builtin" },
   { name: "compact", description: "chat.commandCompact", source: "builtin" },
@@ -263,7 +265,9 @@ function getBuiltinSlashCommand(message: string): BuiltinSlashCommand | undefine
 }
 
 export function canRunBuiltinSlashCommandWhileStreaming(message: string): boolean {
-  return getBuiltinSlashCommand(message)?.availableWhileStreaming === true;
+  const command = getBuiltinSlashCommand(message);
+  if (command?.name === "new") return message.trim() === "/new";
+  return command?.availableWhileStreaming === true;
 }
 
 /**
@@ -606,7 +610,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   savedDefaultThinkingLevel, onSetDefaultThinkingLevel,
   retryInfo, queuedMessages, inputHistory = [], onRecallQueue,
   slashCommands, slashCommandsLoading, onLoadSlashCommands,
-  onBuiltinCommand,
+  onBuiltinCommand, onNewSession,
   soundEnabled, onSoundToggle, onAudioUnlock,
   nextCue, onNextCueAccepted,
   onPromptWithStreamingBehavior,
@@ -1026,6 +1030,12 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   }, [thinkingDropdownOpen, builtinCommandPending, isStreaming, isCompacting, modelSwitching]);
 
   const runBuiltinCommand = useCallback(async (msg: string): Promise<boolean> => {
+    if (msg === "/new" && cwd && onNewSession) {
+      // Clear the source draft before navigation; never send or carry its attachments.
+      clearInput();
+      onNewSession(cwd);
+      return true;
+    }
     if (!msg.startsWith("/") || !onBuiltinCommand) return false;
     // Settings commands must never become prompts, even with attached images.
     if (attachedImages.length && !isSettingsSlashCommand(msg)) return false;
@@ -1051,7 +1061,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       builtinCommandPendingRef.current = false;
       setBuiltinCommandPending(false);
     }
-  }, [attachedImages.length, clearInput, onBuiltinCommand]);
+  }, [attachedImages.length, clearInput, cwd, onBuiltinCommand, onNewSession]);
 
   const handleSend = useCallback(async () => {
     const msg = value.trim();
@@ -1310,7 +1320,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         onFollowUp(msg, images);
       }
     };
-    if (onBuiltinCommand && (isSettingsSlashCommand(msg) || (!attachedImages.length && canRunBuiltinSlashCommandWhileStreaming(msg)))) {
+    if ((msg === "/new" && cwd && onNewSession)
+      || (onBuiltinCommand && (isSettingsSlashCommand(msg) || (!attachedImages.length && canRunBuiltinSlashCommandWhileStreaming(msg))))) {
       void runBuiltinCommand(msg);
       return;
     }
@@ -1323,7 +1334,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       return;
     }
     queue();
-  }, [value, attachedImages, onBuiltinCommand, onPromptWithStreamingBehavior, onSteer, onFollowUp, clearInput, onAudioUnlock, runBuiltinCommand]);
+  }, [value, attachedImages, cwd, onNewSession, onBuiltinCommand, onPromptWithStreamingBehavior, onSteer, onFollowUp, clearInput, onAudioUnlock, runBuiltinCommand]);
 
   const getNextSlashIndex = useCallback((direction: "up" | "down" | "left" | "right") => {
     const lastIndex = displayedSlashCommands.length - 1;
