@@ -283,6 +283,7 @@ export const zhCNLocale: LocalePlugin = {
     "sidebar.agentRunning": "Agent 运行中…",
     "sidebar.newActivity": "有新活动",
     "sidebar.newSessionActivity": "会话有新活动",
+    "sidebar.sessionMenu": "会话操作",
     "sidebar.deleteSession": "删除 {title}？",
     "sidebar.rename": "重命名",
     "sidebar.delete": "删除",

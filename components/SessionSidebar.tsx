@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import type { SessionInfo } from "@/lib/types";
 import { listSessionFamilies } from "@/lib/session-family";
 import { loadExplorerOpen, saveExplorerOpen } from "@/lib/file-explorer-state";
+import { copyText } from "@/lib/clipboard";
 import { dispatchSessionRowContextMenu } from "@/lib/session-row-context-menu";
 import { skillExpansionToCommand } from "@/lib/slash-display";
 import { getProjectActivity, getRecentProjects, sessionsForProject } from "@/lib/project-groups";
@@ -34,6 +36,89 @@ export function getSessionListIndices(count: number, scrollTop: number, viewport
   if (focusedIndex >= 0 && focusedIndex < start) indices.unshift(focusedIndex);
   if (focusedIndex >= end && focusedIndex < count) indices.push(focusedIndex);
   return indices;
+}
+
+interface SessionContextMenuState {
+  id: string;
+  x: number;
+  y: number;
+}
+
+function SessionContextMenu({ menu, onClose }: { menu: SessionContextMenuState; onClose: () => void }) {
+  const { t } = useI18n();
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    menuRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
+    const dismiss = (event: Event) => {
+      if (event.target instanceof Node && menuRef.current?.contains(event.target)) return;
+      onClose();
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      onClose();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("pointerdown", dismiss);
+    window.addEventListener("resize", onClose);
+    window.addEventListener("scroll", dismiss, true);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("pointerdown", dismiss);
+      window.removeEventListener("resize", onClose);
+      window.removeEventListener("scroll", dismiss, true);
+    };
+  }, [onClose]);
+
+  return createPortal(
+    <div
+      ref={menuRef}
+      className="session-context-menu"
+      role="menu"
+      aria-label={t("sidebar.sessionMenu")}
+      style={{
+        position: "fixed",
+        left: menu.x,
+        top: menu.y,
+        zIndex: 10000,
+        minWidth: 180,
+        maxWidth: "calc(100vw - 16px)",
+        padding: 6,
+        border: "1px solid var(--border)",
+        borderRadius: 8,
+        background: "var(--bg-panel)",
+        color: "var(--text)",
+        boxShadow: "0 8px 24px #0004",
+        fontSize: 13,
+      }}
+    >
+      <button
+        type="button"
+        role="menuitem"
+        onClick={() => {
+          void copyText(menu.id).then(() => {
+            setCopied(true);
+            window.setTimeout(onClose, 700);
+          }, onClose);
+        }}
+        style={{
+          display: "block",
+          width: "100%",
+          padding: "9px 10px",
+          border: 0,
+          borderRadius: 4,
+          textAlign: "left",
+          color: "inherit",
+          cursor: "pointer",
+        }}
+      >
+        {copied ? t("session.copied") : t("session.copyId")}
+      </button>
+    </div>,
+    document.body,
+  );
 }
 
 declare global {
@@ -387,6 +472,8 @@ function PiWebTitle() {
 }
 
 export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onOpenTerminal, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionsChange }: Props) {
+  const [sessionMenu, setSessionMenu] = useState<SessionContextMenuState | null>(null);
+  const closeSessionMenu = useCallback(() => setSessionMenu(null), []);
   const { t } = useI18n();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
   const sidebarView = useSidebarView();
@@ -2060,6 +2147,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                       onSessionDeleted?.(id);
                       loadSessions();
                     }}
+                    onOpenMenu={setSessionMenu}
                   />
                 </div>
               );
@@ -2088,6 +2176,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           {...sessionPaneResizer.separatorProps}
         />
       )}
+      {sessionMenu && <SessionContextMenu menu={sessionMenu} onClose={closeSessionMenu} />}
 
       {/* File Explorer section */}
       {(selectedCwdProp || selectedCwd) && (
@@ -2356,6 +2445,7 @@ function SessionItem({
   onClick,
   onRenamed,
   onDeleted,
+  onOpenMenu,
   depth = 0,
   hasChildren = false,
   collapsed = false,
@@ -2370,6 +2460,7 @@ function SessionItem({
   onClick: () => void;
   onRenamed?: () => void;
   onDeleted?: (id: string) => void;
+  onOpenMenu?: (menu: SessionContextMenuState) => void;
   depth?: number;
   hasChildren?: boolean;
   collapsed?: boolean;
@@ -2498,10 +2589,17 @@ function SessionItem({
       clientY: e.clientY,
       refresh: () => { onRenamed?.(); },
     });
-    if (!handled) return;
     e.preventDefault();
     e.stopPropagation();
-  }, [onRenamed, session.cwd, session.id, session.name, session.path]);
+    if (handled || !onOpenMenu) return;
+    const width = 196;
+    const height = 52;
+    onOpenMenu({
+      id: session.id,
+      x: Math.max(8, Math.min(e.clientX, window.innerWidth - width - 8)),
+      y: Math.max(8, Math.min(e.clientY, window.innerHeight - height - 8)),
+    });
+  }, [onOpenMenu, onRenamed, session.cwd, session.id, session.name, session.path]);
 
   // Fixed-height outer wrapper — content swaps in place so the list never reflows
   return (
