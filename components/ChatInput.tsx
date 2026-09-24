@@ -57,7 +57,7 @@ interface Props {
   isStreaming: boolean;
   /** Text-only composer without the session controls or outer spacing. */
   compact?: boolean;
-  /** Focus the session message region on Tab when no completion menu is open. */
+  /** Focus the session message region on Alt+ArrowUp when no completion menu is open. */
   onFocusMessages?: () => boolean;
   model?: { provider: string; modelId: string } | null;
   isAutoModelSelection?: boolean;
@@ -1401,13 +1401,14 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         return;
       }
 
+      const menuArrow = !e.altKey && !e.ctrlKey && !e.metaKey;
       if (historyMenuOpen && !isComposing) {
-        if (e.key === "ArrowDown") {
+        if (menuArrow && e.key === "ArrowDown") {
           e.preventDefault();
           setHistoryActiveIndex((i) => Math.min(Math.max(0, inputHistory.length - 1), i + 1));
           return;
         }
-        if (e.key === "ArrowUp") {
+        if (menuArrow && e.key === "ArrowUp") {
           e.preventDefault();
           setHistoryActiveIndex((i) => Math.max(0, i - 1));
           return;
@@ -1425,22 +1426,22 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       }
 
       if (slashMenuOpen && slashQuery !== null) {
-        if (e.key === "ArrowDown") {
+        if (menuArrow && e.key === "ArrowDown") {
           e.preventDefault();
           setSlashActiveIndex(getNextSlashIndex("down"));
           return;
         }
-        if (e.key === "ArrowUp") {
+        if (menuArrow && e.key === "ArrowUp") {
           e.preventDefault();
           setSlashActiveIndex(getNextSlashIndex("up"));
           return;
         }
-        if (e.key === "ArrowRight") {
+        if (menuArrow && e.key === "ArrowRight") {
           e.preventDefault();
           setSlashActiveIndex(getNextSlashIndex("right"));
           return;
         }
-        if (e.key === "ArrowLeft") {
+        if (menuArrow && e.key === "ArrowLeft") {
           e.preventDefault();
           setSlashActiveIndex(getNextSlashIndex("left"));
           return;
@@ -1471,12 +1472,12 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       // @ file menu — skip while composing so IME candidate navigation
       // (arrows/Enter/Tab) is never intercepted.
       if (atMenuOpen && atQuery !== null && !isComposing) {
-        if (e.key === "ArrowDown") {
+        if (menuArrow && e.key === "ArrowDown") {
           e.preventDefault();
           setAtActiveIndex((i) => cycleListIndex(i, atMatches.length, 1));
           return;
         }
-        if (e.key === "ArrowUp") {
+        if (menuArrow && e.key === "ArrowUp") {
           e.preventDefault();
           setAtActiveIndex((i) => cycleListIndex(i, atMatches.length, -1));
           return;
@@ -1511,10 +1512,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         return;
       }
 
-      // Keep Tab completion priority; only leave the composer when no menu is active.
-      if (e.key === "Tab" && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey
-        && !isComposing && !historyMenuOpen && !slashMenuOpen && !atMenuOpen
-        && onFocusMessages?.()) {
+      // Keep Tab for completion; Alt+ArrowUp leaves the composer when no menu is active.
+      if (e.key === "ArrowUp" && e.altKey && !e.shiftKey && !e.ctrlKey && !e.metaKey && !isComposing) {
+        if (historyMenuOpen || slashMenuOpen || atMenuOpen || !onFocusMessages?.()) return;
         e.preventDefault();
         return;
       }

@@ -1077,9 +1077,9 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
           aria-label={t("chat.messageArea")}
           tabIndex={0}
           onKeyDown={(event) => {
-            // Toggle from the region itself; descendants keep their native Tab order.
-            if (event.target !== event.currentTarget || event.key !== "Tab" || event.shiftKey
-              || event.ctrlKey || event.altKey || event.metaKey || event.nativeEvent.isComposing) return;
+            // Return from the region itself; descendants keep their native key order.
+            if (event.target !== event.currentTarget || event.key !== "ArrowDown" || !event.altKey
+              || event.shiftKey || event.ctrlKey || event.metaKey || event.nativeEvent.isComposing) return;
             if (!composerRef.current) return;
             event.preventDefault();
             composerRef.current.focusComposer();
