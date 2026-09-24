@@ -124,6 +124,9 @@ test("offers the downstream context-menu hook only on a normal session row", () 
     sessionItemSource,
     /onContextMenu=\{confirmDelete \|\| renaming \? undefined : handleContextMenu\}/,
   );
+  assert.match(sessionItemSource, /if \(handled \|\| !onOpenMenu\) return;/);
+  assert.match(source, /copyText\(menu\.id\)/);
+  assert.match(source, /t\("session\.copyId"\)/);
 });
 
 test("lifecycle refreshes bypass the cache while cross-window polling reuses it", () => {

@@ -3,9 +3,18 @@
 /* demo/ is a separate project; keep its sources out of this app's class scan. */
 @source not "../demo";
 
-.local-file-menu button { background: transparent; }
+.local-file-menu button,
+.session-context-menu button {
+  background: transparent;
+}
 .local-file-menu button:hover:not(:disabled),
-.local-file-menu button:focus-visible { background: var(--bg-hover); outline: 2px solid var(--accent); outline-offset: -2px; }
+.local-file-menu button:focus-visible,
+.session-context-menu button:hover,
+.session-context-menu button:focus-visible {
+  background: var(--bg-hover);
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
 .local-file-menu button:disabled { opacity: 0.6; }
 
 @theme {
