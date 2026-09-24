@@ -307,6 +307,13 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     modelsRefreshKey, chatInputRef: composerRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsPanelOpen,
     deferInitialScroll: Boolean(pendingScrollRestore),
   });
+  useEffect(() => {
+    if (!isNew || loading) return;
+    const frame = requestAnimationFrame(() => {
+      composerRef.current?.focusComposer();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [composerRef, isNew, loading]);
   const sessionBusy = agentRunning || bashRunning;
   const { enabled: nextCueEnabled, model: nextCueModel } = useNextCuePreference();
   const [nextCue, setNextCue] = useState<string | null>(null);

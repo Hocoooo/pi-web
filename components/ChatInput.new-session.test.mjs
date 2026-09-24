@@ -115,4 +115,5 @@ test("new-session navigation reuses AppShell and can leave parked drafts untouch
   assert.match(windowText, /onNewSession=\{onNewSession\}/);
   assert.match(windowText, /cwd=\{session\?\.cwd \?\? newSessionCwd\}/);
   assert.match(shellText, /onNewSession=\{\(cwd\) => handleNewSession\(`command-\$\{Date\.now\(\)\}`, cwd, false\)\}/);
+  assert.match(windowText, /if \(!isNew \|\| loading\) return;[\s\S]*?composerRef\.current\?\.focusComposer\(\)/);
 });
