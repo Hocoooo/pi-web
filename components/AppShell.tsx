@@ -828,7 +828,8 @@ export function AppShell() {
     setSystemTools(null);
     setSystemInfoLoading(false);
     setActiveTopPanel(null);
-  }, [activeCwd, invalidateWorkspaceRestore, newSessionCwd, selectedSession]);
+    router.replace(`?cwd=${encodeURIComponent(cwd)}`, { scroll: false });
+  }, [activeCwd, invalidateWorkspaceRestore, newSessionCwd, router, selectedSession]);
 
   const chatPanelRef = useRef<HTMLDivElement>(null);
   const [panelFocusRequest, setPanelFocusRequest] = useState<{ panel: "sidebar" | "chat" } | null>(null);

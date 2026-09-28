@@ -226,7 +226,7 @@ test("the selector prefers the live wrapper model over persisted response metada
 
 test("an idle live wrapper does not lock the composer as a running session", () => {
   const loadSource = source.slice(
-    source.indexOf("loadSession(session.id, true, true)"),
+    source.indexOf("loadSession(session.id, !cached, true, { force: true })"),
     source.indexOf("if (abandonedDraftKey)"),
   );
   assert.match(loadSource, /const liveState = agentState\?\.state;/);
