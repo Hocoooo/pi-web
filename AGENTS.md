@@ -1,5 +1,11 @@
 # Pi Web - Development Notes
 
+## Branch feature contracts — read before every iteration
+
+Before every development iteration (including fixes, refactors, tests, and merge/rebase conflict resolution), **read [docs/branch-features/README.md](docs/branch-features/README.md) first**, then the linked documents for all affected features. They record this branch's behavior, requirements, acceptance checks, and upstream integration constraints.
+
+**Update the corresponding feature documents whenever a feature changes, in the same change as the implementation.** Add a document and README index entry for every new feature; keep implementation links, acceptance steps, and cross-feature contracts current. Do not infer the current contract from old commit titles or treat a conflict-free merge as feature acceptance.
+
 ## Quick Start
 
 ```bash
