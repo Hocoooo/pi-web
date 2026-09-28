@@ -21,7 +21,7 @@ test("explicit context changes invalidate a pending workspace restore", () => {
   const callbacks = [
     ["handleCwdChange", "handleSelectSession"],
     ["handleSelectSession", "handleNewSession"],
-    ["handleNewSession", "hydrateSelectedSession"],
+    ["handleNewSession", "handleNewSessionProjectChange"],
     ["handleSessionCreated", "handleAgentEnd"],
     ["handleSessionForked", "handleInitialRestoreDone"],
     ["handleSessionDeleted", "handleOpenFile"],
@@ -59,7 +59,7 @@ test("New restores the draft after session navigation and workspace auto-restore
     callbackBody("restoreWorkspaceContext", "handleCwdChange"),
     callbackBody("handleCwdChange", "handleSelectSession"),
     callbackBody("handleSelectSession", "handleNewSession"),
-    callbackBody("handleNewSession", "hydrateSelectedSession"),
+    callbackBody("handleNewSession", "handleNewSessionProjectChange"),
   ].join("\n");
   const parkedKeyHelper = source.slice(source.indexOf("function parkedNewSessionDraftKey"), source.indexOf("export function AppShell"));
   const hookSource = await readFile(new URL("../hooks/useAgentSession.ts", import.meta.url), "utf8");

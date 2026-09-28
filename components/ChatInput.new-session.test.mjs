@@ -85,6 +85,28 @@ test("/new is discoverable and available during streaming", () => {
   assert.equal(canRunBuiltinSlashCommandWhileStreaming(" /new \n"), true);
 });
 
+test("changing a blank session project updates its reload URL and carries the draft", () => {
+  const state = {};
+  const migrations = [];
+  const context = {
+    invalidateWorkspaceRestore() {},
+    crypto: { randomUUID: () => "new-project" },
+    rekeyDraft: (...args) => migrations.push(args),
+    activeNewSessionDraftKeyRef: { current: "new:old:/old-project" },
+    activeProjectKeyRef: { current: "/old-project" },
+    selectedSession: null, newSessionCwd: "/old-project", activeCwd: "/old-project",
+    router: { replace: (url) => { state.route = url; } },
+  };
+  for (const [setter] of shellText.matchAll(/\bset[A-Z]\w*(?=\()/g)) {
+    context[setter] = (value) => { state[setter] = value; };
+  }
+  callback(shellText, "handleNewSessionProjectChange", context)("/new-project/worktree", "/new-project");
+  assert.equal(state.route, "?cwd=%2Fnew-project%2Fworktree");
+  assert.equal(state.setNewSessionCwd, "/new-project/worktree");
+  assert.equal(context.activeProjectKeyRef.current, "/new-project");
+  assert.deepEqual(migrations, [["new:old:/old-project", "new:new-project:/new-project/worktree"]]);
+});
+
 test("new-session navigation reuses AppShell and can leave parked drafts untouched", () => {
   for (const restoreParkedDraft of [false, undefined]) {
     const state = {};
@@ -106,7 +128,7 @@ test("new-session navigation reuses AppShell and can leave parked drafts untouch
     assert.equal(state.setNewSessionCwd, "/current-session-worktree");
     assert.equal(state.setNewSessionDraftId, "fresh-id");
     assert.equal(context.activeNewSessionDraftKeyRef.current, "new:fresh-id:/current-session-worktree");
-    assert.equal(state.route, "/");
+    assert.equal(state.route, "?cwd=%2Fcurrent-session-worktree");
     assert.equal(migrations.length, restoreParkedDraft === false ? 0 : 1);
   }
   // Verify the command uses the displayed session's cwd, not the sidebar selection,

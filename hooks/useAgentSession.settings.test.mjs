@@ -22,7 +22,10 @@ function fixture(overrides = {}) {
     modelSwitchPendingRef: { current: false }, isCompacting: false,
     sessionIdRef: { current: null }, ensuringNewSessionRef: { current: null }, isNew: true,
     newSessionModelOverrideRef: { current: null }, newSessionModel: null,
-    thinkingLevelOverrideRef: { current: null }, thinkingLevel: "low", currentModelOverride: null,
+    thinkingLevelOverrideRef: { current: null }, currentModelOverride: null,
+    thinkingLevelPinsRef: { current: {} }, defaultThinkingLevelRef: { current: "low" },
+    sessionHookMountedRef: { current: true },
+    asConcreteThinkingLevel: (level) => !level || level === "auto" ? null : level,
     displayModel: { provider: "p", modelId: "a" },
     modelThinkingLevels: { "p:a": ["off", "low", "high"] },
     modelList: [{ provider: "p", id: "a" }, { provider: "q", id: "a" }, { provider: "p", id: "unique" }],
@@ -30,7 +33,10 @@ function fixture(overrides = {}) {
     ensureNewSession: async () => { throw new Error("settings must not create a session"); },
     sendAgentCommand: async (sid, command) => { calls.push(["rpc", sid, command]); return { level: "low", provider: "p", id: "a" }; },
     loadSession: async (...args) => { calls.push(["load", ...args]); return true; },
-    setThinkingLevel: (level) => calls.push(["thinking", level]),
+    setNewSessionThinkingLevel: (level) => calls.push(["startupThinking", level]),
+    setNewSessionDefaultThinkingLevel: (level) => calls.push(["defaultThinking", level]),
+    setCurrentThinkingOverride: (level) => calls.push(["thinkingOverride", level]),
+    setLiveThinkingLevel: (level) => calls.push(["liveThinking", level]),
     setNewSessionModel: (model) => calls.push(["model", model]),
     setPendingModel() {}, setModelSwitching() {}, setCurrentModelOverride() {}, setLiveModel() {},
     ...overrides,
@@ -80,7 +86,7 @@ test("unsupported and malformed thinking values are consumed with errors", async
     assert.equal(result.handled, true);
     assert.ok(result.error);
   }
-  assert.ok(!calls.some(([kind]) => kind === "rpc" || kind === "thinking"));
+  assert.ok(!calls.some(([kind]) => kind === "rpc" || kind.endsWith("Thinking") || kind === "thinkingOverride"));
 });
 
 test("streaming, shell, compaction and pending switches reject settings", async () => {
@@ -131,6 +137,40 @@ test("combined selection uses one RPC with the target level, not stale current-m
   assert.deepEqual(calls.filter(([kind]) => kind === "load").at(-1), ["load", "session", false, true]);
 });
 
+test("combined selection updates the live reasoning display from the server", async () => {
+  const { context, calls } = fixture({
+    isNew: false, sessionIdRef: { current: "session" },
+    sendAgentCommand: async () => ({ provider: "p", id: "a", thinkingLevel: "high" }),
+  });
+  assert.equal((await context.handleModelChange("p", "a", "high")).error, undefined);
+  assert.ok(calls.some(([kind, level]) => kind === "liveThinking" && level === "high"));
+});
+
+test("fresh model selection retains upstream thinking pins until explicitly overridden", async () => {
+  const { context, calls } = fixture({ thinkingLevelPinsRef: { current: { "p/a": "high" } } });
+  await context.handleModelChange("p", "a");
+  assert.ok(calls.some(([kind, level]) => kind === "defaultThinking" && level === "high"));
+  calls.length = 0;
+  await context.handleModelChange("p", "a", "low");
+  assert.ok(calls.some(([kind, level]) => kind === "startupThinking" && level === "low"));
+  assert.ok(!calls.some(([kind]) => kind === "defaultThinking"));
+});
+
+test("failed startup settings restore the prior reasoning override", async () => {
+  for (const changeModel of [true, false]) {
+    const { context, calls } = fixture({
+      sessionIdRef: { current: "session" }, thinkingLevelOverrideRef: { current: "low" },
+      sendAgentCommand: async () => { throw new Error("offline"); },
+    });
+    const result = changeModel
+      ? await context.handleModelChange("p", "a", "high")
+      : await context.handleThinkingLevelChange("high");
+    assert.match(result.error, /offline/);
+    assert.equal(context.thinkingLevelOverrideRef.current, "low");
+    assert.deepEqual(calls.filter(([kind]) => kind === "startupThinking").at(-1), ["startupThinking", "low"]);
+  }
+});
+
 test("combined selection rejects unavailable target levels before updating local state", async () => {
   const { context, calls } = fixture();
   assert.ok((await context.handleModelChange("p", "a", "max")).error);
@@ -143,6 +183,7 @@ test("auto on an existing session does not send a reasoning effort to the SDK", 
   const result = await command("/thinking auto");
   assert.equal(result.error, undefined);
   assert.equal(context.thinkingLevelOverrideRef.current, null);
-  assert.ok(calls.some(([kind, level]) => kind === "thinking" && level === "auto"));
+  assert.ok(calls.some(([kind, level]) => kind === "thinkingOverride" && level === null));
+  assert.ok(!calls.some(([kind]) => kind === "liveThinking"));
   assert.ok(!calls.some(([kind]) => kind === "rpc"));
 });

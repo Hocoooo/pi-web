@@ -2084,21 +2084,21 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         <SessionSearch open={sessionSearchOpen} query={sessionSearchQuery} selectedSessionId={selectedSessionId} onSelectSession={handleSelectSessionFromList}>
         <div
           ref={listScrollRef}
-        tabIndex={listRows.length === 0 ? 0 : -1}
-        className="scrollbar-subtle focus-visible:outline-2 focus-visible:outline-accent focus-visible:-outline-offset-2"
-        onKeyDown={handleListKeyDown}
-        onFocusCapture={(event) => {
-          const row = (event.target as HTMLElement).closest<HTMLElement>("[data-sidebar-row]");
-          if (!row) return;
-          const key = row.dataset.sidebarRow!;
-          setKeyboardRowKey(key);
-          focusedRowRef.current = { element: row, index: rowKeys.indexOf(key) };
-        }}
-        onBlurCapture={(event) => {
-          if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget as Node)) {
-            focusedRowRef.current = null;
-          }
-        }}
+          tabIndex={listRows.length === 0 ? 0 : -1}
+          className="scrollbar-subtle focus-visible:outline-2 focus-visible:outline-accent focus-visible:-outline-offset-2"
+          onKeyDown={handleListKeyDown}
+          onFocusCapture={(event) => {
+            const row = (event.target as HTMLElement).closest<HTMLElement>("[data-sidebar-row]");
+            if (!row) return;
+            const key = row.dataset.sidebarRow!;
+            setKeyboardRowKey(key);
+            focusedRowRef.current = { element: row, index: rowKeys.indexOf(key) };
+          }}
+          onBlurCapture={(event) => {
+            if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget as Node)) {
+              focusedRowRef.current = null;
+            }
+          }}
           onScroll={handleListScroll}
           style={{
             flex: "1 1 auto",
