@@ -1,5 +1,6 @@
 import type { ClientAssistantMessageEvent } from "./agent-event-wire";
 import { normalizeStreamingToolCalls } from "./normalize";
+import { readMessagePerformance } from "./message-performance";
 import type {
   AgentMessage,
   AssistantContentBlock,
@@ -142,8 +143,13 @@ export function streamReducer(
         ? { isStreaming: true, streamingMessage: message }
         : state;
     }
-    case "delta":
-      return applyDelta(state, action.event);
+    case "delta": {
+      const next = applyDelta(state, action.event);
+      const timing = readMessagePerformance(action.event.piWebPerformance);
+      return next.streamingMessage && timing
+        ? { ...next, streamingMessage: { ...next.streamingMessage, piWebPerformance: timing } }
+        : next;
+    }
     case "end":
       return INITIAL_STREAMING_STATE;
     default:

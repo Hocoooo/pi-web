@@ -6,7 +6,7 @@ import type {
   SlashCommandInfo,
   Theme,
 } from "@earendil-works/pi-coding-agent";
-import type { AgentMessage as PiAgentMessage } from "@earendil-works/pi-agent-core";
+import type { AgentMessage as PiAgentMessage, StreamFn } from "@earendil-works/pi-agent-core";
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 
 export interface ContextUsage {
@@ -54,6 +54,7 @@ export interface SessionStatsInfo {
   contextUsage?: ContextUsage;
   /** Estimated active time across all entries in the session file. */
   totalActiveMs?: number;
+  performance?: import("./message-performance").PerformanceTotals;
 }
 
 interface PromptTemplateLike {
@@ -138,6 +139,7 @@ export interface AgentSessionLike {
   readonly sessionManager: SessionManager;
   readonly settingsManager: SettingsManager;
   readonly agent: {
+    streamFunction?: StreamFn;
     state?: {
       /** Replayed from the transcript's system messages since Pi 0.86; never assign it. */
       readonly systemPrompt?: string;

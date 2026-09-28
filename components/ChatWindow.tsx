@@ -741,6 +741,11 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
       sessionStats.tokens.total,
       sessionStats.cost ?? 0,
       sessionStats.totalActiveMs ?? 0,
+      sessionStats.performance?.ttftSamples ?? 0,
+      sessionStats.performance?.ttftMs ?? 0,
+      sessionStats.performance?.speedSamples ?? 0,
+      sessionStats.performance?.outputTokens ?? 0,
+      sessionStats.performance?.generationMs ?? 0,
     ].join("|")
     : null;
   const sessionStatsRef = useRef(sessionStats);

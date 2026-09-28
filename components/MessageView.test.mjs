@@ -29,6 +29,34 @@ function renderMessage(message, props = {}) {
   );
 }
 
+test("shows persisted TTFT and provider-based speed on completed messages", () => {
+  const message = {
+    role: "assistant", provider: "test", model: "test", stopReason: "stop",
+    content: [{ type: "text", text: "answer" }],
+    usage: { input: 10, output: 100, cacheRead: 0, cacheWrite: 0,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+    piWebPerformance: { version: 1, ttftMs: 1250, generationMs: 2000, totalMs: 3250 },
+  };
+  const html = renderMessage(message);
+  assert.match(html, /TTFT 1\.25s/);
+  assert.match(html, /50\.0 tok\/s/);
+  assert.doesNotMatch(html, /≈/);
+  const legacy = { ...message };
+  delete legacy.piWebPerformance;
+  assert.doesNotMatch(renderMessage(legacy), /TTFT|tok\/s/);
+  assert.doesNotMatch(renderMessage({ ...message, stopReason: "aborted" }), /tok\/s/);
+});
+
+test("streaming TTFT includes thinking, with speed explicitly estimated", () => {
+  const html = renderMessage({
+    role: "assistant", provider: "test", model: "test", stopReason: "pending",
+    content: [{ type: "thinking", thinking: "reasoning before the answer" }],
+    piWebPerformance: { version: 1, ttftMs: 500, generationMs: 1000, totalMs: 1500 },
+  }, { isStreaming: true });
+  assert.match(html, /TTFT 0\.50s/);
+  assert.match(html, /≈ .*tok\/s/);
+});
+
 test("updates a reused message when its written files change", () => {
   const props = { message: { role: "assistant", content: [] } };
   assert.equal(MessageView.compare(props, props), true);

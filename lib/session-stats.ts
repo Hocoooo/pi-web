@@ -1,4 +1,5 @@
 import type { AgentMessage, AgentUsage, SessionEntry, SessionMessage } from "./types";
+import { addMessagePerformance, emptyPerformanceTotals, type PerformanceTotals } from "./message-performance";
 
 export interface SessionFileStats {
   userMessages: number;
@@ -14,6 +15,7 @@ export interface SessionFileStats {
     total: number;
   };
   cost: number;
+  performance?: PerformanceTotals;
 }
 
 function emptyStats(): SessionFileStats {
@@ -52,6 +54,9 @@ function addMessage(stats: SessionFileStats, message: SessionMessage): void {
       stats.toolCalls += message.content.filter((c) => c.type === "toolCall").length;
     }
     addUsage(stats, message.usage);
+    const performance = stats.performance ?? emptyPerformanceTotals();
+    addMessagePerformance(performance, message);
+    if (performance.ttftSamples > 0) stats.performance = performance;
   }
 }
 
@@ -86,7 +91,13 @@ export function mergeSessionStats(
     total: 0,
   };
   tokens.total = tokens.input + tokens.output + tokens.cacheRead + tokens.cacheWrite;
+  const performance = emptyPerformanceTotals();
+  for (const key of Object.keys(performance) as Array<keyof PerformanceTotals>) {
+    performance[key] = (fileStats.performance?.[key] ?? 0)
+      + delta(current.performance?.[key] ?? 0, loaded.performance?.[key] ?? 0);
+  }
   return {
+    ...(performance.ttftSamples > 0 ? { performance } : {}),
     userMessages: fileStats.userMessages + delta(current.userMessages, loaded.userMessages),
     assistantMessages: fileStats.assistantMessages + delta(current.assistantMessages, loaded.assistantMessages),
     toolCalls: fileStats.toolCalls + delta(current.toolCalls, loaded.toolCalls),

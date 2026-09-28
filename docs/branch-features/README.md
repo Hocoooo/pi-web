@@ -37,6 +37,8 @@
 | F13 | [按需 Jev 委派建议](delegation-advice.md) | 有真实取舍时提供 advisory-only 建议，不替用户授权或自动启动子代理 | subagent-advice、subagent-extension |
 | F14 | [本地全局安装与个人版本维护](local-global-install.md) | 安全构建 tarball、核验、全局安装与可选服务切换；不发布 npm | .pi/skills/pi-web-local-global-install |
 | F15 | [开发环境 Service Worker 清理](dev-service-worker-cleanup.md) | 非生产模式注销遗留 worker、清理 pi-web 缓存，同时保留主题恢复与生产 PWA | PwaRegistration、theme 初始化脚本 |
+| F16 | [Windows 无窗口启动链](windows-silent-start.md) | 隐藏 Next 与浏览器辅助控制台，保留日志和生命周期；区分无窗口与 no-open | bin/pi-web、安装器 launch |
+| F17 | [消息与会话性能统计](message-performance.md) | 服务端首有效输出 TTFT、持久化 tok/s、会话加权速度与平均 TTFT；缺失样本不补零 | request-performance、session-stats、MessageView、AppShell |
 
 ## 跨功能的约束：先核对这些交点
 
