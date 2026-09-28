@@ -3,6 +3,7 @@
 import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useGlobalKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
+import { averagePerformance } from "@/lib/message-performance";
 import { SessionSidebar } from "./SessionSidebar";
 import { ChatWindow } from "./ChatWindow";
 import type { ChatScrollPosition } from "@/lib/chat-scroll-position";
@@ -2238,7 +2239,16 @@ export function AppShell() {
                     ];
                     const ctx = contextUsage ?? sessionStats.contextUsage;
                     const formatCompact = (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(0)}k` : String(n);
+                    const averages = averagePerformance(sessionStats.performance);
                     const extraTokenRows = [
+                       ...(averages.tokensPerSecond !== undefined ? [[
+                         translate("session.averageSpeed"), `${averages.tokensPerSecond.toFixed(1)} tok/s`,
+                         translate("performance.averageSpeedHelp", { count: sessionStats.performance!.speedSamples }),
+                       ]] : []),
+                       ...(averages.ttftMs !== undefined ? [[
+                         translate("session.averageTtft"), `${(averages.ttftMs / 1000).toFixed(2)}s`,
+                         translate("performance.averageTtftHelp", { count: sessionStats.performance!.ttftSamples }),
+                       ]] : []),
                        ...(sessionStats.cost > 0 ? [[translate("session.cost"), `$${sessionStats.cost.toFixed(4)}`]] : []),
                        ...(ctx?.contextWindow ? [[translate("session.context"), `${ctx.percent !== null ? `${ctx.percent.toFixed(1)}%` : "?"} / ${formatCompact(ctx.contextWindow)}`]] : []),
                        // Cache hit rate = cache reads / (input + cache writes + cache reads) — the denominator covers all input-class tokens.
@@ -2261,9 +2271,9 @@ export function AppShell() {
                             rowGap: 4,
                             justifyContent: compact ? "start" : undefined,
                           }}>
-                            {sectionRows.map(([label, value]) => (
+                            {sectionRows.map(([label, value, tooltip]) => (
                               <div key={`${title}:${label}`} style={{ display: "contents" }}>
-                                <div style={{ color: "var(--text-dim)", whiteSpace: "nowrap" }}>{label}</div>
+                                <div title={tooltip} style={{ color: "var(--text-dim)", whiteSpace: "nowrap" }}>{label}</div>
                                 <div style={{
                                   color: "var(--text-muted)",
                                   minWidth: 0,

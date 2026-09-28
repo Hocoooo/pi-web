@@ -78,6 +78,8 @@ export interface AssistantMessage {
   errorMessage?: string;
   timestamp?: number;
   usage?: AgentUsage;
+  /** Versioned host metadata persisted intact with the SDK assistant message. */
+  piWebPerformance?: import("./message-performance").MessagePerformance;
 }
 
 export interface ToolResultMessage {

@@ -6,6 +6,7 @@ import { MarkdownBody } from "./MarkdownBody";
 import { ImagePreview } from "./ImagePreview";
 import { ThinkingIcon } from "./ThinkingIcon";
 import { copyText } from "@/lib/clipboard";
+import { messageTokensPerSecond, readMessagePerformance } from "@/lib/message-performance";
 import { useI18n } from "@/hooks/useI18n";
 import { parseCompactionSummary } from "@/lib/compaction-summary";
 import { getAssistantErrorMessage, getThinkingPreview, hasAssistantAnswer, isAssistantTruncated, isEmptyThinkingBlock } from "@/lib/message-display";
@@ -680,8 +681,7 @@ function AssistantMessageView({
   const unansweredTruncation = truncated && !hasAssistantAnswer(message);
   const [hovered, setHovered] = useState(false);
   const [copied, setCopied] = useState(false);
-  const streamStartRef = useRef<number | null>(null);
-  const [tps, setTps] = useState<number | null>(null);
+  const timing = readMessagePerformance(message.piWebPerformance);
   const blockItemsRef = useRef(blockItems);
   blockItemsRef.current = blockItems;
   const tokenEstimateCacheRef = useRef<Map<number, TokenEstimateCacheEntry>>(new Map());
@@ -702,8 +702,12 @@ function AssistantMessageView({
     tokenEstimateCacheRef.current = nextCache;
     return total;
   }, [blockItems, isStreaming]);
-  const estimatedTokensRef = useRef(estimatedTokens);
-  estimatedTokensRef.current = estimatedTokens;
+  // Streaming uses server-observed elapsed time, so reconnecting does not
+  // restart the denominator. Final speed uses provider usage, never estimates.
+  const tps = isStreaming
+    ? (timing?.generationMs != null && timing.generationMs > 500 && estimatedTokens > 0
+      ? estimatedTokens * 1000 / timing.generationMs : undefined)
+    : messageTokensPerSecond(message);
 
   // Streaming-based timing for thinking blocks
   const blockStartTimesRef = useRef<Map<number, number>>(new Map());
@@ -755,8 +759,6 @@ function AssistantMessageView({
         }
         return next;
       });
-      streamStartRef.current = null;
-      setTps(null);
       return;
     }
     const tick = () => {
@@ -785,11 +787,6 @@ function AssistantMessageView({
         return changed ? next : prev;
       });
 
-      const tokens = estimatedTokensRef.current;
-      if (tokens === 0) return;
-      if (streamStartRef.current === null) streamStartRef.current = now;
-      const elapsed = (now - streamStartRef.current) / 1000;
-      if (elapsed > 0.5) setTps(tokens / elapsed);
     };
     const id = setInterval(tick, 300);
     return () => clearInterval(id);
@@ -819,6 +816,20 @@ function AssistantMessageView({
         {message.provider && (
           <span>{getModelDisplayName(message.provider, message.model, modelNames)}</span>
         )}
+        {timing?.ttftMs != null && (
+          <span title={t("performance.ttftHelp")} style={{ fontVariantNumeric: "tabular-nums" }}>
+            TTFT {(timing.ttftMs / 1000).toFixed(2)}s
+          </span>
+        )}
+        {tps !== undefined && (() => {
+          const bg = tps >= 50 ? "#53b3cb" : tps >= 30 ? "#9bc53d" : tps >= 15 ? "#f9c22e" : "#e01a4f";
+          return (
+            <span title={t(isStreaming ? "performance.estimatedSpeedHelp" : "performance.speedHelp")}
+              style={{ padding: "1px 6px", borderRadius: 4, background: bg, color: "#fff", fontSize: 11, fontWeight: 400, fontVariantNumeric: "tabular-nums" }}>
+              {isStreaming ? "≈ " : ""}{tps.toFixed(1)} tok/s
+            </span>
+          );
+        })()}
         {isStreaming && (() => {
           const est = Math.round(estimatedTokens);
           return (
@@ -832,14 +843,6 @@ function AssistantMessageView({
                     </svg>
                     {est}
                   </span>
-                  {tps !== null && (() => {
-                    const bg = tps >= 50 ? "#53b3cb" : tps >= 30 ? "#9bc53d" : tps >= 15 ? "#f9c22e" : "#e01a4f";
-                    return (
-                      <span style={{ marginLeft: 6, padding: "1px 6px", borderRadius: 4, background: bg, color: "#fff", fontSize: 11, fontWeight: 400 }}>
-                        {tps.toFixed(1)} t/s
-                      </span>
-                    );
-                  })()}
                 </span>
               )}
             </>

@@ -1,4 +1,5 @@
 import type { JsonAgentSessionEvent } from "@earendil-works/pi-coding-agent";
+import { readMessagePerformance, type MessagePerformance } from "./message-performance";
 
 export interface AgentEventLike {
   type: string;
@@ -14,10 +15,11 @@ type JsonAssistantMessageEvent = JsonMessageUpdateEvent["assistantMessageEvent"]
 type JsonToolCallStartEvent = Extract<JsonAssistantMessageEvent, { type: "toolcall_start" }>;
 type JsonToolCallDeltaEvent = Extract<JsonAssistantMessageEvent, { type: "toolcall_delta" }>;
 
-export type ClientAssistantMessageEvent =
+export type ClientAssistantMessageEvent = (
   | Exclude<JsonAssistantMessageEvent, { type: "toolcall_start" | "toolcall_delta" }>
   | (JsonToolCallStartEvent & { id?: string; toolName?: string })
-  | (JsonToolCallDeltaEvent & { id?: string; toolName?: string });
+  | (JsonToolCallDeltaEvent & { id?: string; toolName?: string })
+) & { piWebPerformance?: MessagePerformance };
 
 export type ClientMessageUpdateEvent = Omit<JsonMessageUpdateEvent, "assistantMessageEvent"> & {
   assistantMessageEvent: ClientAssistantMessageEvent;
@@ -164,11 +166,12 @@ export function toClientAgentEvent(
     }
 
     const metadata = toolCallMetadata(assistantMessageEvent as Record<string, unknown>);
-    const { partial: _partial, ...deltaEvent } = assistantMessageEvent;
-    void _partial;
+    const { partial, ...deltaEvent } = assistantMessageEvent;
+    const performance = isObject(partial) ? readMessagePerformance(partial.piWebPerformance) : undefined;
+    const timing = performance ? { piWebPerformance: performance } : {};
     return {
       type: "message_update",
-      assistantMessageEvent: metadata ? { ...deltaEvent, ...metadata } : deltaEvent,
+      assistantMessageEvent: { ...deltaEvent, ...metadata, ...timing },
     } as ClientMessageUpdateEvent;
   }
 

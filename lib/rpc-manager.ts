@@ -6,6 +6,8 @@ import { randomUUID } from "crypto";
 import { existsSync, realpathSync, writeFileSync } from "fs";
 import { resolve } from "path";
 import { validateAgentImages } from "./image-attachments";
+import { createRequestPerformanceTracker } from "./request-performance";
+import { computeSessionStats } from "./session-stats";
 import { invalidateModelsCache } from "./models-cache";
 import { resolveVisibleModels, selectInitialModelScope } from "./model-scope";
 import { findDeferredModel, rememberProviderModels } from "./deferred-provider-models";
@@ -397,7 +399,14 @@ export class AgentSessionWrapper {
   }
 
   start(): void {
+    const performanceTracker = createRequestPerformanceTracker();
+    if (this.inner.agent.streamFunction) {
+      this.inner.agent.streamFunction = performanceTracker.wrap(this.inner.agent.streamFunction);
+    }
     this.unsubscribe = this.inner.subscribe((event: AgentEvent) => {
+      if (event.type === "message_end" && event.message && typeof event.message === "object") {
+        performanceTracker.restore(event.message);
+      }
       if (event.type === "agent_start") this.agentRunNeedsCompletion = true;
       if (event.type === "agent_end") {
         invalidateSessionListCache();
@@ -1096,6 +1105,7 @@ export class AgentSessionWrapper {
       case "get_session_stats": {
         return {
           ...this.inner.getSessionStats(),
+          performance: computeSessionStats(this.inner.sessionManager.getEntries() as SessionEntry[]).performance,
           sessionName: this.inner.sessionManager.getSessionName(),
         };
       }

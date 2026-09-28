@@ -95,6 +95,9 @@ nextArgs.push("-H", hostname);
 // and path-with-spaces problems on Windows when shell: true is used.
 const child = spawn(process.execPath, getNextNodeArgs(nextBin, nextArgs), {
   cwd: pkgDir,
+  // A hidden/background launcher may have no console to inherit on Windows.
+  // Hide the child's console too; keep it attached to our lifecycle and logs.
+  windowsHide: true,
   stdio: ["inherit", "pipe", "inherit"],
   env: { ...process.env, PI_WEB_HOSTNAME: hostname },
 });
@@ -122,6 +125,7 @@ child.stdout.on("data", (chunk) => {
       opener = spawn(process.env.ComSpec || "cmd.exe", ["/c", "start", "", url], {
         stdio: "ignore",
         detached: true,
+        windowsHide: true,
       });
     } else if (isMac) {
       opener = spawn("open", [url], {
