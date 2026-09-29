@@ -43,7 +43,10 @@ test("contains chat content and inputs within the mobile viewport", () => {
   assert.match(cssSource, /\.markdown-code-block \{[\s\S]*?min-width: 0;[\s\S]*?max-width: 100%;/);
   assert.match(chatWindowSource, /overflow-x-hidden overflow-y-auto/);
   assert.match(chatWindowSource, /maxHeight: "min\(760px, 100%\)"/);
-  assert.match(chatInputSource, /flex: compact \? "none" : 1,\s*minWidth: 0,\s*width: "100%",/);
+  // The flex item now wraps both the textarea and the visual-only draft suffix.
+  // Keep shrinkability on that wrapper and full width on the actual input.
+  assert.match(chatInputSource, /<div style=\{\{ position: "relative", flex: compact \? "none" : 1, minWidth: 0 \}\}>\s*<textarea/);
+  assert.match(chatInputSource, /<textarea[\s\S]*?style=\{\{\s*display: "block",\s*minWidth: 0,\s*width: "100%",/);
 });
 
 test("prevents iOS focus zoom from widening the layout", () => {

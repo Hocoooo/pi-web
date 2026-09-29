@@ -75,6 +75,7 @@ node_modules/.bin/tsc --noEmit
 
 - 服务端行为测试与真实 route handler 的 mock IO 检查覆盖新/休眠/活跃会话、信任/授权、叶节点变化、范围、无修改、错误隐藏、超时和并发上限；不调用真实 provider。
 - 浏览器测试挂载真实 ChatInput + Hook，mock fetch（刻意忽略取消以测试旧结果），覆盖默认关闭、新草稿、模型选择、Tab/Enter/Esc、IME 事件、选区、命令菜单、busy、切分支、多行镜像、200px 长草稿溢出不可采纳、重新开启不复活旧建议、compact 与移动端。
+- 移动布局源码断言位于 `components/MobilePwaLayout.test.mjs`：灰字 wrapper 承担 flex 收缩，textarea 保留 `minWidth: 0` 与 `width: 100%`。接入后全量测试修复了该旧结构断言，不是去掉移动端宽度保护。
 - 回归特别保留：不要在 native `input` 监听器里同步写 React 状态/取消新请求；它可能与受控 textarea 的 onChange 顺序冲突，吞掉替换输入或取消刚为新值建立的请求。以 React value key 驱动请求失效，并在返回时检查真实 DOM。
 - 真实中文输入法、系统 Tab/撤销行为、各平台字体/缩放与长文本滚动、真实 provider 质量/延迟/费用仍需人工验证，不能用 mock 宣称真实推理验收。
 

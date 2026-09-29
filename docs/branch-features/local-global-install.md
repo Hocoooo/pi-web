@@ -80,6 +80,18 @@ node .pi/skills/pi-web-local-global-install/scripts/install-global.mjs status --
 
 最后一条需替换为已存在 runDir；没有历史运行时不要求 status 成功。仅在用户授权相应操作且满足环境前置条件时执行；文档验收不自动授权安装或外部请求。
 
+## Windows 全量测试的可移植性约束
+
+安装前仍执行完整 `npm test`，不能用平台差异为由自动跳过。测试夹具与时钟必须和被验证的行为分离：
+
+- `directory-browser.test.mjs` 在 Windows 使用目录 junction、POSIX 使用目录 symlink，避免创建链接本身要求管理员权限；`subagent-input.test.mjs` 同样用 junction 指向 cwd 外目录中的真实文件，保留实际链接逃逸拒绝断言，不能改成 mock realpath 或省略安全用例。
+- `project-command-env.test.mjs` 模拟 Linux 的期望 PATH 使用 `:`，不能误用 Windows 宿主的 `path.delimiter`；原生平台执行用例仍按宿主分隔符检查。
+- `terminal-manager.test.mjs` 的真实 ConPTY 启动是异步的：等待输出后再断言有效 PID，清理时等待退出，均有明确 deadline。租约边界测试使用隔离的 mock PTY + 假时钟，防止将 node-pty 自身启动/销毁计时器一起快进；在租约前一毫秒仍存活，到期仅 kill 一次。真实原生模块检查仍保留，不新增 skip。
+- `enabled-models-runtime.test.mjs` 比较设置文件身份时展开显示路径的 `~`，以兼容 Windows 临时目录在 HOME 内与安装器的隔离临时目录；独立的主目录缩写展示断言仍保留。
+- 输入框增加灰字镜像 wrapper 后，`MobilePwaLayout.test.mjs` 同时检查外层 flex item 的 `minWidth: 0` 与 textarea 的全宽约束，不能继续要求两项位于旧的单一 style 对象。
+
+本轮修复仅修改测试与文档，未放宽业务授权或修改终端实现。普通 Windows 工作区全量 **1497 项：1492 通过、0 失败、5 个已有跳过**；原先失败的 6 项所在定向集 **28/28 通过、0 跳过**。安装器仍需对提交后的独立 worktree 重新执行完整验证，不能用此记录代替真实 build/cutover。
+
 ## 手工验收与负例
 
 1. **只读预检。** 前置 Windows 工具链齐全、目标服务与 checkout 可辨认。记录 git HEAD、tracked/untracked、默认 prefix、原 version/BUILD_ID、监听端口/host/进程身份。执行 dry-run，预期只报告、不创建安装计划或改包；tracked dirty 被报告而非静默忽略。未知 listener 必须拒绝识别，不能为「通过预检」停止它。
