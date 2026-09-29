@@ -55,6 +55,7 @@ test("Alt+ArrowUp enters the messages only when no composer completion or IME is
       historyMenuOpen: false, inputHistory: ["previous"], historyActiveIndex: 0,
       slashMenuOpen: false, slashQuery: null, displayedSlashCommands: [{}], slashActiveIndex: 0,
       atMenuOpen: false, atQuery: null, atMatches: [{}], atActiveIndex: 0,
+      draftCompletion: { suffix: "", dismiss() {} },
       value: "hello", onFocusMessages: () => { focused = true; return true; },
       applyHistoryInput() {}, applySlashCommand() {}, applyAtCompletion() {},
       ...state,

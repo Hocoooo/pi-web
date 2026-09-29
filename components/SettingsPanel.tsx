@@ -4,6 +4,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { useTheme } from "@/hooks/useTheme";
 import { useNextCuePreference } from "@/hooks/useNextCuePreference";
+import { useDraftCompletionPreference } from "@/hooks/useDraftCompletionPreference";
 import type { ModelsData } from "@/lib/models-cache";
 import { loadNextCueModels } from "@/lib/next-cue-models";
 import { useSidebarView } from "@/hooks/useSidebarView";
@@ -74,6 +75,7 @@ function GeneralSettings({ cwd, active, sessionId, onSessionReloaded, quoteSelec
   const sidebarView = useSidebarView();
   const { width: chatContentWidth, setWidth: setChatContentWidth, fontSize, setFontSize } = useChatAppearance();
   const { enabled: nextCueEnabled, model: nextCueModel, setNextCueEnabled, setNextCueModel } = useNextCuePreference();
+  const { enabled: draftCompletionEnabled, model: draftCompletionModel, setDraftCompletionEnabled, setDraftCompletionModel } = useDraftCompletionPreference();
   const [nextCueModels, setNextCueModels] = useState<ModelsData["modelList"]>([]);
   const [nextCueModelsLoading, setNextCueModelsLoading] = useState(false);
   const [nextCueModelsError, setNextCueModelsError] = useState(false);
@@ -337,6 +339,34 @@ function GeneralSettings({ cwd, active, sessionId, onSessionReloaded, quoteSelec
               && <p role="alert" className="settings-general-error">{t("settings.nextCueUnavailable")}</p>}
             {!cwd && <p className="settings-general-description">{t("settings.nextCueProjectRequired")}</p>}
             <p className="settings-general-description">{t("settings.nextCueCost")}</p>
+          </div>
+          <div className="settings-chat-option settings-chat-switch-option">
+            <span>{t("settings.draftCompletionEnabled")}</span>
+            <ConfigSwitch
+              checked={draftCompletionEnabled}
+              label={t("settings.draftCompletionEnabled")}
+              onChange={setDraftCompletionEnabled}
+            />
+          </div>
+          <div className="settings-chat-option settings-chat-range-option">
+            <label>{t("settings.draftCompletionModel")}</label>
+            <ModelSelector
+              variant="field"
+              placement="auto"
+              ariaLabel={t("settings.draftCompletionModel")}
+              options={nextCueModels.map((model) => ({ provider: model.provider, modelId: model.id, name: model.name }))}
+              value={draftCompletionModel}
+              emptyLabel={t("settings.nextCueFollowModel")}
+              disabled={!draftCompletionEnabled || !cwd || nextCueModelsLoading || nextCueModelsError}
+              onChange={(provider, modelId) => setDraftCompletionModel({ provider, modelId })}
+              onClear={() => setDraftCompletionModel(null)}
+            />
+            {nextCueModelsError && <p role="alert" className="settings-general-error">{t("settings.nextCueModelsError")}</p>}
+            {draftCompletionModel && !nextCueModelsLoading && !nextCueModelsError && cwd
+              && !nextCueModels.some((model) => model.provider === draftCompletionModel.provider && model.id === draftCompletionModel.modelId)
+              && <p role="alert" className="settings-general-error">{t("settings.nextCueUnavailable")}</p>}
+            {!cwd && <p className="settings-general-description">{t("settings.nextCueProjectRequired")}</p>}
+            <p className="settings-general-description">{t("settings.draftCompletionPrivacy")}</p>
           </div>
         </div>
       </section>
