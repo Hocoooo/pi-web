@@ -6,7 +6,7 @@
 
 无需鼠标即可在 composer 与消息阅读区域间移动，并在打开空白会话后直接输入。焦点切换不能跳动阅读位置、覆盖草稿或抢走弹窗与子控件的键盘操作。
 
-本文件负责聊天区内的上下切换和空白会话自动聚焦；侧栏与 composer 间的 Alt+← / Alt+→ 见 [侧栏键盘导航](sidebar-keyboard-navigation.md)。Tab 采纳下一轮建议见 [下一轮提示词建议](next-prompt-suggestions.md)。
+本文件负责聊天区内的上下切换和空白会话自动聚焦；侧栏与 composer 间的 Alt+← / Alt+→ 见 [侧栏键盘导航](sidebar-keyboard-navigation.md)。Tab 采纳空框建议见 [下一轮提示词建议](next-prompt-suggestions.md)，采纳非空草稿的灰字后缀见 [输入时草稿补全](draft-completion.md)。两者均不得发送消息或恢复旧版 Tab 跳消息区行为。
 
 ## 入口、按键和要求
 

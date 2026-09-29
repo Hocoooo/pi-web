@@ -950,6 +950,9 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
       onNewSession={onNewSession}
       nextCue={nextCue}
       onNextCueAccepted={() => setNextCue(null)}
+      draftCompletionContext={!loading && !extensionDialog && !extensionCustomUi
+        ? { sessionId: sessionIdRef.current, leafId: activeLeafId }
+        : undefined}
       onAbort={handleAbort}
       onSteer={agentRunning ? handleSteer : undefined}
       onFollowUp={agentRunning ? handleFollowUp : undefined}

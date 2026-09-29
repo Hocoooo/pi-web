@@ -162,9 +162,9 @@ test("groups chat display controls together without row backgrounds", () => {
 
   assert.doesNotMatch(appearanceSection, /settings-chat-content/);
   assert.match(chatSection, /className="settings-chat-options"/);
-  assert.equal((chatSection.match(/className="settings-chat-option(?: |")/g) ?? []).length, 7);
-  assert.equal((chatSection.match(/<ConfigSwitch/g) ?? []).length, 3);
-  for (const key of ["thinkingExpandedDefault", "chatContentWidth", "chatContentFontSize", "quoteSelection", "enterSendMode", "enterSendModeEnter", "enterSendModeCtrlEnter", "nextCueEnabled", "nextCueModel"]) {
+  assert.equal((chatSection.match(/className="settings-chat-option(?: |")/g) ?? []).length, 9);
+  assert.equal((chatSection.match(/<ConfigSwitch/g) ?? []).length, 4);
+  for (const key of ["thinkingExpandedDefault", "chatContentWidth", "chatContentFontSize", "quoteSelection", "enterSendMode", "enterSendModeEnter", "enterSendModeCtrlEnter", "nextCueEnabled", "nextCueModel", "draftCompletionEnabled", "draftCompletionModel", "draftCompletionPrivacy"]) {
     assert.match(chatSection, new RegExp(`t\\("settings\\.${key}"\\)`));
   }
   assert.doesNotMatch(panelSource, /ThinkingIcon|settings-thinking-/);
@@ -183,6 +183,17 @@ test("lets users toggle next-prompt suggestions and choose a separate model", ()
   for (const source of [enSource, zhSource]) {
     assert.match(source, /"settings\.nextCueEnabled"/);
     assert.match(source, /"settings\.nextCueModel"/);
+  }
+});
+
+test("draft completion has independent consent, model selection and unsent-text disclosure", () => {
+  assert.match(panelSource, /useDraftCompletionPreference\(\)/);
+  assert.match(panelSource, /checked=\{draftCompletionEnabled\}[\s\S]*?onChange=\{setDraftCompletionEnabled\}/);
+  assert.match(panelSource, /value=\{draftCompletionModel\}[\s\S]*?onClear=\{\(\) => setDraftCompletionModel\(null\)\}/);
+  assert.match(panelSource, /disabled=\{!draftCompletionEnabled \|\| !cwd/);
+  for (const source of [enSource, zhSource]) {
+    assert.match(source, /"settings\.draftCompletionPrivacy"/);
+    assert.match(source, /"settings\.draftCompletionModel"/);
   }
 });
 

@@ -39,6 +39,13 @@
 | F15 | [开发环境 Service Worker 清理](dev-service-worker-cleanup.md) | 非生产模式注销遗留 worker、清理 pi-web 缓存，同时保留主题恢复与生产 PWA | PwaRegistration、theme 初始化脚本 |
 | F16 | [Windows 无窗口启动链](windows-silent-start.md) | 隐藏 Next 与浏览器辅助控制台，保留日志和生命周期；区分无窗口与 no-open | bin/pi-web、安装器 launch |
 | F17 | [消息与会话性能统计](message-performance.md) | 服务端首有效输出 TTFT、持久化 tok/s、会话加权速度与平均 TTFT；缺失样本不补零 | request-performance、session-stats、MessageView、AppShell |
+| F18 | [输入时草稿补全](draft-completion.md) | 默认关闭；独立模型续写未发送草稿，Tab 只采纳；新/休眠会话不启动 AgentSession | draft-completion API、useDraftCompletion、ChatInput、SettingsPanel |
+
+## 交互原型（不代表生产功能）
+
+| 文档 | 验证问题 | 入口 |
+|---|---|---|
+| [输入时补全原型](draft-completion-prototype.md) | 末尾灰字续写、Tab 仅采纳、IME 与过期响应；仅本地模拟，不接入聊天或真实模型 | components/prototypes/draft-completion.prototype.html |
 
 ## 跨功能的约束：先核对这些交点
 
@@ -46,7 +53,7 @@
 
 - `Alt+← / Alt+→`：侧栏与 composer；见 F06。
 - `Alt+↑ / Alt+↓`：composer 与消息容器；见 F08。
-- `Tab`：保留输入补全和可采纳建议语义，不能恢复成旧的聊天区跳转键；见 F02/F08/F10。
+- `Tab`：保留输入补全和可采纳建议语义，不能恢复成旧的聊天区跳转键；见 F02/F08/F10/F18。
 - 模型选择器的上下左右与 Enter/Escape 是自己的局部交互。IME、弹窗、输入补全和子控件优先级必须逐场景验证，不能用一个全局 handler 吞掉所有按键。
 
 ### 会话、项目与草稿
@@ -60,7 +67,8 @@
 - F02 改主会话设置；F10 的建议模型选择不改主会话；F13 的建议不授权执行子代理。
 - F01 的 headless 模式不能误删正常 Web 会话的扩展 UI。
 - F11 必须经过文件授权，不因“本地部署”而放开任意文件系统路径。
-- F10/F13 可能产生外部推理请求；F11 可启动桌面程序；F14 可影响全局安装与服务。文档验收不能默认授权在用户真实环境执行这些副作用。
+- F18 会上传未发送草稿，必须独立 opt-in，不能继承 F10 开关；仅使用独立推理，不创建主会话运行时。
+- F10/F13/F18 可能产生外部推理请求；F11 可启动桌面程序；F14 可影响全局安装与服务。文档验收不能默认授权在用户真实环境执行这些副作用。
 
 ## 开发与文档同步流程
 

@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pi Web · 输入补全交互原型</title>
+<style>
+:root { color-scheme: dark; --bg:#17191c; --panel:#202328; --line:#363b43; --text:#e2e5e9; --muted:#9ba3af; --accent:#b2d69c; }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--text); font:14px/1.65 system-ui,sans-serif; }
+main { max-width:1000px; margin:40px auto; padding:0 24px 60px; }
+h1 { font-size:26px; margin:8px 0; } h2 { font-size:15px; margin:0 0 12px; }
+p { color:var(--muted); margin:8px 0 18px; }
+.badge { color:var(--accent); font-size:12px; letter-spacing:1px; }
+.panel { border:1px solid var(--line); border-radius:12px; padding:20px; background:var(--panel); margin-top:18px; }
+.row { display:flex; flex-wrap:wrap; gap:12px; align-items:center; }
+button,select { background:#2b3037; border:1px solid #454c57; border-radius:6px; color:var(--text); padding:7px 12px; font:inherit; cursor:pointer; }
+button:disabled { opacity:.4; cursor:default; }
+button:focus-visible,select:focus-visible,textarea:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+button.primary,button[aria-selected="true"] { border-color:var(--accent); color:var(--accent); }
+label { display:inline-flex; gap:8px; align-items:center; }
+input { accent-color:var(--accent); }
+.small { font-size:12px; color:var(--muted); }
+.composer { position:relative; border:1px solid #56604f; border-radius:8px; margin:16px 0 10px; overflow:hidden; background:#191c20; }
+.mirror,textarea { margin:0; padding:14px; width:100%; font:16px/26px system-ui,sans-serif; letter-spacing:normal; white-space:pre-wrap; overflow-wrap:break-word; word-break:normal; tab-size:4; }
+.mirror { position:absolute; inset:0; pointer-events:none; overflow:hidden; color:transparent; }
+#ghost { color:#879480; }
+textarea { position:relative; display:block; height:132px; resize:none; background:transparent; color:var(--text); border:0; overflow:auto; }
+textarea:focus-visible { outline:none; }
+.composer:focus-within { border-color:var(--accent); }
+kbd { padding:1px 5px; border:1px solid #515862; border-radius:4px; font-size:12px; }
+.state { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px 22px; margin:0; }
+dt { color:var(--muted); font-size:12px; } dd { margin:2px 0 0; overflow-wrap:anywhere; }
+#notice { color:var(--accent); min-height:24px; margin-top:12px; }
+#sent { margin:12px 0 0; padding-left:22px; white-space:pre-wrap; overflow-wrap:anywhere; }
+.tabs { margin-bottom:12px; }
+#steps { display:flex; flex-wrap:wrap; gap:8px; }
+@media(max-width:640px) { main { margin-top:20px; } .state { grid-template-columns:1fr 1fr; } }
+</style>
+</head>
+<body>
+<main>
+<div class="badge">PI WEB / THROWAWAY PROTOTYPE / 不接入正式聊天</div>
+<h1>输入到一半，让灰字接下去</h1>
+<p>验证的问题：停顿补全是否顺手？Tab 是否只采纳、不发送？中文组词、切换会话、旧请求晚到时，能否不打扰草稿？<br>这是单文件交互原型，全部内容仅在内存中。模型和发送均为模拟，不联网、不保存、不计费。</p>
+<section class="panel">
+<div class="row">
+<label><input id="enabled" type="checkbox">输入时补全（默认关闭）</label>
+<label>补全模型 <select id="model"><option value="fast">模拟 · 快速模型（250ms）</option><option value="slow">模拟 · 慢模型（1800ms）</option></select></label>
+</div>
+<p class="small">正式接入后，开启会将尚未发送的草稿交给所选模型；本原型不会上传任何内容。停顿 600ms 触发，仅补全文本末尾。模型选择仅改变模拟延迟。</p>
+<div class="composer">
+<div class="mirror" aria-hidden="true"><span id="prefix"></span><span id="ghost"></span></div>
+<textarea id="draft" aria-label="消息草稿" placeholder="开启补全后，试试：帮我检查这个接口" spellcheck="false"></textarea>
+</div>
+<div class="row"><span class="small"><kbd>Tab</kbd> 采纳 · <kbd>Esc</kbd> 取消 · <kbd>Enter</kbd> 模拟发送实际草稿 · <kbd>Shift Enter</kbd> 换行</span><button id="send" class="primary">模拟发送</button></div>
+<div id="notice" role="status" aria-live="polite"></div>
+<ol id="sent" aria-label="本地模拟发送记录"></ol>
+</section>
+<section class="panel">
+<h2>当前状态</h2>
+<dl class="state" id="state"></dl>
+</section>
+<section class="panel">
+<h2>自由尝试</h2>
+<div class="row">
+<button id="example">填入示例</button><button id="switch">切换模拟会话</button>
+<label><input id="busy" type="checkbox">主会话运行中</label>
+<label><input id="menu" type="checkbox">其他补全菜单占用</label>
+<label><input id="ime" type="checkbox">模拟中文组词中</label>
+<button id="reset">全部重置</button>
+</div>
+<p class="small">可以实际使用中文输入法；也可用“模拟中文组词”观察暂停状态。菜单开关只模拟优先级阻塞，不实现 /、@ 或历史菜单。输入少于 4 个字符、移动光标到中间、选中文字、失焦都会暂停。窄屏仅供预览，目标为桌面端。</p>
+</section>
+<section class="panel">
+<h2>引导场景</h2>
+<div class="row tabs" role="tablist" aria-label="补全演示场景">
+<button role="tab" id="tab-basic" aria-controls="walkthrough" aria-selected="true" data-scenario="basic">正常采纳</button>
+<button role="tab" id="tab-stale" aria-controls="walkthrough" aria-selected="false" data-scenario="stale">旧结果晚到</button>
+<button role="tab" id="tab-block" aria-controls="walkthrough" aria-selected="false" data-scenario="block">输入法与取消</button>
+</div>
+<div id="walkthrough" role="tabpanel" aria-labelledby="tab-basic"><p id="guide"></p><div id="steps"></div></div>
+</section>
+</main>
+<script>
+// PROTOTYPE: pure, portable state model. No DOM, storage, network or agent calls.
+const Completion = (() => {
+  const initial = () => ({ enabled:false, model:'fast', text:'', start:0, end:0, focused:false,
+    composing:false, simulatedIme:false, busy:false, menu:false, session:1, revision:0,
+    request:null, suggestion:'', dismissed:false, ignored:0, sent:[], note:'补全未开启。' });
+  function blocked(s) {
+    if (!s.enabled) return '补全未开启';
+    if (s.busy) return '主会话运行中';
+    if (s.composing || s.simulatedIme) return '中文输入法组词中';
+    if (s.menu) return '其他补全菜单优先';
+    if (!s.focused) return '输入框未聚焦';
+    if (s.start !== s.end || s.end !== s.text.length) return '仅支持末尾续写，无选区';
+    if (Array.from(s.text.trim()).length < 4) return '至少输入 4 个字符';
+    if (s.dismissed) return '本次建议已结束，继续输入可重新触发';
+    return '';
+  }
+  const invalidate = (s, patch) => ({ ...s, ...patch, revision:s.revision+1, request:null, suggestion:'' });
+  function reduce(s, a) {
+    switch (a.type) {
+      case 'patch': {
+        if (Object.entries(a.patch).every(([k,v]) => s[k] === v)) return s;
+        return invalidate(s, { ...a.patch, dismissed:a.patch.text !== undefined ? false : s.dismissed });
+      }
+      case 'request':
+        return blocked(s) || s.request || s.suggestion ? s : { ...s, request:{ id:a.id, revision:s.revision, session:s.session, model:s.model }, note:'模拟模型生成中…' };
+      case 'result':
+        if (!s.request || a.id !== s.request.id || s.request.revision !== s.revision || s.request.session !== s.session || blocked(s))
+          return { ...s, ignored:s.ignored+1, note:'旧结果已丢弃，没有写入草稿。' };
+        return { ...s, request:null, suggestion:a.text, dismissed:!a.text, note:a.text ? '灰字已就绪；Tab 只填入草稿，不发送。' : '没有匹配的模拟建议。试试“帮我检查这个接口”。' };
+      case 'accept': {
+        if (blocked(s) || !s.suggestion) return s;
+        const text = s.text + s.suggestion;
+        return invalidate(s, { text, start:text.length, end:text.length, dismissed:true, note:'已采纳为草稿，尚未发送。' });
+      }
+      case 'dismiss': return invalidate(s, { dismissed:true, note:'已取消；本次草稿不会立刻重新弹出建议。' });
+      case 'send':
+        if (s.composing || s.simulatedIme || s.menu || s.busy || !s.text.trim()) return s;
+        return invalidate(s, { sent:[...s.sent, s.text], text:'', start:0, end:0, dismissed:false, note:'仅在本页记录了实际草稿；没有调用 Agent。' });
+      case 'switch': return invalidate(s, { session:s.session+1, text:'', start:0, end:0, dismissed:false, sent:[], note:'已切换模拟会话，旧建议失效。' });
+      default: return s;
+    }
+  }
+  function mockSuffix(text) {
+    const targets = ['帮我检查这个接口的参数校验和错误处理', '请帮我分析这段代码的性能瓶颈，并给出优化建议', '给这个组件添加单元测试，覆盖正常路径和边界情况', '请帮我\n检查这个接口的参数校验和错误处理'];
+    const target = targets.find(value => value.startsWith(text) && value !== text);
+    return target ? target.slice(text.length) : '';
+  }
+  return { initial, blocked, reduce, mockSuffix };
+})();
+</script>
+<script>
+// Throwaway DOM shell. Deliberately leave simulated requests alive to exercise stale-result rejection.
+const $ = id => document.getElementById(id);
+const draft = $('draft');
+let state = Completion.initial(), debounce, requestId = 0, epoch = 0, step = 0, scenario = 'basic';
+let capturedRequest = null, compositionEndedAt = 0;
+function render() {
+  if (draft.value !== state.text) { draft.value = state.text; draft.setSelectionRange(state.start, state.end); }
+  $('prefix').textContent = state.text;
+  $('ghost').textContent = state.suggestion;
+  $('enabled').checked = state.enabled;
+  $('model').value = state.model;
+  $('busy').checked = state.busy;
+  $('menu').checked = state.menu;
+  $('ime').checked = state.simulatedIme;
+  $('notice').textContent = state.note;
+  $('send').disabled = !state.text.trim() || state.composing || state.simulatedIme || state.menu || state.busy;
+  const fields = {
+    '补全状态':Completion.blocked(state) || (state.request ? '等待模型响应' : state.suggestion ? '可按 Tab 采纳' : '等待 600ms 停顿'),
+    '会话 / 草稿版本':`${state.session} / ${state.revision}`,
+    '独立补全模型':state.model === 'fast' ? '模拟快速模型' : '模拟慢模型',
+    '光标 / 文本长度':`${state.start}–${state.end} / ${state.text.length}`,
+    '进行中的请求':state.request ? `#${state.request.id}` : '无',
+    '已丢弃过期结果':String(state.ignored),
+    '待采纳的灰字':state.suggestion || '无',
+    '实际草稿':state.text || '空',
+    '本页模拟发送次数':String(state.sent.length),
+  };
+  $('state').replaceChildren(...Object.entries(fields).map(([label,value]) => {
+    const box=document.createElement('div'), dt=document.createElement('dt'), dd=document.createElement('dd');
+    dt.textContent=label; dd.textContent=value; box.append(dt,dd); return box;
+  }));
+  $('sent').replaceChildren(...state.sent.map(text => { const li=document.createElement('li'); li.textContent=text; return li; }));
+  syncMirror();
+}
+function syncMirror() {
+  const mirror = document.querySelector('.mirror');
+  mirror.style.width = draft.clientWidth + 'px';
+  mirror.scrollTop = draft.scrollTop;
+  mirror.scrollLeft = draft.scrollLeft;
+}
+function schedule() {
+  clearTimeout(debounce);
+  if (Completion.blocked(state) || state.request || state.suggestion) return;
+  debounce = setTimeout(() => {
+    const id=++requestId, text=state.text, delay=state.model === 'fast' ? 250 : 1800, token=epoch;
+    dispatch({type:'request',id});
+    if (state.request?.id !== id) return;
+    setTimeout(() => { if (token === epoch) dispatch({type:'result',id,text:Completion.mockSuffix(text)}); },delay);
+  },600);
+}
+function dispatch(action) {
+  const next=Completion.reduce(state,action);
+  if (next === state) return;
+  state=next; render(); schedule();
+}
+function patch(values) { dispatch({type:'patch',patch:values}); }
+function focus() { draft.focus({preventScroll:true}); }
+function seed(text='帮我检查这个接口') {
+  patch({enabled:true,text,start:text.length,end:text.length,dismissed:false});
+  focus(); draft.setSelectionRange(text.length,text.length);
+}
+function reset() {
+  epoch++; clearTimeout(debounce); capturedRequest=null; compositionEndedAt=0;
+  state=Completion.initial(); render();
+}
+draft.addEventListener('input', () => patch({text:draft.value,start:draft.selectionStart,end:draft.selectionEnd}));
+draft.addEventListener('focus', () => patch({focused:true}));
+draft.addEventListener('blur', () => patch({focused:false}));
+function selection() { patch({start:draft.selectionStart,end:draft.selectionEnd}); }
+draft.addEventListener('select',selection);
+draft.addEventListener('keyup',selection);
+draft.addEventListener('click',selection);
+document.addEventListener('selectionchange', () => { if (document.activeElement === draft) selection(); });
+draft.addEventListener('scroll',syncMirror);
+window.addEventListener('resize',syncMirror);
+draft.addEventListener('compositionstart', () => patch({composing:true}));
+draft.addEventListener('compositionend', () => { compositionEndedAt=Date.now(); patch({composing:false,text:draft.value,start:draft.selectionStart,end:draft.selectionEnd}); });
+draft.addEventListener('keydown', event => {
+  if (event.isComposing || event.keyCode === 229 || state.composing || state.simulatedIme) return;
+  if (event.key === 'Enter' && Date.now()-compositionEndedAt < 100) { event.preventDefault(); return; }
+  if (event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) return;
+  if (state.menu) return;
+  if (event.key === 'Tab' && state.suggestion && !Completion.blocked(state)) { event.preventDefault(); dispatch({type:'accept'}); }
+  else if (event.key === 'Escape' && state.enabled) { event.preventDefault(); dispatch({type:'dismiss'}); }
+  else if (event.key === 'Enter') { event.preventDefault(); dispatch({type:'send'}); }
+});
+for (const key of ['enabled','busy','menu']) $(key).addEventListener('change', event => { patch({[key]:event.target.checked}); focus(); });
+$('ime').addEventListener('change', event => { patch({simulatedIme:event.target.checked}); focus(); });
+$('model').addEventListener('change', event => { patch({model:event.target.value,dismissed:false}); focus(); });
+$('example').onclick = () => seed();
+$('switch').onclick = () => { dispatch({type:'switch'}); focus(); };
+$('reset').onclick = () => { reset(); step=0; renderGuide(); };
+$('send').onclick = () => { dispatch({type:'send'}); focus(); };
+const scenarios = {
+  basic:{ description:'依次操作：开启并填入草稿 → 等待灰字 → 按 Tab → 检查发送次数仍为 0 → 再按 Enter。示例响应是固定文本，不代表真实模型质量。', steps:[
+    ['开启并填入示例', () => seed()],
+    ['采纳灰字（同 Tab）', () => { if (!state.suggestion) return false; dispatch({type:'accept'}); }],
+    ['模拟发送草稿', () => dispatch({type:'send'})],
+  ]},
+  stale:{ description:'手动保留一个旧请求，在切换会话后让它返回。观察“已丢弃过期结果”增加，草稿仍为空。模拟网络不取消，专门验证身份校验。', steps:[
+    ['建立旧请求', () => { seed(); const id=++requestId; dispatch({type:'request',id}); capturedRequest={id,text:Completion.mockSuffix(state.text)}; }],
+    ['切换会话', () => dispatch({type:'switch'})],
+    ['让旧请求返回', () => { if (capturedRequest) dispatch({type:'result',...capturedRequest}); }],
+  ]},
+  block:{ description:'模拟组词时不请求；结束组词后才等待补全。取消后同一草稿不会马上重新出现灰字；继续输入才恢复。真实中文输入法仍需人工体验。', steps:[
+    ['填入草稿并开始组词', () => { seed(); patch({simulatedIme:true}); }],
+    ['结束组词，等待灰字', () => patch({simulatedIme:false})],
+    ['取消建议（同 Esc）', () => dispatch({type:'dismiss'})],
+  ]},
+};
+function renderGuide() {
+  $('guide').textContent=scenarios[scenario].description;
+  $('walkthrough').setAttribute('aria-labelledby',`tab-${scenario}`);
+  document.querySelectorAll('[data-scenario]').forEach(button => button.setAttribute('aria-selected',String(button.dataset.scenario === scenario)));
+  $('steps').replaceChildren(...scenarios[scenario].steps.map(([label,action],index) => {
+    const button=document.createElement('button'); button.textContent=`${index+1}. ${label}`; button.disabled=index !== step;
+    // Keep composer focus on pointer use so the control exercises the actual acceptance guard.
+    button.onmousedown=event => event.preventDefault();
+    button.onclick=() => { focus(); if (action() === false) { $('notice').textContent='请先等待灰字出现，再采纳。'; return; } step++; renderGuide(); };
+    return button;
+  }));
+}
+document.querySelectorAll('[data-scenario]').forEach(button => button.onclick=() => { reset(); scenario=button.dataset.scenario; step=0; renderGuide(); });
+render(); renderGuide();
+</script>
+</body>
+</html>

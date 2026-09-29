@@ -30,6 +30,8 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { useEnterSendMode } from "@/hooks/useEnterSendMode";
 import { useI18n } from "@/hooks/useI18n";
 import { useChatAppearance } from "@/hooks/useChatAppearance";
+import { useDraftCompletion, type DraftCompletionContext } from "@/hooks/useDraftCompletion";
+import { DraftCompletionGhost } from "./DraftCompletionGhost";
 import type { ToolPreset } from "@/lib/tool-presets";
 import { SelectorRow } from "./SelectorRow";
 import { ChatInputModelControl } from "./ChatInputModelControl";
@@ -53,6 +55,8 @@ interface Props {
   /** Optional next-prompt hint. Only shown while the composer is empty. */
   nextCue?: string | null;
   onNextCueAccepted?: () => void;
+  /** Absent for auxiliary composers; null sessionId supports the first draft. */
+  draftCompletionContext?: DraftCompletionContext;
   onPromptWithStreamingBehavior?: (message: string, behavior: "steer" | "followUp", images?: AttachedImage[]) => void;
   isStreaming: boolean;
   /** Text-only composer without the session controls or outer spacing. */
@@ -612,7 +616,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   slashCommands, slashCommandsLoading, onLoadSlashCommands,
   onBuiltinCommand, onNewSession,
   soundEnabled, onSoundToggle, onAudioUnlock,
-  nextCue, onNextCueAccepted,
+  nextCue, onNextCueAccepted, draftCompletionContext,
   onPromptWithStreamingBehavior,
   draftKey,
   cwd,
@@ -683,6 +687,14 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const pendingImageCountRef = useRef(0);
   valueRef.current = value;
   attachedImagesRef.current = attachedImages;
+
+  const draftCompletion = useDraftCompletion({
+    textarea: textareaRef, value, cwd, context: draftCompletionContext, model,
+    disabled: compact || isMobile || isStreaming || !!isCompacting || !!modelSwitching
+      || builtinCommandPending || attachedImages.length > 0 || bashMode
+      || slashMenuOpen || atMenuOpen || historyMenuOpen || toolDropdownOpen
+      || thinkingDropdownOpen || controlsMenuOpen,
+  });
 
   useImperativeHandle(ref, () => ({
     focusComposer() {
@@ -1494,6 +1506,22 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         }
       }
 
+      // Draft suffixes never enter the submitted value until an explicit Tab.
+      if ((e.key === "Tab" || e.key === "Escape") && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey
+        && !isComposing && !recentlyComposed && !historyMenuOpen && !slashMenuOpen && !atMenuOpen) {
+        if (e.key === "Escape") {
+          draftCompletion.dismiss();
+        } else if (draftCompletion.suffix) {
+          e.preventDefault();
+          const next = value + draftCompletion.suffix;
+          draftCompletion.dismiss(next);
+          valueRef.current = next;
+          setValue(next);
+          requestAnimationFrame(() => textareaRef.current?.setSelectionRange(next.length, next.length));
+          return;
+        }
+      }
+
       // Menus and IME take priority. Accepting a cue only fills the draft;
       // Enter still requires a separate user action to submit it.
       if (e.key === "Tab" && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey
@@ -1544,7 +1572,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         }
       }
     },
-    [isMobile, enterSendMode, isStreaming, onSteer, onFollowUp, onAbort, onFocusMessages, slashMenuOpen, slashQuery, displayedSlashCommands, slashActiveIndex, applySlashCommand, sendQueued, handleSend, getNextSlashIndex, atMenuOpen, atQuery, atMatches, atActiveIndex, applyAtCompletion, historyMenuOpen, inputHistory, historyActiveIndex, applyHistoryInput, value, nextCue, onNextCueAccepted, attachedImages.length, compact]
+    [isMobile, enterSendMode, isStreaming, onSteer, onFollowUp, onAbort, onFocusMessages, slashMenuOpen, slashQuery, displayedSlashCommands, slashActiveIndex, applySlashCommand, sendQueued, handleSend, getNextSlashIndex, atMenuOpen, atQuery, atMatches, atActiveIndex, applyAtCompletion, historyMenuOpen, inputHistory, historyActiveIndex, applyHistoryInput, value, nextCue, onNextCueAccepted, attachedImages.length, compact, draftCompletion]
   );
 
   const handleInput = useCallback(() => {
@@ -2279,6 +2307,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               transition: "border-color 0.15s, background 0.15s, box-shadow 0.15s",
             } as React.CSSProperties}
           >
+          <div style={{ position: "relative", flex: compact ? "none" : 1, minWidth: 0 }}>
           <textarea
             ref={textareaRef}
             className="chat-input-textarea"
@@ -2316,7 +2345,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             }
             rows={1}
             style={{
-              flex: compact ? "none" : 1,
+              display: "block",
               minWidth: 0,
               width: "100%",
               background: "none",
@@ -2332,6 +2361,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               overflow: "auto",
             }}
           />
+          {draftCompletion.suffix && <DraftCompletionGhost textarea={textareaRef} value={value} suffix={draftCompletion.suffix} onOverflow={draftCompletion.dismiss} />}
+          </div>
 
           {isStreaming ? (
             <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0, alignSelf: "flex-end" }}>
