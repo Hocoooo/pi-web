@@ -10,7 +10,7 @@
 
 ## 入口与行为要求
 
-1. **最外层**：安装器以 `detached: true`、`windowsHide: true`、stdin ignore、stdout/stderr 指向 `service.log` 的方式启动 Node CLI，保留当前用户的 runtime 环境。该配置已存在，本功能不替换安装器的进程归属检查、idle 等待和失败恢复。
+1. **最外层**：安装器以 `detached: true`、`windowsHide: true`、stdin ignore、stdout/stderr 指向 `service.log` 的方式启动 Node CLI，保留当前用户的 runtime 环境。该配置已存在，本功能不替换安装器的进程归属检查。安装器后续已统一 Windows/macOS 直接覆盖、不备份或自动回滚；普通重启仍等 idle，仅在显式授权 `--no-wait` 时跳过等待，失败保留人工恢复状态。
 2. **Next 子进程**：`bin/pi-web.js` 直接启动 Node + Next JS 入口并设置 `windowsHide: true`。不要增加 `.cmd`、`npm` 或 `shell: true` 中间层。
 3. **Next 生命周期**：Next 仍然不是 detached 子进程，不调用 `unref()`；继续由 `wireChildProcessLifecycle` 转发退出信号、处理启动失败和退出码。不能为了隐藏窗口将其变成无人管理的服务。
 4. **日志不丢失**：Next stdio 仍为 `["inherit", "pipe", "inherit"]`。stdout 继续转发到 CLI stdout，stderr 继续继承外层；安装器启动时因此进入文件日志，终端启动时仍在终端可见。
@@ -25,7 +25,7 @@
 - [pi-web.js](../../bin/pi-web.js)：Next spawn 和 Windows browser opener 的 `windowsHide`。
 - [pi-web-options.js](../../bin/pi-web-options.js)：现有 `--no-open` / 环境变量语义。没有新增 `--silent` 或 `--background`。
 - [process-lifecycle.js](../../bin/process-lifecycle.js)：Next 的归属、信号和错误处理。
-- [安装器 host.mjs](../../.pi/skills/pi-web-local-global-install/scripts/lib/host.mjs)：`launch` 的隐藏启动、runtime env 和 service.log。
+- [安装器 local-host.mjs](../../.pi/skills/pi-web-local-global-install/scripts/lib/local-host.mjs)：共用 `launch` 的隐藏启动、runtime env 和 service.log；[host.mjs](../../.pi/skills/pi-web-local-global-install/scripts/lib/host.mjs) 保留 Windows 进程适配。
 - [安装器 workflow.mjs](../../.pi/skills/pi-web-local-global-install/scripts/lib/workflow.mjs)：延迟 worker 的独立隐藏启动。
 
 ## 自动验收
@@ -34,7 +34,7 @@
 
 ```bash
 node --test lib/pi-web-launch.test.mjs lib/pi-web-options.test.mjs lib/process-lifecycle.test.mjs
-node --experimental-strip-types --test lib/local-global-install.test.mjs
+node --experimental-strip-types --test lib/local-global-install.test.mjs lib/local-global-install.macos.test.mjs
 node e2e/windows-silent-start.mjs
 ```
 

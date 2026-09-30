@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { createRequire } from 'node:module';
@@ -16,19 +17,21 @@ export function runnerLockfile(runDir) {
 export const PACKAGE = '@agegr/pi-web';
 
 export function parseArgs(argv) {
-  const options = { command: argv[0] ?? 'help', restart: false, defer: 0, port: 30141, heapMb: 4096, skipTests: false, commit: 'HEAD' };
+  const options = { command: argv[0] ?? 'help', restart: false, noWait: false, defer: 0, port: 30141, heapMb: 4096, skipTests: false, allowDirty: false, commit: 'HEAD' };
   if (['--help', '-h'].includes(options.command)) options.command = 'help';
   if (!['run', 'resume', 'status', 'help', 'worker'].includes(options.command)) throw new Error('Expected run, resume, status, or help');
   const allowed = {
-    run: ['--commit', '--defer', '--port', '--heap-mb', '--skip-tests-reason', '--restart', '--dry-run'],
-    resume: ['--run-dir', '--restart', '--defer'], status: ['--run-dir'], worker: ['--run-dir'], help: [],
+    run: ['--commit', '--defer', '--port', '--heap-mb', '--skip-tests-reason', '--allow-dirty', '--restart', '--no-wait', '--dry-run'],
+    resume: ['--run-dir', '--restart', '--defer', '--no-wait'], status: ['--run-dir'], worker: ['--run-dir'], help: [],
   };
   const valued = new Map([['--commit', 'commit'], ['--run-dir', 'runDir'], ['--defer', 'defer'], ['--port', 'port'], ['--heap-mb', 'heapMb'], ['--skip-tests-reason', 'skipReason']]);
   for (let i = 1; i < argv.length; i++) {
     const arg = argv[i];
     if (!allowed[options.command].includes(arg)) throw new Error(`Unsupported option for ${options.command}: ${arg}`);
     if (arg === '--restart') options.restart = true;
+    else if (arg === '--no-wait') options.noWait = true;
     else if (arg === '--dry-run') options.dryRun = true;
+    else if (arg === '--allow-dirty') options.allowDirty = true;
     else if (valued.has(arg)) {
       const value = argv[++i];
       if (!value || value.startsWith('--')) throw new Error(`Missing value for ${arg}`);
@@ -40,6 +43,7 @@ export function parseArgs(argv) {
     if (!Number.isInteger(options[key]) || options[key] < min || options[key] > max) throw new Error(`Invalid ${key}`);
   }
   if (options.defer && !options.restart) throw new Error('--defer requires --restart');
+  if (options.noWait && !options.restart) throw new Error('--no-wait requires --restart');
   if (options.skipReason !== undefined) {
     if (!options.skipReason.trim()) throw new Error('A non-empty test-skip reason is required');
     options.skipTests = true;
@@ -76,12 +80,16 @@ export function buildEnvironment(environment, runDir, heapMb) {
   // Never mutate the restart/install environment or place runtime data beneath build/.
   const env = commandEnvironment(environment);
   const home = path.join(runDir, 'build-home');
-  const temp = path.join(runDir, 'build-temp');
-  return { ...env, HOME: home, USERPROFILE: home, TMP: temp, TEMP: temp, TMPDIR: temp, NODE_OPTIONS: `--max-old-space-size=${heapMb}` };
+  // Build temp uses the OS temp dir, which is outside the real home tree: the SDK's
+  // project-trust ancestor scan must not mistake the operator's ~/.agents/skills for
+  // a project resource while HOME is isolated under the run directory.
+  const temp = os.tmpdir();
+  return { ...env, HOME: home, USERPROFILE: home, PI_CODING_AGENT_DIR: path.join(home, '.pi', 'agent'), TMP: temp, TEMP: temp, TMPDIR: temp, NODE_OPTIONS: `--max-old-space-size=${heapMb}` };
 }
 
 export function samePath(a, b) {
-  return path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase();
+  const left = path.resolve(a), right = path.resolve(b);
+  return process.platform === 'win32' ? left.toLowerCase() === right.toLowerCase() : left === right;
 }
 
 export function sameProcess(a, b) {
@@ -124,7 +132,9 @@ export function validatePlan(plan, runDir) {
       !/^[a-f0-9]{40,64}$/.test(plan.commit ?? '') || typeof plan.version !== 'string' ||
       !path.isAbsolute(plan.repo ?? '') || !path.isAbsolute(plan.prefix ?? '') ||
       !Number.isInteger(plan.port) || plan.port < 1 || plan.port > 65535 ||
-      !Number.isInteger(plan.heapMb) || plan.heapMb < 1024 || plan.heapMb > 16384) throw new Error('Invalid installation plan');
+      !Number.isInteger(plan.heapMb) || plan.heapMb < 1024 || plan.heapMb > 16384 ||
+      (plan.platform !== undefined && !['win32', 'darwin'].includes(plan.platform)) ||
+      (plan.noWait !== undefined && typeof plan.noWait !== 'boolean') || (plan.noWait && !plan.restart)) throw new Error('Invalid installation plan');
   if (samePath(plan.repo, runDir) || path.relative(plan.repo, runDir).split(path.sep)[0] !== '..') throw new Error('Run directory must be outside the checkout');
   for (const artifact of [plan.artifact, plan.fallback].filter(Boolean)) {
     if (!/^[a-f0-9]{64}$/.test(artifact.sha256 ?? '') || typeof artifact.buildId !== 'string' || typeof artifact.version !== 'string' ||
@@ -183,7 +193,8 @@ export function handoffLock(file, runDir, owner, worker, lockfile) {
 }
 
 export function lockKey(prefix) {
-  return crypto.createHash('sha256').update(`${path.resolve(prefix).toLowerCase()}|${PACKAGE}`).digest('hex').slice(0, 24);
+  const canonical = path.resolve(prefix);
+  return crypto.createHash('sha256').update(`${process.platform === 'win32' ? canonical.toLowerCase() : canonical}|${PACKAGE}`).digest('hex').slice(0, 24);
 }
 
 export function assertArtifact(artifact) {
@@ -195,7 +206,7 @@ export function assertBuildOwned(plan, gitTop, gitHead, realBuild) {
   if (!samePath(build, gitTop) || !samePath(build, realBuild) || gitHead.trim() !== plan.commit || samePath(build, plan.repo)) throw new Error('Refusing cleanup of an unrecognized worktree');
 }
 
-/** Testable transaction: never attempt rollback before this process has interrupted the old installation. */
+/** Testable direct-overwrite transaction: interrupted failures require recovery, never rollback. */
 export async function cutoverTransaction(actions) {
   await actions.preflight();
   await actions.idle();
@@ -205,7 +216,7 @@ export async function cutoverTransaction(actions) {
   try {
     // stop() owns its partial-stop recovery flag: a second kill can fail after the first succeeds.
     await actions.stop(() => { interrupted = true; });
-    interrupted = true; // Even an initially stopped service now needs package rollback if installation fails.
+    interrupted = true; // Package mutation is risky even when no service was initially running.
     await actions.install();
     await actions.verify();
     installedService = await actions.launch();
@@ -213,6 +224,7 @@ export async function cutoverTransaction(actions) {
     await actions.success(installedService);
   } catch (error) {
     if (!interrupted) throw error;
-    await actions.rollback(error, installedService);
+    await actions.failure(error, installedService);
+    throw error;
   }
 }
