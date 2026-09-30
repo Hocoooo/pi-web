@@ -6,7 +6,10 @@ import test from "node:test";
 import { createJiti } from "jiti";
 
 test("desktop route validates requests and authorizes files before launching", async (t) => {
-  const dir = await mkdtemp(path.join(os.tmpdir(), "pi-desktop-test-"));
+  // Canonicalize the temp dir: on macOS os.tmpdir() lives under a symlinked
+  // /var, so a non-canonical root makes the route's canonical-path re-check
+  // reject a legitimately referenced file.
+  const dir = await realpath(await mkdtemp(path.join(os.tmpdir(), "pi-desktop-test-")));
   const root = path.join(dir, "project");
   await mkdir(root);
   const file = path.join(root, "中文 & ' report.txt");
