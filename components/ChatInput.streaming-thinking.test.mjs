@@ -4,12 +4,12 @@ import test from "node:test";
 
 const source = await readFile(new URL("./ChatInput.tsx", import.meta.url), "utf8");
 const session = await readFile(new URL("../hooks/useAgentSession.ts", import.meta.url), "utf8");
-const thinkingControl = source.slice(source.indexOf("{onThinkingLevelChange && ("));
+const thinkingControl = source.slice(source.indexOf("{onThinkingLevelChange && ("), source.indexOf("{!isStreaming && onToolPresetChange"));
 
 test("keeps one thinking control and disables it while the session is busy", () => {
   assert.doesNotMatch(source, /isStreaming && onThinkingLevelChange/);
   assert.doesNotMatch(thinkingControl, /<span\s+title=\{t\("chat\.currentReasoning"/);
-  assert.match(thinkingControl, /disabled=\{isStreaming\}/);
+  assert.match(thinkingControl, /disabled=\{isStreaming \|\| isCompacting \|\| modelSwitching\}/);
   assert.match(thinkingControl, /title=\{isStreaming/);
   assert.match(thinkingControl, /t\("chat\.currentReasoning", \{ level: thinkingDisplayLabel \}\)/);
   assert.match(thinkingControl, /t\("chat\.changeReasoning", \{ level: thinkingDisplayLabel \}\)/);

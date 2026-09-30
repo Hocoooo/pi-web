@@ -4,6 +4,7 @@ export interface InitialNavigation {
   requestedCwd: string | null;
   sessionId: string | null;
   sidebarCollapsed: boolean;
+  requestedChat?: true;
 }
 
 export function getInitialNavigation(
@@ -13,7 +14,8 @@ export function getInitialNavigation(
 
   return {
     requestedCwd,
-    sessionId: requestedCwd ? null : (searchParams.get("session") || null),
+    ...(searchParams.get("chat") === "1" && !requestedCwd ? { requestedChat: true as const } : {}),
+    sessionId: requestedCwd || searchParams.get("chat") === "1" ? null : (searchParams.get("session") || null),
     sidebarCollapsed: searchParams.get("sidebar") === "collapsed",
   };
 }
@@ -35,7 +37,7 @@ export function withTabOpen(
   navigation: InitialNavigation,
   tabOpen: TabOpen | null,
 ): InitialNavigation {
-  if (navigation.requestedCwd || navigation.sessionId || !tabOpen) {
+  if (navigation.requestedCwd || navigation.requestedChat || navigation.sessionId || !tabOpen) {
     return navigation;
   }
   if (tabOpen.kind === "session") {

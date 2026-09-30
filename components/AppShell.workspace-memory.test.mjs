@@ -94,6 +94,8 @@ test("New restores the draft after session navigation and workspace auto-restore
         cancelEventStreamGrace() {},
         closeEvents() {},
         isMobile: false,
+        chatWorkspaceCwd: null,
+        CHAT_WORKSPACE_KEY: "pi-web:chat",
         activeCwd: cwd,
         activeFileTabId: null,
         newSessionCwd: cwd,

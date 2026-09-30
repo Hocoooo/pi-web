@@ -33,7 +33,8 @@ try {
     if (url.pathname === "/api/files") return json({ entries: [] });
     return route.continue();
   });
-  await page.goto(process.env.PI_WEB_TEST_URL || "http://127.0.0.1:30142");
+  const base = process.env.PI_WEB_TEST_URL || "http://127.0.0.1:30142";
+  await page.goto(`${base}/?session=keyboard-0`);
   await page.getByText("Keyboard session 0", { exact: true }).waitFor();
   const waitForRow = (id) => page.waitForFunction((key) => document.activeElement?.getAttribute("data-sidebar-row") === key, `session:keyboard-${id}`);
   await page.getByRole("button", { name: /^(隐藏侧边栏|隱藏側邊欄|Hide sidebar)$/ }).click();

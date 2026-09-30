@@ -12,6 +12,8 @@
  * Stored in localStorage; best-effort (silently ignored when unavailable).
  */
 
+import { CHAT_WORKSPACE_KEY } from "./session-kind";
+
 const STORAGE_KEY = "pi-web:last-open-by-workspace";
 
 interface StorageLike {
@@ -91,8 +93,9 @@ export function clearLastOpen(
 /** Workspace identity for a session: resolved project root when known, else cwd. */
 export function workspaceKeyOf(session: {
   cwd: string;
+  sessionKind?: "chat" | "project";
   projectRoot?: string | null;
   projectKey?: string | null;
 }): string {
-  return session.projectKey ?? session.projectRoot ?? session.cwd;
+  return session.sessionKind === "chat" ? CHAT_WORKSPACE_KEY : session.projectKey ?? session.projectRoot ?? session.cwd;
 }

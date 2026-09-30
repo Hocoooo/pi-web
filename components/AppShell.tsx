@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useGlobalKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { averagePerformance } from "@/lib/message-performance";
 import { SessionSidebar } from "./SessionSidebar";
+import { CHAT_WORKSPACE_KEY } from "@/lib/session-kind";
 import { ChatWindow } from "./ChatWindow";
 import type { ChatScrollPosition } from "@/lib/chat-scroll-position";
 import { FileViewer } from "./FileViewer";
@@ -155,6 +156,7 @@ export function AppShell() {
   }, []);
   // The temporary id distinguishes consecutive fresh composers in one cwd.
   const [newSessionCwd, setNewSessionCwd] = useState<string | null>(null);
+  const [chatWorkspaceCwd, setChatWorkspaceCwd] = useState<string | null>(null);
   const [newSessionDraftId, setNewSessionDraftId] = useState("initial");
   const activeNewSessionDraftKeyRef = useRef<string | null>(null);
   const [initialCwdStatus, setInitialCwdStatus] = useState<"idle" | "validating" | "ready" | "error">(
@@ -565,38 +567,45 @@ export function AppShell() {
 
   useEffect(() => {
     const requestedCwd = initialNavigation.requestedCwd;
-    if (!requestedCwd) return;
+    if (!requestedCwd && initialNavigation.sessionId) return;
 
     const controller = new AbortController();
+    const restoreToken = workspaceRestoreTokenRef.current;
     setInitialCwdStatus("validating");
     setInitialCwdError(null);
 
-    void fetch("/api/cwd/validate", {
+    void fetch(requestedCwd ? "/api/cwd/validate" : "/api/default-cwd", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ cwd: requestedCwd }),
+      ...(requestedCwd ? { body: JSON.stringify({ cwd: requestedCwd }) } : {}),
       signal: controller.signal,
     })
       .then(async (response) => {
-        const data = await response.json().catch(() => ({})) as { cwd?: string; error?: string };
+        const data = await response.json().catch(() => ({})) as { cwd?: string; sessionKind?: string; error?: string };
         if (!response.ok || !data.cwd) {
           throw new Error(data.error ?? `HTTP ${response.status}`);
         }
 
+        if (controller.signal.aborted || restoreToken !== workspaceRestoreTokenRef.current) return;
+        const independentChat = data.sessionKind === "chat";
+        if (independentChat) {
+          setChatWorkspaceCwd(data.cwd);
+          activeProjectKeyRef.current = CHAT_WORKSPACE_KEY;
+        }
         // The sidebar will notify us when it adopts this cwd. Avoid remounting
         // the just-created empty chat during that initial synchronization.
         suppressCwdBumpRef.current = true;
-        const draftId = `initial:${requestedCwd}`;
+        const draftId = `initial:${requestedCwd ?? "chat"}`;
         setNewSessionDraftId(draftId);
         activeNewSessionDraftKeyRef.current = `new:${draftId}:${data.cwd}`;
         setNewSessionCwd(data.cwd);
         setInitialCwdStatus("ready");
-        if (!new URLSearchParams(window.location.search).get("cwd")) {
-          router.replace(`?cwd=${encodeURIComponent(data.cwd)}`, { scroll: false });
+        if (independentChat || !new URLSearchParams(window.location.search).get("cwd")) {
+          router.replace(independentChat ? "?chat=1" : `?cwd=${encodeURIComponent(data.cwd)}`, { scroll: false });
         }
       })
       .catch((error: unknown) => {
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted || restoreToken !== workspaceRestoreTokenRef.current) return;
         setInitialCwdError(error instanceof Error ? error.message : String(error));
         setInitialCwdStatus("error");
       });
@@ -669,6 +678,7 @@ export function AppShell() {
     // Skip if cwd is null (initial mount).
     if (!cwd) return;
     const newProject = projectKey ?? projectRoot ?? cwd;
+    if (newProject === CHAT_WORKSPACE_KEY) setChatWorkspaceCwd(cwd);
     const currentProject = activeProjectKeyRef.current
       ?? (selectedSession ? workspaceKeyOf(selectedSession) : null);
     activeProjectKeyRef.current = newProject;
@@ -742,6 +752,7 @@ export function AppShell() {
     activeNewSessionDraftKeyRef.current = null;
     // Adopt an explicitly selected session before the sidebar reports its cwd.
     const projectKey = workspaceKeyOf(session);
+    if (session.sessionKind === "chat") setChatWorkspaceCwd(session.cwd);
     if (activeProjectKeyRef.current !== projectKey) {
       setFileTabs([]);
       if (!activeFileTabId || activeFileTabId.startsWith("file:")) {
@@ -789,7 +800,7 @@ export function AppShell() {
     }
   }, [activeCwd, activeFileTabId, invalidateWorkspaceRestore, router, isMobile, newSessionCwd, selectedSession]);
 
-  const handleNewSession = useCallback((sessionId: string, cwd: string, restoreParkedDraft = true) => {
+  const handleNewSession = useCallback((sessionId: string, cwd: string, restoreParkedDraft = true, independentChat = cwd === chatWorkspaceCwd) => {
     invalidateWorkspaceRestore();
     const draftKey = `new:${sessionId}:${cwd}`;
     if (restoreParkedDraft) rekeyDraft(parkedNewSessionDraftKey(cwd), draftKey);
@@ -805,8 +816,21 @@ export function AppShell() {
     setSystemInfoLoading(false);
     setActiveTopPanel(null);
     if (isMobile) setSidebarOpen(false);
-    router.replace(`?cwd=${encodeURIComponent(cwd)}`, { scroll: false });
-  }, [invalidateWorkspaceRestore, router, isMobile]);
+    router.replace(independentChat ? "?chat=1" : `?cwd=${encodeURIComponent(cwd)}`, { scroll: false });
+  }, [chatWorkspaceCwd, invalidateWorkspaceRestore, router, isMobile]);
+
+  const handleNewChat = useCallback((cwd: string) => {
+    const previousKey = activeNewSessionDraftKeyRef.current;
+    const previousCwd = newSessionCwd ?? (selectedSession === null ? activeCwd : null);
+    if (previousKey && previousCwd) rekeyDraft(previousKey, parkedNewSessionDraftKey(previousCwd));
+    setChatWorkspaceCwd(cwd);
+    activeProjectKeyRef.current = CHAT_WORKSPACE_KEY;
+    setActiveCwd(cwd);
+    setFileTabs([]);
+    setActiveFileTabId(null);
+    setRightPanelOpen(false);
+    handleNewSession(crypto.randomUUID(), cwd, false, true);
+  }, [activeCwd, handleNewSession, newSessionCwd, selectedSession]);
 
   const handleNewSessionProjectChange = useCallback((cwd: string, projectKey: string) => {
     if (selectedSession || cwd === (newSessionCwd ?? activeCwd)) return;
@@ -818,6 +842,7 @@ export function AppShell() {
     activeNewSessionDraftKeyRef.current = draftKey;
     // Sync identity before the sidebar so it cannot restore an old session.
     activeProjectKeyRef.current = projectKey;
+    if (projectKey === CHAT_WORKSPACE_KEY) setChatWorkspaceCwd(cwd);
     setActiveCwd(cwd);
     setNewSessionCwd(cwd);
     setNewSessionDraftId(draftId);
@@ -829,7 +854,7 @@ export function AppShell() {
     setSystemTools(null);
     setSystemInfoLoading(false);
     setActiveTopPanel(null);
-    router.replace(`?cwd=${encodeURIComponent(cwd)}`, { scroll: false });
+    router.replace(projectKey === CHAT_WORKSPACE_KEY ? "?chat=1" : `?cwd=${encodeURIComponent(cwd)}`, { scroll: false });
   }, [activeCwd, invalidateWorkspaceRestore, newSessionCwd, router, selectedSession]);
 
   const chatPanelRef = useRef<HTMLDivElement>(null);
@@ -1083,7 +1108,7 @@ export function AppShell() {
       setSystemTools(null);
       setSystemInfoLoading(false);
       setActiveTopPanel(null);
-      router.replace(cwd ? `?cwd=${encodeURIComponent(cwd)}` : (typeof window !== "undefined" ? window.location.pathname : "/"), { scroll: false });
+      router.replace(selectedSession.sessionKind === "chat" ? "?chat=1" : cwd ? `?cwd=${encodeURIComponent(cwd)}` : (typeof window !== "undefined" ? window.location.pathname : "/"), { scroll: false });
     }
   }, [invalidateWorkspaceRestore, selectedSession, router]);
 
@@ -1166,6 +1191,8 @@ export function AppShell() {
     activeNewSessionDraftKeyRef.current = newSessionDraftKey;
   }, [newSessionDraftKey]);
   const showChat = selectedSession !== null || effectiveNewSessionCwd !== null;
+  const independentChat = selectedSession?.sessionKind === "chat"
+    || (selectedSession?.cwd ?? effectiveNewSessionCwd) === chatWorkspaceCwd && chatWorkspaceCwd !== null;
   const projectTrustCwd = selectedSession?.cwd ?? effectiveNewSessionCwd;
   // While restoring initial session from URL, don't show the placeholder
   const showPlaceholder = initialSessionRestored && !showChat;
@@ -1216,7 +1243,7 @@ export function AppShell() {
   }, [projectTrustBusy, projectTrustCwd]);
 
   const activeFileTab = fileTabs.find((tab) => tab.id === activeFileTabId) ?? null;
-  const activeCwdName = activeCwd ? getFileName(activeCwd) || activeCwd : null;
+  const activeCwdName = independentChat ? translate("sidebar.chats") : activeCwd ? getFileName(activeCwd) || activeCwd : null;
   const windowTitle = activeCwdName ? `${activeCwdName} - Pi Web` : "Pi Web";
 
   useEffect(() => {
@@ -1236,8 +1263,10 @@ export function AppShell() {
         selectedSessionId={selectedSession?.id ?? null}
         onSelectSession={handleSelectSession}
         onNewSession={handleNewSession}
+        onNewChat={handleNewChat}
+        chatWorkspaceCwd={chatWorkspaceCwd}
         initialSessionId={initialSessionId}
-        skipInitialProjectSelection={initialNavigation.requestedCwd !== null}
+        skipInitialProjectSelection={initialNavigation.requestedCwd !== null || !initialSessionId}
         onInitialRestoreDone={handleInitialRestoreDone}
         refreshKey={refreshKey}
         onSessionDeleted={handleSessionDeleted}
@@ -2382,6 +2411,7 @@ export function AppShell() {
               onScrollPositionChange={handleSessionScrollPositionChange}
               sessionRunning={Boolean(selectedSession && runningSessionIds.has(selectedSession.id))}
               newSessionCwd={effectiveNewSessionCwd}
+              independentChat={independentChat}
               newSessionDraftKey={newSessionDraftKey}
               onNewSessionProjectChange={handleNewSessionProjectChange}
               onNewSession={(cwd) => handleNewSession(`command-${Date.now()}`, cwd, false)}

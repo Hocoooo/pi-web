@@ -160,6 +160,7 @@ export interface UseAgentSessionOptions {
   session: SessionInfo | null;
   sessionRunning?: boolean;
   newSessionCwd: string | null;
+  independentChat?: boolean;
   newSessionDraftKey: string | null;
   onAgentEnd?: () => void;
   onAttentionNeeded?: (request: BlockingExtensionUiRequest) => void;
@@ -751,6 +752,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       id: sid,
       path: "",
       cwd: newSessionCwd,
+      ...(opts.independentChat ? { sessionKind: "chat" as const } : {}),
       name: undefined,
       created: new Date().toISOString(),
       modified: new Date().toISOString(),
@@ -758,7 +760,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       firstMessage,
       transient: true,
     }, provisionalDraftKey);
-  }, [isNew, newSessionCwd, newSessionDraftKey, onSessionCreated, opts.chatInputRef]);
+  }, [isNew, newSessionCwd, newSessionDraftKey, onSessionCreated, opts.chatInputRef, opts.independentChat]);
 
   const ensureNewSession = useCallback(async () => {
     if (sessionIdRef.current) return sessionIdRef.current;

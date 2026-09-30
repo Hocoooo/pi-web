@@ -41,6 +41,8 @@
 | F17 | [消息与会话性能统计](message-performance.md) | 服务端首有效输出 TTFT、持久化 tok/s、会话加权速度与平均 TTFT；缺失样本不补零 | request-performance、session-stats、MessageView、AppShell |
 | F18 | [输入时草稿补全](draft-completion.md) | 默认关闭；独立模型续写未发送草稿，Tab 只采纳；新/休眠会话不启动 AgentSession | draft-completion API、useDraftCompletion、ChatInput、SettingsPanel |
 
+| F19 | [独立聊天与固定隐藏工作区](independent-chat.md) | 无项目直接对话，入口在“会话项目”选择器内；固定 cwd 保持跨日历史，权限与界面均与项目会话一致，侧栏显示“对话” | default-cwd、NewSessionProjectPicker、AppShell、SessionSidebar、rpc-manager、session-reader |
+
 ## 交互原型（不代表生产功能）
 
 | 文档 | 验证问题 | 入口 |
@@ -61,6 +63,7 @@
 - F03/F04 是浏览视图；F05 是新会话的运行目录选择。当前显示会话、侧栏选中项目和空白 composer 的 cwd 不一定相同。
 - F09 的 `/new` 沿用当前显示会话 cwd，并刻意不恢复 parked draft；F05 切换空白会话目录时要迁移已有草稿。两者不能复用一个“全部清空”的捷径。
 - 保留上游按浏览器标签页恢复会话、URL 导航、项目/worktree 归属与阅读位置恢复；显式用户导航必须压过陈旧异步恢复。
+- F19 的无指定目标首页默认进入聊天，空白聊天用 `?chat=1`；聊天使用固定隐藏 cwd 与独立身份，但在权限、界面与列表上都与普通项目一致，侧栏显示“对话”而非内部路径。项目功能的浏览器验收须显式进入项目 URL。
 
 ### 运行时与外部副作用
 

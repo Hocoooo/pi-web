@@ -17,7 +17,7 @@
 5. **先清草稿、后导航**：`clearInput()` 清掉源输入与附图，再调用 `onNewSession(cwd)`；附图不发送、不带到新 composer。
 6. 正常发送、运行中的 steer/follow-up 路径都应识别精确 `/new`；不能把命令排进原会话队列。
 7. 不调用 `onSend`/模型 prompt，不调用 abort；原会话的运行可继续在后台完成。
-8. `AppShell.handleNewSession` 清除已选会话、建立新的 draft key、更新 `?cwd=…`。命令入口传 `restoreParkedDraft=false`，避免恢复同目录先前停放的无关草稿。
+8. `AppShell.handleNewSession` 清除已选会话、建立新的 draft key；项目更新 `?cwd=…`，[独立聊天](independent-chat.md)保持固定隐藏 cwd 并更新 `?chat=1`。命令入口传 `restoreParkedDraft=false`，避免恢复同目录先前停放的无关草稿。
 9. 打开空白 composer 不等于已创建 `.jsonl` 或 AgentSession；真实运行时按原有首次需要时创建机制处理。
 10. 空白会话加载后自动聚焦见 [聊天焦点导航](chat-focus-navigation.md)，不要复制第二套独立聚焦逻辑。
 

@@ -46,6 +46,8 @@ import { isBuiltInSubagentsEnabled } from "./subagent-settings";
 import { resolveShellTools } from "./powershell-settings";
 import { CHAT_ONLY_RESOURCE_LOADER_OPTIONS, contextFilesSystemPrompt } from "./chat-only";
 import { createExactSystemPromptExtension } from "./exact-system-prompt";
+import { isChatWorkspace } from "./chat-workspace";
+import { CHAT_WORKSPACE_KEY } from "./session-kind";
 import {
   appendClearedSessionToolSelection,
   appendSessionToolSelection,
@@ -1931,6 +1933,9 @@ export function getRpcSessionInfos(options: { includeTransient?: boolean } = {})
       path: sessionFile ?? "",
       id: header?.id ?? session.sessionId,
       cwd: header?.cwd ?? session.cwd,
+      ...(isChatWorkspace(header?.cwd ?? session.cwd, getAgentDir())
+        ? { sessionKind: "chat" as const, projectKey: CHAT_WORKSPACE_KEY }
+        : {}),
       name: manager.getSessionName(),
       created,
       modified: new Date(lastActivityMs).toISOString(),
@@ -2031,7 +2036,7 @@ export async function startRpcSession(
     : readSessionToolSelection(sessionManager.getEntries() as unknown as SessionEntry[]);
   const selectedToolNames = subagentResources?.tools ?? persistedToolNames ?? requestedToolNames;
   if (!subagentResources && persistedToolNames === undefined && requestedToolNames !== undefined) {
-    appendSessionToolSelection(sessionManager, requestedToolNames);
+    appendSessionToolSelection(sessionManager, selectedToolNames ?? []);
   }
   const subagentLoadsResources = Boolean(
     subagentResources?.loadExtensions || subagentResources?.loadSkills,
@@ -2068,7 +2073,7 @@ export async function startRpcSession(
       : chatOnly
         ? undefined
         : projectTrustReloadOptions(sessionCwd, agentDir);
-    const settingsManager = SettingsManager.create(sessionCwd, agentDir);
+    const settingsManager = SettingsManager.create(sessionCwd, agentDir, {});
     // Chat-only sessions and subagents that replace Pi's prompt send an exact
     // system prompt. The prompt is resolved at prompt time through this inline
     // extension: it may read the session's context files, which exist only
@@ -2097,7 +2102,10 @@ export async function startRpcSession(
             ...(usesExactSystemPrompt ? { extensionFactories: [exactSystemPromptExtension] } : {}),
           }
         : chatOnly
-          ? { ...CHAT_ONLY_RESOURCE_LOADER_OPTIONS, extensionFactories: [exactSystemPromptExtension] }
+          ? {
+              ...CHAT_ONLY_RESOURCE_LOADER_OPTIONS,
+              extensionFactories: [exactSystemPromptExtension],
+            }
         : {
             extensionFactories: [
               createProjectCommandBashExtension({

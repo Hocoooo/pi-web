@@ -66,7 +66,7 @@ app/api/
   auth/logout/[provider]/route.ts POST OAuth logout
   auth/providers/route.ts         GET OAuth and API-key provider lists
   cwd/validate/route.ts           POST validate/select a cwd
-  default-cwd/route.ts            POST create ~/pi-cwd-YYYYMMDD
+  default-cwd/route.ts            POST resolve/create fixed <agent-dir>/chat-workspace
   files/[...path]/route.ts        GET file contents for viewer
   home/route.ts                   GET user home directory
   models/route.ts                 GET { models, modelList, defaultModel }
@@ -171,6 +171,12 @@ hooks/
 
 ### ToolCall field normalization
 Pi stores toolCall blocks as `{type:"toolCall", id, name, arguments}` but `ToolCallContent` uses `{toolCallId, toolName, input}`. `normalizeToolCalls()` in `lib/normalize.ts` handles this — called in both `session-reader.ts` (file load) and `handleAgentEvent` in `hooks/useAgentSession.ts` (streaming).
+
+### Independent chats
+- No-target homepage and the session-project picker's “No project” option open the reserved `<agent-dir>/chat-workspace` (default `~/.pi/agent/chat-workspace`), not a date-based cwd. Native JSONL headers persist that cwd; the server returns `sessionKind: "chat"` and `pi-web:chat` identity.
+- Independent chats are ordinary sessions with no project: tools, shell, extensions, skills, context files and settings use the normal session policy, and only the cwd is fixed. Identity is display/grouping only, never a resource restriction.
+- The sidebar, composer picker, Explorer, worktree controls and tool preset are shared with project sessions; the picker shows “No project” as the current option, and the sidebar/grouping lists the workspace as the localized “Chats” label instead of its internal path.
+- See `docs/branch-features/independent-chat.md`.
 
 ### New session tool preset
 Tool names are passed at session creation (`POST /api/agent/new` -> `toolNames[]`) and persisted in versioned `pi-web:tool-selection` custom entries. No entry means a legacy session and keeps Pi's default behavior; an empty array means Chat only. Chat only resolves before services are created, loads no extensions/skills/prompts/themes, and replaces Pi's base prompt with the ordered contents of Pi's discovered context files. Crossing the Chat-only boundary rebuilds the wrapper; changing between nonempty presets updates it in place.

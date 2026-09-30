@@ -352,6 +352,8 @@ export interface SessionTreeNode {
 }
 
 export interface SessionInfo {
+  /** Independent chats use the application's reserved, stable cwd. */
+  sessionKind?: "chat" | "project";
   path: string;
   id: string;
   cwd: string;

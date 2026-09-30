@@ -95,6 +95,7 @@ test("changing a blank session project updates its reload URL and carries the dr
     activeNewSessionDraftKeyRef: { current: "new:old:/old-project" },
     activeProjectKeyRef: { current: "/old-project" },
     selectedSession: null, newSessionCwd: "/old-project", activeCwd: "/old-project",
+    CHAT_WORKSPACE_KEY: "pi-web:chat",
     router: { replace: (url) => { state.route = url; } },
   };
   for (const [setter] of shellText.matchAll(/\bset[A-Z]\w*(?=\()/g)) {
@@ -117,6 +118,7 @@ test("new-session navigation reuses AppShell and can leave parked drafts untouch
       rekeyDraft: (...args) => migrations.push(args),
       activeNewSessionDraftKeyRef: { current: null },
       isMobile: false,
+      chatWorkspaceCwd: null,
       router: { replace: (...args) => { state.route = args[0]; } },
     };
     for (const [setter] of shellText.matchAll(/\bset[A-Z]\w*(?=\()/g)) {

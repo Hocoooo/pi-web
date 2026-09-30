@@ -5,6 +5,9 @@ import { isAbsolute, resolve } from "path";
 import { allowFileRoot } from "@/lib/file-access";
 import { projectIdentityKey } from "@/lib/project-identity";
 import { resolveProject } from "@/lib/worktree";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { isChatWorkspace } from "@/lib/chat-workspace";
+import { CHAT_WORKSPACE_KEY } from "@/lib/session-kind";
 
 function normalizeCwd(cwd: string): string {
   if (cwd === "~") return homedir();
@@ -36,6 +39,9 @@ export async function POST(req: Request) {
     }
 
     allowFileRoot(normalizedCwd);
+    if (isChatWorkspace(normalizedCwd, getAgentDir())) {
+      return NextResponse.json({ success: true, cwd: normalizedCwd, projectRoot: normalizedCwd, projectKey: CHAT_WORKSPACE_KEY, sessionKind: "chat" });
+    }
     const project = await resolveProject(normalizedCwd);
     return NextResponse.json({
       success: true,

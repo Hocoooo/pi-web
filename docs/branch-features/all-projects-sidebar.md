@@ -10,6 +10,10 @@
 - 空白新会话中更换 cwd 见[新会话项目选择](new-session-project.md)。项目标题不是该选择器。
 - 焦点和展开快捷键见[侧边栏键盘导航](sidebar-keyboard-navigation.md)。
 
+## 独立聊天交点
+
+[独立聊天](independent-chat.md)在权限与界面列表上都与普通项目一致：聊天工作区参与项目分组与五条预览，current 模式显示其会话历史；侧栏、picker 与搜索把它显示为“对话”，不暴露内部路径。无指定会话/目录的首页默认聊天，不再自动选最近项目。进入聊天的入口在“会话项目”选择器内（“无项目”）；聊天照常加载 worktree 状态、Explorer、项目详情、工具与扩展。
+
 ## 入口与当前默认值
 
 设置 → 通用 → 侧边栏 → **显示所有项目**（`settings.sidebarAllProjects`）。默认关闭，即 `mode: "current"`、`collapsedProjects: []`。这是浏览器偏好，不是服务器或仓库配置。

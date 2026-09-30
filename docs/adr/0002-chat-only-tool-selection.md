@@ -9,6 +9,14 @@ of the context files discovered by Pi's default loader, including global and
 project `AGENTS.md`, `AGENTS.override.md`, and `CLAUDE.md` files. Pi Web does not
 add its own prefix, suffix, or current-working-directory text.
 
+Independent chats in Pi Web's reserved `<agent-dir>/chat-workspace` are ordinary
+sessions with no project: they use the normal tool, shell, extension, skill and
+context policy, and differ only in their fixed cwd. Their cwd is stable across
+dates and is persisted in the native session header; the server reports a
+separate chat identity for display and grouping (the sidebar shows the localized
+`sidebar.chats` label), not to narrow resources.
+See [Independent chat](../branch-features/independent-chat.md).
+
 For a subagent whose resolved profile has no tools and has both resource-loading
 switches disabled, Chat only loads no extensions, skills, prompt templates,
 themes, context files, or Pi base system prompt. Its exact system prompt is the
