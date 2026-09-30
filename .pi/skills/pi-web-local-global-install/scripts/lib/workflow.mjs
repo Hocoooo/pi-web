@@ -18,7 +18,12 @@ export function state(plan, phase, details = {}) {
   atomicJson(path.join(plan.runDir, 'status.json'), { phase, at: new Date().toISOString(), commit: plan.commit, version: plan.version, ...details });
 }
 export const lockFile = prefix => {
-  const canonical = fs.existsSync(prefix) ? fs.realpathSync(prefix) : path.resolve(prefix);
+  // Resolve the existing ancestor before first creation too (macOS /var -> /private/var).
+  // Otherwise acquiring the lease creates prefix and silently changes the subsequent lock key.
+  let ancestor = path.resolve(prefix);
+  const suffix = [];
+  while (!fs.existsSync(ancestor)) { suffix.unshift(path.basename(ancestor)); ancestor = path.dirname(ancestor); }
+  const canonical = path.join(fs.realpathSync(ancestor), ...suffix);
   return path.join(canonical, '.pi-web-installer', `${lockKey(canonical)}.json`);
 };
 
@@ -46,7 +51,7 @@ export async function ensureRunnerDependencies(host, destination, copy = copyRun
   const local = createRequire(path.join(destination, 'entry.mjs'));
   try {
     const resolved = local.resolve('proper-lockfile');
-    const relative = path.relative(path.join(destination, 'node_modules'), resolved);
+    const relative = path.relative(fs.realpathSync(path.join(destination, 'node_modules')), fs.realpathSync(resolved));
     if (!relative.startsWith('..') && !path.isAbsolute(relative)) { local('proper-lockfile'); return; }
   } catch { /* Fresh or incomplete isolated runner. */ }
   try { copy(destination); return; } catch (error) {
@@ -78,7 +83,9 @@ export function inspectSource(host, options, cwd = process.cwd()) {
   const commit = host.git(repo, 'rev-parse', '--verify', `${options.commit}^{commit}`);
   if (!/^[a-f0-9]{40,64}$/.test(commit)) throw new Error('Invalid source commit');
   const dirty = host.git(repo, 'status', '--porcelain', '--untracked-files=no');
-  if (dirty && !options.dryRun) throw new Error('Tracked changes are uncommitted. Commit intended changes before installation; no automatic commit is performed.');
+  // --allow-dirty is an explicit owner opt-in: the build still uses the committed ref,
+  // so uncommitted tracked edits are reported in the plan but never installed.
+  if (dirty && !options.dryRun && !options.allowDirty) throw new Error('Tracked changes are uncommitted. Commit intended changes, or pass --allow-dirty to proceed without installing them (the build still uses the committed ref); no automatic commit is performed.');
   const pkg = JSON.parse(host.git(repo, 'show', `${commit}:package.json`));
   const lock = JSON.parse(host.git(repo, 'show', `${commit}:package-lock.json`));
   assertVersions(pkg, lock);
@@ -87,28 +94,32 @@ export function inspectSource(host, options, cwd = process.cwd()) {
   const service = host.service(prefix, options.port);
   if (service && !options.restart && !options.dryRun) throw new Error('Global Pi Web is running. --restart is required to authorize interruption.');
   const requiresDefer = !!service && host.hostsCurrentProcess(service);
-  if (requiresDefer && options.restart && !options.defer && !options.dryRun) throw new Error('This service hosts the installer. Use --restart --defer 90 so the response can finish.');
+  if (requiresDefer && options.restart && !options.defer && !options.noWait && !options.dryRun) throw new Error('This service hosts the installer. Use --restart --defer 90, or explicitly authorize interruption with --restart --no-wait.');
   return { repo, commit, version: pkg.version, prefix, old, service, requiresDefer, trackedChanges: dirty || null, untracked: host.git(repo, 'ls-files', '--others', '--exclude-standard') };
 }
 
 export const runsRoot = repo => path.join(path.dirname(repo), '.pi-web-installs', lockKey(repo));
+export const runtimeHome = host => host.platform === 'win32'
+  ? host.runtimeEnv?.USERPROFILE ?? os.homedir()
+  : host.runtimeEnv?.HOME ?? os.homedir();
 
 export async function createPlan(host, options, source) {
   const root = runsRoot(source.repo);
   fs.mkdirSync(root, { recursive: true });
   const runDir = fs.mkdtempSync(path.join(root, `${source.commit.slice(0, 8)}-`));
   const plan = {
-    schema: 1, package: PACKAGE, ...source, runDir,
+    schema: 1, package: PACKAGE, ...source, runDir, platform: host.platform ?? 'win32',
+    noWait: options.noWait, overwriteOnly: true,
     port: options.port, host: source.service?.host ?? '127.0.0.1', restart: options.restart,
     heapMb: options.heapMb, skipTests: options.skipTests, skipReason: options.skipReason ?? null,
-    runtimeHome: os.homedir(), requiresJevKey: Boolean(host.env.TAPSVC_API_KEY?.trim()),
+    runtimeHome: runtimeHome(host), requiresJevKey: Boolean((host.runtimeEnv ?? host.env).TAPSVC_API_KEY?.trim()),
     createdAt: new Date().toISOString(),
   };
   savePlan(plan);
   state(plan, 'prepared');
   host.logFile = path.join(runDir, 'run.log');
   console.log(`Preparing run directory: ${runDir}`);
-  for (const dir of ['archives', 'fallback', 'build-home', 'build-temp']) fs.mkdirSync(path.join(runDir, dir));
+  for (const dir of ['archives', 'build-home']) fs.mkdirSync(path.join(runDir, dir));
   // The updater must survive replacement of the installed package and later checkout changes.
   // Its lock dependency is installed here, before the controller acquires the prefix lease.
   const runner = path.join(runDir, 'runner');
@@ -119,8 +130,8 @@ export async function createPlan(host, options, source) {
 
 export function assertCurrent(host, plan) {
   if (!samePath(host.prefix(), plan.prefix)) throw new Error('Default npm prefix changed');
-  if (!samePath(os.homedir(), plan.runtimeHome)) throw new Error('Runtime HOME differs from the original launch environment');
-  if (plan.requiresJevKey && !host.env.TAPSVC_API_KEY?.trim()) throw new Error('Jev credential missing from restart environment');
+  if (!samePath(runtimeHome(host), plan.runtimeHome)) throw new Error('Runtime HOME differs from the original launch environment');
+  if (plan.requiresJevKey && !(host.runtimeEnv ?? host.env).TAPSVC_API_KEY?.trim()) throw new Error('Jev credential missing from restart environment');
   const current = host.installed(plan.prefix);
   if (JSON.stringify(current) !== JSON.stringify(plan.old)) throw new Error('Global installation changed since this run was prepared');
   host.assertService(plan.prefix, plan.port, plan.service);
@@ -172,29 +183,20 @@ export async function prepare(host, plan) {
   state(plan, 'packed', { buildId });
 }
 
-export async function backup(host, plan) {
-  assertCurrent(host, plan);
-  if (!plan.old) return;
-  if (plan.fallback) { assertArtifact(plan.fallback); return; }
-  state(plan, 'backing_up');
-  plan.fallback = await pack(host, host.packageDir(plan.prefix), path.join(plan.runDir, 'fallback'), plan.old);
-  savePlan(plan);
-}
-
 export async function apply(host, plan) {
   let replacement;
   let verifiedService;
   const install = artifact => host.run(process.execPath, [host.npmCli, 'install', '-g', artifact.file, '--no-audit', '--no-fund', '--prefer-offline'], { cwd: plan.runDir });
   await cutoverTransaction({
-    preflight: async () => { assertCurrent(host, plan); assertArtifact(plan.artifact); if (plan.old) assertArtifact(plan.fallback); },
-    idle: () => host.waitIdle(plan.service, plan.port),
+    preflight: async () => { assertCurrent(host, plan); assertArtifact(plan.artifact); },
+    idle: () => plan.noWait ? Promise.resolve() : host.waitIdle(plan.service, plan.port),
     stop: async markTransactionInterrupted => {
       // Persist before interruption so an abruptly killed updater cannot silently resume forward.
       markInterrupted(plan);
       state(plan, 'stopping');
       if (plan.service) {
-        host.kill(plan.service.server); markTransactionInterrupted();
-        host.kill(plan.service.launcher);
+        await host.kill(plan.service.server); markTransactionInterrupted();
+        await host.kill(plan.service.launcher);
         await host.waitFree(plan.port);
       }
     },
@@ -215,27 +217,13 @@ export async function apply(host, plan) {
       state(plan, 'verified', { buildId: plan.artifact.buildId, service: verifiedService, testsSkipped: plan.skipReason });
       try { cleanupBuild(host, plan); } catch (error) { host.log(`Cleanup deferred: ${error.message}`); }
     },
-    rollback: async error => {
+    failure: async error => {
       markInterrupted(plan);
-      try { state(plan, 'rolling_back', { error: error.message }); } catch (writeError) {
-        host.log(`Could not persist rolling_back: ${writeError.message}`);
-      }
-      try {
-        await host.stopNew(plan, replacement);
-        if (!plan.fallback) throw new Error('No previous installation to restore; manual recovery required');
-        assertArtifact(plan.fallback);
-        // The previous service may already have been killed by its child-exit handler.
-        if (plan.service) { host.kill(plan.service.server); host.kill(plan.service.launcher); }
-        await host.waitFree(plan.port);
-        await install(plan.fallback);
-        await host.verify(plan, plan.fallback);
-        const launcher = plan.service ? await host.launch(plan) : null;
-        const service = await host.health(plan, launcher);
-        state(plan, 'rolled_back', { error: error.message, buildId: plan.fallback.buildId, service });
-      } catch (rollbackError) {
-        state(plan, 'recovery_required', { error: error.message, rollbackError: rollbackError.message });
-        throw rollbackError;
-      }
+      let cleanupError;
+      try { await host.stopNew(plan, replacement); } catch (cause) { cleanupError = cause.message; }
+      // Direct overwrite is intentionally irreversible: never pack or reinstall the old package.
+      try { state(plan, 'recovery_required', { error: error.message, overwriteOnly: true, ...(cleanupError ? { cleanupError } : {}) }); }
+      catch (writeError) { error.message += `; recovery status write failed: ${writeError.message}`; throw error; }
     },
   });
 }
@@ -303,8 +291,9 @@ export async function execute(host, plan, options, resume = false) {
       if (JSON.stringify(host.installed(plan.prefix)) !== JSON.stringify(plan.old)) throw new Error('Installed build changed; do not reuse this run');
       plan.service = host.service(plan.prefix, plan.port);
       if (plan.service && !options.restart) throw new Error('Resume requires --restart to authorize stopping the current service');
-      if (plan.service && host.hostsCurrentProcess(plan.service) && !options.defer) throw new Error('Resume from the hosted session requires --restart --defer 90');
+      if (plan.service && host.hostsCurrentProcess(plan.service) && !options.defer && !options.noWait) throw new Error('Resume from the hosted session requires --restart --defer 90');
       plan.restart = options.restart;
+      plan.noWait = options.noWait;
       plan.host = plan.service?.host ?? plan.host;
       delete plan.worker;
       delete plan.replacement;
@@ -313,8 +302,7 @@ export async function execute(host, plan, options, resume = false) {
     }
     assertCurrent(host, plan);
     await prepare(host, plan);
-    await backup(host, plan);
-    if (options.defer) await schedule(host, plan, owner, options.defer);
+    if (options.defer || plan.noWait) await schedule(host, plan, owner, options.defer);
     else await apply(host, plan);
   } catch (error) {
     recordFailure(plan, error, { preserveScheduled: true });
