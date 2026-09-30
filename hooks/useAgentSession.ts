@@ -1732,7 +1732,18 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         if (selectedModel) {
           setPendingModel(selectedModel);
           if (existingSid) {
-            await sendAgentCommand(sid, { type: "set_model", provider: selectedModel.provider, modelId: selectedModel.modelId });
+            // Even reapplying the same model resets effort to SDK defaults.
+            // Read the runtime after any in-flight creation, and leave already
+            // synchronized settings (including SDK-clamped scope pins) alone.
+            const state = await sendAgentCommand<AgentStateResponse>(sid, { type: "get_state" });
+            const selectedThinkingLevel = thinkingLevelOverrideRef.current;
+            if (state.model?.provider !== selectedModel.provider || state.model.id !== selectedModel.modelId
+              || (selectedThinkingLevel !== null && state.thinkingLevel !== selectedThinkingLevel)) {
+              await sendAgentCommand(sid, {
+                type: "set_model", provider: selectedModel.provider, modelId: selectedModel.modelId,
+                ...(selectedThinkingLevel ? { thinkingLevel: selectedThinkingLevel } : {}),
+              });
+            }
           }
         }
         await ensureEventsConnected(sid);
