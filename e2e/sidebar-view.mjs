@@ -26,6 +26,7 @@ await page.route("**/api/**", async (route) => {
   else if (url.pathname === "/api/models") data = { models: [], modelList: [] };
   else if (url.pathname === "/api/agent/running") data = { runningSessionIds: [], sessionListVersion: 1 };
   else if (url.pathname === "/api/home") data = { home: "/home/test" };
+  else if (url.pathname === "/api/cwd/validate") { const { cwd } = route.request().postDataJSON(); data = { cwd, projectRoot: cwd, projectKey: "alpha" }; }
   else if (url.pathname === "/api/worktrees") {
     const cwd = url.searchParams.get("cwd");
     data = { projectRoot: cwd, projectKey: cwd.endsWith("alpha") ? "alpha" : "beta", isGit, isTopLevel: isGit, currentWorktreePath: cwd, worktrees: [{ path: cwd, branch: "sidebar-test-branch", isMain: true }] };
@@ -37,7 +38,7 @@ await page.route("**/api/**", async (route) => {
 });
 
 try {
-  await page.goto(base, { waitUntil: "networkidle" });
+  await page.goto(`${base}/?cwd=${encodeURIComponent("/fixtures/alpha")}`, { waitUntil: "networkidle" });
   const alpha = page.getByText("Alpha session", { exact: true });
   const beta = page.getByText("Beta session", { exact: true });
   await alpha.waitFor();

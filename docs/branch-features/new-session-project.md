@@ -1,5 +1,9 @@
 # 空白新会话的项目选择
 
+## 独立聊天交点
+
+[独立聊天](independent-chat.md)与项目会话共用此 picker：进入聊天后 picker 仍挂载，以“无项目”为当前项（`isChat`），切回项目即恢复正常路径。picker 的“无项目”哨兵选项请求 `/api/default-cwd`，以服务端返回的保留 cwd 与 `pi-web:chat` 身份切换；它是普通会话，只是 cwd 固定，权限与项目会话一致。侧栏把它显示为“对话”，picker 不列出内部聊天路径。无指定目标的首页仍直接进入聊天；项目 flow 的浏览器 fixture 以显式 `?cwd=…` 进入验收。
+
 ## 目的、用户价值与范围
 
 在[全项目侧边栏](all-projects-sidebar.md)隐藏传统项目选择器后，让用户在尚未开始的新会话中确认或更换目标目录，同时携带未发送草稿，避免误恢复该项目的旧会话。
@@ -8,24 +12,24 @@
 
 ## 入口与当前默认值
 
-选择器仅在 `sidebarView.mode === "all"`、`isEmptyNew`、非空 `newSessionCwd`、存在 `onNewSessionProjectChange` 时显示。
+选择器在 `isEmptyNew`、非空 `newSessionCwd`、存在 `onNewSessionProjectChange` 时显示，current、all 与独立聊天都一样；聊天时以“无项目”为当前项。
 
 - `isNew`：`session === null && newSessionCwd !== null`。
 - `isEmptyNew`：`isNew && messages.length === 0 && !streamState.isStreaming && !sessionBusy`，其中 busy 包括 agent/bash 运行。
 - 初始显示当前 `newSessionCwd`，并非一律项目根。输入框内有未发文字或图片不取消“空白新会话”资格。
-- 可从侧边栏“新建”或既有新会话导航进入；默认 current 模式不显示此选择器。
+- 可从侧边栏“新建”或既有新会话导航进入；两种 sidebar 模式都显示此选择器。
 
 ## 行为要求与不变量
 
-1. **候选来源。** 挂载时请求 `/api/sessions`，用 `getRecentProjects` 得到按活动排序且按 project key 去重的最近项目。当前 cwd 始终作为首个 option；其他 option 使用项目 root，排除与 cwd 字符串完全相等的 root。当前 cwd 可以是 worktree 路径，候选不是完整 worktree 列表。
+1. **候选来源。** 挂载时请求 `/api/sessions`，用 `getRecentProjects` 得到按活动排序且按 project key 去重的最近项目。非聊天时当前 cwd 作为首个 option，紧随其后是一个不映射真实路径的“无项目”哨兵 option；聊天时省略原始 cwd option，直接把哨兵作为当前选中项。其他 option 使用项目 root，排除与 cwd 字符串完全相等的 root 以及聊天工作区（以哨兵表示）。当前 cwd 可以是 worktree 路径，候选不是完整 worktree 列表。
 2. **按需浏览。** “选择目录”打开共享 `DirectoryPicker`，从当前 cwd 开始。路径输入先导航到可浏览目录，再由选择动作提交验证；最近列表加载失败/非 2xx/解析失败时不显示列表错误，当前 cwd 与浏览按钮仍可用。
-3. **先验证再切换。** 不同 candidate 经 `POST /api/cwd/validate`（`{ cwd: candidate }`）验证。成功必须包含 cwd、projectKey，且 response.ok、无 error；本选择器不要求 projectRoot 字段。使用返回的规范 cwd/key，而非直接信任 option 文本。
+3. **先验证再切换。** 普通目录 candidate 经 `POST /api/cwd/validate`（`{ cwd: candidate }`）验证。成功必须包含 cwd、projectKey，且 response.ok、无 error；本选择器不要求 projectRoot 字段。使用返回的规范 cwd/key，而非直接信任 option 文本。“无项目”哨兵不验证表单文本，而是 `POST /api/default-cwd` 取服务端创建/恢复的保留 cwd 与 `pi-web:chat` key。
 4. **验证语义。** 服务端 trim 路径，支持 `~`/`~/`、相对路径解析，检查存在且为目录，计算项目身份并登记可访问文件根。验证目录不是启动模型、保证 Git 仓库或绕过项目信任确认；不存在/文件路径返回 400，其他异常返回 500。
 5. **并发与失败。** `pending` ref 阻止并发验证，busy 时 select/浏览按钮禁用，目录对话框不可取消。网络、JSON、非成功响应或缺失字段异常显示错误；浏览中错误交给对话框，否则 `role="alert"` 显示。失败保留原 cwd、URL、草稿，随后可以重试。candidate 与 cwd 完全相同时不发请求并关闭浏览。
 6. **开始后的隔离。** 验证回包仅在 picker 仍挂载时调用 `onChange`；发送/运行导致 picker 卸载后，不得用迟到响应更换已启动会话。AppShell 还拒绝 `selectedSession` 非空或 cwd 未变化的回调。验证 POST 本身没有 AbortController；这里只阻止迟到结果应用，不承诺取消服务器工作。
 7. **草稿迁移。** `handleNewSessionProjectChange` 先失效工作区恢复请求，用新 UUID 和 cwd 生成 `new:<id>:<cwd>` key，把原活动新草稿 `rekeyDraft` 到新 key；保持草稿文字及图片的数据。`draft-store` 是模块内存 Map，不能据此承诺刷新后草稿仍在。
-8. **保持新会话身份。** 在侧边栏同步前写 `activeProjectKeyRef`，更新 active/new cwd 和 draft ID，递增 `sessionKey` 重新挂载聊天；不按目标项目的 last-open 记忆恢复旧 session。URL 替换为 `?cwd=<encoded cwd>`（无 session 参数、不滚动），刷新可据 cwd 回到新会话目标，但不保证草稿持久化。
-9. **清理上下文。** 切项目清空文件 tabs、活动文件、系统提示/工具信息，关闭右面板和顶部活动面板，防止展示旧项目内容。此路径不专门关闭侧边栏。选择器隐藏/显示只跟随 sidebar mode，不主动清空已有草稿或改 cwd。
+8. **保持新会话身份。** 在侧边栏同步前写 `activeProjectKeyRef`，更新 active/new cwd 和 draft ID，递增 `sessionKey` 重新挂载聊天；不按目标项目的 last-open 记忆恢复旧 session。URL 替换为 `?cwd=<encoded cwd>`，聊天哨兵则为 `?chat=1`（均无 session 参数、不滚动），刷新可据此回到新会话目标，但不保证草稿持久化。
+9. **清理上下文。** 切项目清空文件 tabs、活动文件、系统提示/工具信息，关闭右面板和顶部活动面板，防止展示旧项目内容。此路径不专门关闭侧边栏。两种 sidebar 模式都挂载选择器，切换模式不影响它的可见性，也不主动清空已有草稿或改 cwd。
 10. **创建边界。** 仅切目录不会创建会话或发送提示；下一次 `ensureNewSession` 请求 `/api/agent/new` 使用新的 `newSessionCwd`。不要强化成“只有第一条消息才能创建”：既有 System/Tools 等非 prompt 初始化路径也可 ensure/promote 新会话。
 11. **`/new` 交互区别。** 完整 `/new`（trim 后完全相等）在可用 cwd/回调下导航到当前聊天 cwd 的空白新会话，先清源文字/图片；它不携带当前草稿，且通过 `handleNewSession(..., false)` 不恢复 parked 草稿。更换项目则携带草稿。侧边栏新建默认仍可恢复该 cwd 的 parked 草稿。带参数 `/new ...` 不是此导航入口。
 
@@ -33,7 +37,7 @@
 
 | 路径 | 关键符号/职责 |
 | --- | --- |
-| [NewSessionProjectPicker.tsx](../../components/NewSessionProjectPicker.tsx) | `NewSessionProjectPicker`、`select`、`mounted`/`pending`，候选请求、验证及错误 |
+| [NewSessionProjectPicker.tsx](../../components/NewSessionProjectPicker.tsx) | `NewSessionProjectPicker`、`select`、`mounted`/`pending`、`CHAT_ONLY_OPTION`、`isChat`，候选请求、验证、聊天哨兵及错误 |
 | [ChatWindow.tsx](../../components/ChatWindow.tsx) | `isEmptyNew`、picker 挂载条件、新会话 composer 自动聚焦、`cwd={session?.cwd ?? newSessionCwd}` |
 | [AppShell.tsx](../../components/AppShell.tsx) | `handleNewSessionProjectChange`、`handleNewSession`，恢复隔离、草稿/URL/面板协调 |
 | [draft-store.ts](../../lib/draft-store.ts) | `ChatDraft`、`rekeyDraft`、内存 `drafts`，文字和图片迁移 |
@@ -57,7 +61,7 @@ node --experimental-strip-types --test components/ChatInput.new-session.test.mjs
 E2E_BASE_URL=http://127.0.0.1:30141 node e2e/new-session-project.mjs
 ```
 
-[new-session-project.mjs](../../e2e/new-session-project.mjs)在真实 Chromium、全 API 拦截 fixture 下检查 current 模式隐藏、all 模式显示、A↔B 切换仍为新会话、文字草稿保持、模式来回切换、390px 宽移动布局，以及 `/api/agent/new` 请求的 cwd。最后只断言发出的请求，不证明真实运行时成功。脚本未覆盖图片、验证失败、迟到回包、真实目录/信任流程，且不由 `npm run test:e2e` 自动运行。
+[new-session-project.mjs](../../e2e/new-session-project.mjs)在真实 Chromium、全 API 拦截 fixture 下检查 current、all 与聊天都显示、A↔B 切换仍为新会话、文字草稿保持、模式来回切换不变、选择“无项目”后 URL 变为 `?chat=1` 且 picker 保留并选中该选项、390px 宽移动布局，以及 `/api/agent/new` 请求的 cwd。最后只断言发出的请求，不证明真实运行时成功。脚本未覆盖图片、验证失败、迟到回包、真实目录/信任流程，且不由 `npm run test:e2e` 自动运行。
 
 ## 手工验收
 
@@ -67,7 +71,7 @@ E2E_BASE_URL=http://127.0.0.1:30141 node e2e/new-session-project.mjs
 2. 通过“选择目录”浏览 W 并确认：应显示服务器返回的 W cwd；最近候选可仍是项目根。取消浏览或重新选择当前 cwd，应保留 URL/草稿。
 3. 浏览不存在路径：应显示浏览错误且不能直接选未导航成功的路径。模拟验证接口 400、断网或无效 JSON 后选不同项目：应显示错误，保持旧 cwd/草稿；恢复接口再试应成功。慢请求期间 select 和浏览按钮禁用，快速重复操作不得产生并行验证。
 4. 用网络延迟保留一个验证请求，在非模态选择场景先发送原 cwd 的草稿使 picker 卸载，再放行响应：应不把已开始聊天改到候选目录。记录请求顺序以区分“验证先完成再发送”的正常新 cwd 路径。
-5. 切换 current/all：选择器隐藏/恢复，但 cwd/草稿保持。刷新后检查 cwd URL 仍可恢复目标；不要要求内存草稿重现。
+5. 切换 current/all：选择器保持可见，cwd/草稿保持。刷新后检查 cwd URL 仍可恢复目标；不要要求内存草稿重现。选择“无项目”后应切到聊天身份，且选择器保留并显示该选项。
 6. 成功切到 B 后发送，检查 `/api/agent/new` 的 cwd 为 B；已有 session、运行中或有消息的聊天不得出现可改 cwd 的选择器。另试 `/new`：应清源草稿而非迁移到新会话。
 
 ## Rebase 保留清单与上游交互
@@ -77,7 +81,7 @@ E2E_BASE_URL=http://127.0.0.1:30141 node e2e/new-session-project.mjs
 - [ ] `activeProjectKeyRef` 与恢复请求失效必须先于侧边栏 cwd 同步；目标项目存在旧会话时仍保持新会话。
 - [ ] 草稿文字和图片按 key 迁移；与 `/new` 清源草稿、普通新建恢复 parked 草稿区分。
 - [ ] 上游改会话 ensure/promote、信任、System/Tools 初始化或模型设置时，检查 picker 的卸载时点及下一次创建 cwd。
-- [ ] 模式切换只影响入口可见性，移动布局及三种语言的标签仍可达。
+- [ ] picker 在 current、all 与聊天都挂载（聊天以 `isChat` 选中哨兵）；聊天哨兵仍走 `/api/default-cwd` 并得到 `pi-web:chat` 身份，移动布局及三种语言的标签仍可达。
 
 ## 已知限制与未验证区域
 

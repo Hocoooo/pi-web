@@ -192,6 +192,10 @@ hooks/
 
 ---
 
+## Independent chats (personal branch)
+
+No-target navigation and the composer’s “No project” option use the fixed `<agent-dir>/chat-workspace`, not dated folders. Session identity is display/grouping only: tools, extensions, skills, permissions and UI follow the normal session policy. See [the feature contract](docs/branch-features/independent-chat.md).
+
 ## Topic Notes
 
 Design decisions and traps live in `docs/agents/`, one note per area. Read every note whose files a change touches before making it. Add new notes to the area's file, not here.

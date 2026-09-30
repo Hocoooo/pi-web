@@ -3,6 +3,7 @@
 import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { SessionInfo } from "@/lib/types";
+import { CHAT_WORKSPACE_KEY } from "@/lib/session-kind";
 import { listSessionFamilies } from "@/lib/session-family";
 import { loadExplorerOpen, saveExplorerOpen } from "@/lib/file-explorer-state";
 import { copyText } from "@/lib/clipboard";
@@ -211,6 +212,8 @@ interface Props {
   selectedSessionId: string | null;
   onSelectSession: (session: SessionInfo, isRestore?: boolean, entryId?: string, blockIndex?: number) => void;
   onNewSession?: (sessionId: string, cwd: string) => void;
+  onNewChat?: (cwd: string) => void;
+  chatWorkspaceCwd?: string | null;
   initialSessionId?: string | null;
   skipInitialProjectSelection?: boolean;
   onInitialRestoreDone?: () => void;
@@ -484,7 +487,7 @@ function PiWebTitle() {
   );
 }
 
-export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onOpenTerminal, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionsChange }: Props) {
+export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, onNewChat, chatWorkspaceCwd: chatWorkspaceCwdProp, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onOpenTerminal, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionsChange }: Props) {
   const [sessionMenu, setSessionMenu] = useState<SessionContextMenuState | null>(null);
   const closeSessionMenu = useCallback(() => setSessionMenu(null), []);
   const { t } = useI18n();
@@ -508,6 +511,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [customPathError, setCustomPathError] = useState<string | null>(null);
   const [customPathValidating, setCustomPathValidating] = useState(false);
   const [validatedProject, setValidatedProject] = useState<ValidatedProject | null>(null);
+  const chatCwd = chatWorkspaceCwdProp
+    ?? (validatedProject?.key === CHAT_WORKSPACE_KEY ? validatedProject.cwd : null)
+    ?? allSessions.find((session) => session.sessionKind === "chat")?.cwd ?? null;
+  const independentChat = chatCwd !== null && (selectedCwdProp ?? selectedCwd) === chatCwd;
   const dropdownRef = useRef<HTMLDivElement>(null);
   // Worktree switcher state
   const [worktreeState, setWorktreeState] = useState<WorktreeState | null>(null);
@@ -899,6 +906,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   /** Resolve both display root and stable identity from server-provided data. */
   const projectFor = useCallback((cwd: string | null): ProjectSelection | null => {
     if (!cwd) return null;
+    if (cwd === chatCwd) return projectSelection(cwd, CHAT_WORKSPACE_KEY);
     // /api/cwd/validate resolves identity before a custom path becomes active,
     // preventing one render with a raw path key from looking like a switch.
     if (validatedProject?.cwd === cwd) {
@@ -918,7 +926,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     return match
       ? projectSelection(match.projectRoot ?? match.cwd, workspaceKeyOf(match))
       : projectSelection(cwd, cwd);
-  }, [validatedProject, worktreeState, allSessions, projectSelection]);
+  }, [validatedProject, worktreeState, allSessions, chatCwd, projectSelection]);
 
   // A worktree/session refresh can hydrate the stable key without changing
   // cwd, so notify when either changes. The parent treats same-cwd key changes
@@ -1066,19 +1074,6 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     setCustomPathError(null);
     setDropdownOpen(false);
   }, []);
-  const handleDefaultCwd = useCallback(async () => {
-    try {
-      const res = await fetch("/api/default-cwd", { method: "POST" });
-      const data = await res.json() as { cwd?: string; error?: string };
-      // Select it like any other directory, so validation, project identity and
-      // the file allow-list all go through /api/cwd/validate. It is not a path
-      // the user typed, so the custom-path picker does not remember it.
-      if (data.cwd) await commitCustomPath(data.cwd, { remember: false });
-    } catch {
-      // ignore
-    }
-  }, [commitCustomPath]);
-
   const handleCreateWorktree = useCallback(async () => {
     const branch = wtNewBranch.trim();
     if (!branch || wtBusy || !worktreeState) return;
@@ -1179,13 +1174,17 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
 
   const handleNewSession = useCallback(() => {
     if (!selectedCwd) return;
+    if (independentChat) {
+      onNewChat?.(selectedCwd);
+      return;
+    }
     // Generate a temporary UUID client-side — no backend call needed.
     // Pi will be spawned lazily when the user sends the first message.
     const tempId = typeof crypto.randomUUID === "function"
       ? crypto.randomUUID()
       : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
     onNewSession?.(tempId, selectedCwd);
-  }, [selectedCwd, onNewSession]);
+  }, [selectedCwd, independentChat, onNewChat, onNewSession]);
 
   const recentProjects = useMemo(() => getRecentProjects(allSessions), [allSessions]);
   const showProjectFilter = recentProjects.length > 8;
@@ -1493,7 +1492,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         <div ref={dropdownRef} style={{ position: "relative" }}>
           <button
             onClick={() => setDropdownOpen((v) => !v)}
-            title={selectedProject?.root ?? selectedCwd ?? ""}
+            title={selectedProject?.key === CHAT_WORKSPACE_KEY ? t("sidebar.chats") : selectedProject?.root ?? selectedCwd ?? ""}
             style={{
               width: "100%",
               display: "flex",
@@ -1510,15 +1509,31 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             }}
           >
             {selectedCwd ? (
-              <PathLabel
-                text={displayCwd(selectedProject?.root ?? selectedCwd, homeDir)}
-                style={{
-                  flex: 1,
-                  fontFamily: "var(--font-mono)",
-                  fontSize: 11,
-                  color: "var(--text)",
-                }}
-              />
+              selectedProject?.key === CHAT_WORKSPACE_KEY ? (
+                <span
+                  style={{
+                    flex: 1,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 11,
+                    color: "var(--text)",
+                  }}
+                >
+                  {t("sidebar.chats")}
+                </span>
+              ) : (
+                <PathLabel
+                  text={displayCwd(selectedProject?.root ?? selectedCwd, homeDir)}
+                  style={{
+                    flex: 1,
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 11,
+                    color: "var(--text)",
+                  }}
+                />
+              )
             ) : (
               <span
                 style={{
@@ -1622,7 +1637,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                       textOverflow: "ellipsis",
                       whiteSpace: "nowrap",
                     }}
-                    title={project.root}
+                    title={project.key === CHAT_WORKSPACE_KEY ? t("sidebar.chats") : project.root}
                   >
                     {project.key === selectedProject?.key && (
                       <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
@@ -1630,7 +1645,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                       </svg>
                     )}
                     {project.key !== selectedProject?.key && <span style={{ width: 10, flexShrink: 0 }} />}
-                    <PathLabel text={displayCwd(project.root, homeDir)} style={{ flex: 1 }} />
+                    {project.key === CHAT_WORKSPACE_KEY ? (
+                      <span style={{ flex: 1, fontFamily: "var(--font-mono)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t("sidebar.chats")}</span>
+                    ) : (
+                      <PathLabel text={displayCwd(project.root, homeDir)} style={{ flex: 1 }} />
+                    )}
                     {showProjectActivity(projectActivity.get(project.key), t)}
                   </button>
                 ))}
@@ -1638,32 +1657,6 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                    <div style={{ padding: "8px 10px", fontSize: 11, color: "var(--text-dim)" }}>{t("sidebar.noMatchingProjects")}</div>
                 )}
               </div>
-
-              {/* Default cwd shortcut */}
-              {!customPathOpen && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); handleDefaultCwd(); }}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 7,
-                    width: "100%",
-                    padding: "8px 10px",
-                    background: "none",
-                    border: "none",
-                    borderTop: visibleProjects.length > 0 ? "1px solid var(--border)" : "none",
-                    color: "var(--text-muted)",
-                    cursor: "pointer",
-                    textAlign: "left",
-                    fontSize: 11,
-                  }}
-                >
-                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                    <path d="M1 3A1 1 0 0 1 2 2H4L5 3.5H8.5a.5.5 0 0 1 .5.5v4a.5.5 0 0 1-.5.5h-7A.5.5 0 0 1 1 8V3Z" />
-                  </svg>
-                   <span>{t("sidebar.useDefaultDirectory")}</span>
-                </button>
-              )}
 
               {/* Custom path directory picker */}
               <button
@@ -2133,7 +2126,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
               const row = listRows[index];
               if (row.kind === "project") {
                 const { project, collapsed } = row;
-                const name = project.root.replace(/\\/g, "/").split("/").filter(Boolean).pop() || project.root;
+                const name = project.key === CHAT_WORKSPACE_KEY ? t("sidebar.chats") : project.root.replace(/\\/g, "/").split("/").filter(Boolean).pop() || project.root;
                 return (
                   <button
                     key={`project:${project.key}`}
@@ -2142,7 +2135,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                     className="focus:outline-2 focus:outline-accent focus:-outline-offset-2"
                     type="button"
                     aria-expanded={!collapsed}
-                    title={project.root}
+                    title={project.key === CHAT_WORKSPACE_KEY ? t("sidebar.chats") : project.root}
                     onClick={() => setSidebarProjectCollapsed(project.key, !collapsed)}
                     style={{
                       position: "absolute", top: index * SESSION_LIST_ITEM_HEIGHT, left: 0, right: 0,
@@ -2157,7 +2150,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                     </svg>
                     <span style={{ minWidth: 0, flex: 1 }}>
                       <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</span>
-                      <PathLabel text={displayCwd(project.root, homeDir)} style={{ color: "var(--text-dim)", fontSize: 10, fontWeight: 400 }} />
+                      {project.key !== CHAT_WORKSPACE_KEY && <PathLabel text={displayCwd(project.root, homeDir)} style={{ color: "var(--text-dim)", fontSize: 10, fontWeight: 400 }} />}
                     </span>
                     {showProjectActivity(projectActivity.get(project.key), t)}
                   </button>

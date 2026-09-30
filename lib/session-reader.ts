@@ -9,6 +9,8 @@ import type { AgentMessage, ImageContent, SessionEntry, SessionHeader, SessionIn
 import { normalizeToolCalls } from "./normalize";
 import { getThinkingPreview } from "./message-display";
 import { projectIdentityKey } from "./project-identity";
+import { isChatWorkspace } from "./chat-workspace";
+import { CHAT_WORKSPACE_KEY } from "./session-kind";
 import { sessionPathKey } from "./session-path";
 import { MAX_TOOL_RESULT_IMAGE_BYTES, TOOL_RESULT_IMAGE_MIMES } from "./tool-result-images";
 import { resolveProject, type ProjectInfo } from "./worktree";
@@ -153,13 +155,17 @@ function readSessionRelationEntries(filePath: string): SessionEntry[] {
 }
 
 export async function attachSessionProjectInfo(sessions: SessionInfo[]): Promise<SessionInfo[]> {
-  const uniqueCwds = [...new Set(sessions.map((s) => s.cwd).filter(Boolean))];
+  const agentDir = getAgentDir();
+  const uniqueCwds = [...new Set(sessions.map((s) => s.cwd).filter((cwd) => cwd && !isChatWorkspace(cwd, agentDir)))];
   const projectByCwd = new Map<string, ProjectInfo>();
   await Promise.all(uniqueCwds.map(async (cwd) => {
     projectByCwd.set(cwd, await resolveProject(cwd));
   }));
 
   return sessions.map((session) => {
+    if (isChatWorkspace(session.cwd, agentDir)) {
+      return { ...session, sessionKind: "chat", projectRoot: session.cwd, projectKey: CHAT_WORKSPACE_KEY };
+    }
     const project = session.cwd ? projectByCwd.get(session.cwd) : undefined;
     const projectRoot = project?.projectRoot ?? session.cwd;
     return {
