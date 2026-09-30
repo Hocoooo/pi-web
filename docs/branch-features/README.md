@@ -23,7 +23,7 @@
 | ID | 功能文档 | 解决的问题 / 核心约束 | 主要改动入口 |
 |---|---|---|---|
 | F01 | [Headless RPC 会话](headless-rpc.md) | 无 UI 场景使用 SDK 的后台工作 draining；不改变正常 Web 会话 UI | agent/new、rpc-manager |
-| F02 | [模型与思考等级两步选择](model-thinking-picker.md) | 浏览不写设置，确认目标模型与其支持的等级后才提交 | ChatInput、ModelPicker、useAgentSession、RPC |
+| F02 | [模型与思考等级两步选择](model-thinking-picker.md) | 浏览不写设置，确认后联合提交；首次发送保留有效模型/等级，不重复重置默认值 | ChatInput、ModelPicker、useAgentSession、RPC |
 | F03 | [全部项目侧栏视图](all-projects-sidebar.md) | 可选聚合、独立折叠、持久化与项目身份一致 | SessionSidebar、SettingsPanel、sidebar-view-preference |
 | F04 | [项目会话预览数量](project-session-previews.md) | 全部项目视图默认显示有限根会话，可展开更多，不破坏层级 | sidebar-project-rows、SessionSidebar |
 | F05 | [空白会话项目选择](new-session-project.md) | 显式选择新会话 cwd，同时保留草稿和空白导航语义 | NewSessionProjectPicker、AppShell |
