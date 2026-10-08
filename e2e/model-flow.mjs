@@ -13,14 +13,17 @@ const { outputFiles } = await build({
     import {ModelSelector} from "./components/ModelSelector";
     import {I18nProvider} from "./hooks/useI18n";
     const options = Array.from({length:30}, (_,i)=>({provider:"p",modelId:"m"+i,name:"Model "+String(i).padStart(2,"0")}));
-    window.calls=[];
+    window.calls=[]; window.defaults=[];
     function App(){
       const [value,setValue]=useState({provider:"p",modelId:"m25"});
       const [level,setLevel]=useState("low");
+      const [defaultValue,setDefaultValue]=useState(null);
       const [busy,setBusy]=useState(false);
       const [switching,setSwitching]=useState(false);
       window.setSwitching=setSwitching;
       return <I18nProvider><textarea aria-label="Composer"/><ModelSelector options={options} value={value} busy={busy || switching}
+        defaultValue={defaultValue}
+        onSetDefault={(provider,modelId)=>{window.defaults.push([provider,modelId]);setDefaultValue({provider,modelId});setValue({provider,modelId})}}
         onChange={(provider,modelId)=>{window.calls.push(["model",modelId]);setValue({provider,modelId})}}
         thinking={{level,levels:Object.fromEntries(options.map(m=>[m.provider+":"+m.modelId,m.modelId==="m29"?["off"]:["off","low","high"]])),
           onConfirm:async(provider,modelId,level)=>{setBusy(true);window.calls.push(["confirm",modelId,level]);await new Promise(resolve=>setTimeout(resolve,50));setBusy(false);if(window.failSave)return {error:"Save failed"};setValue({provider,modelId});setLevel(level);return {}}}}
@@ -38,6 +41,10 @@ try {
     const selected=page.getByRole("option",{selected:true});
     const row=await selected.boundingBox(); const list=await page.getByRole("listbox").boundingBox();
     assert.ok(row && list && row.y>=list.y && row.y+row.height<=list.y+list.height,"current model must be scrolled into view on open");
+    if (viewport.width < 600) {
+      assert.notEqual(await page.evaluate(() => document.activeElement?.tagName), "INPUT", "opening a mobile picker must not summon the keyboard");
+      await page.locator(".model-selector input").click();
+    }
     await page.keyboard.press("ArrowDown");
     await page.keyboard.type("Model 29");
     assert.equal(await page.locator(".model-selector input").inputValue(),"Model 29","typing after arrows must still filter");
@@ -56,9 +63,11 @@ try {
     await page.getByRole("listbox").waitFor({state:"detached"});
     assert.deepEqual(await page.evaluate(()=>window.calls),[["confirm","m26","high"]]);
     await page.locator(".model-selector > button").click();
+    if (viewport.width < 600) await page.locator(".model-selector input").click();
     await page.keyboard.press("ArrowDown"); await page.keyboard.press("ArrowRight"); await page.keyboard.press("Escape");
     assert.equal((await page.evaluate(()=>window.calls)).length,1,"Escape cancels both pending selections");
     await page.locator(".model-selector > button").click();
+    if (viewport.width < 600) await page.locator(".model-selector input").click();
     await page.keyboard.press("ArrowRight");
     await page.evaluate(()=>window.failSave=true);
     await page.keyboard.press("Enter");
@@ -71,6 +80,17 @@ try {
     await page.locator(".model-selector > button").click({force:true});
     assert.equal(await page.getByRole("listbox").count(), 0, "busy selector must stay closed");
     await page.evaluate(()=>window.setSwitching(false));
+    await page.locator(".model-selector > button").click();
+    await page.locator(".model-selector input").fill("Model 28");
+    const callsBeforeDefault = await page.evaluate(()=>window.calls.length);
+    await page.getByRole("button", {name:"Use and save as default for new chats", exact:true}).click();
+    await page.getByRole("listbox").waitFor({state:"detached"});
+    assert.deepEqual(await page.evaluate(()=>window.defaults), [["p","m28"]]);
+    assert.equal(await page.evaluate(()=>window.calls.length), callsBeforeDefault, "explicit default action must not also confirm a two-step selection");
+    await page.locator(".model-selector > button").click();
+    await page.locator(".model-selector input").fill("Model 28");
+    assert.equal(await page.getByRole("img", {name:"Default model for new chats", exact:true}).count(), 1);
+    await page.locator(".model-selector input").press("Escape");
     console.log("PASS model flow: current visibility, searchable arrows, target capabilities, left/right, deferred commit, cancellation, errors",viewport.width);
     await page.close();
   }

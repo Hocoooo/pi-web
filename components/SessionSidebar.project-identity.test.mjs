@@ -23,12 +23,11 @@ test("custom cwd selection remembers the last validated path for the picker", ()
   assert.match(source, /initialPath=\{customPathValue\}/);
 });
 
-test("default cwd is selected through the same validation as a custom path", () => {
-  const defaultStart = source.indexOf("const handleDefaultCwd = useCallback");
-  const defaultEnd = source.indexOf("const handleCreateWorktree", defaultStart);
-  const defaultSource = source.slice(defaultStart, defaultEnd);
-  assert.notEqual(defaultStart, -1);
-  assert.match(defaultSource, /commitCustomPath\(data\.cwd, \{ remember: false \}\)/);
-  assert.doesNotMatch(defaultSource, /setSelectedCwd\(/);
+test("independent chat replaces the dated-directory shortcut without changing custom validation", async () => {
+  assert.doesNotMatch(source, /const handleDefaultCwd = useCallback/);
+  const route = await readFile(new URL("../app/api/default-cwd/route.ts", import.meta.url), "utf8");
+  assert.match(route, /chatWorkspaceCwd\(getAgentDir\(\)\)/);
+  assert.match(route, /allowFileRoot\(dir\)/);
+  assert.match(route, /projectKey: CHAT_WORKSPACE_KEY, sessionKind: "chat"/);
   assert.match(customPathSource, /if \(remember\) \{\s*saveLastCustomCwd\(data\.cwd\)/);
 });

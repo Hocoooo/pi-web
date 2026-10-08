@@ -8,6 +8,9 @@ interface Props {
   options: PickerModel[];
   value?: Pick<PickerModel, "provider" | "modelId"> | null;
   query?: string;
+  defaultValue?: Pick<PickerModel, "provider" | "modelId"> | null;
+  onSetDefault?: (provider: string, modelId: string) => void;
+  autoFocus?: boolean;
   thinking?: ThinkingPickerConfig;
   onSelect: (model: PickerModel) => void;
   onClose: () => void;
@@ -17,7 +20,7 @@ interface Props {
 }
 
 /** Local draft of a model + thinking choice. Navigation never mutates a session. */
-export function ModelPicker({ options, value, query = "", thinking, onSelect, onClose, onClear, emptyLabel, onSubmittingChange }: Props) {
+export function ModelPicker({ options, value, query = "", thinking, onSelect, onClose, onClear, emptyLabel, onSubmittingChange, defaultValue, onSetDefault, autoFocus = true }: Props) {
   const { t } = useI18n();
   const id = useId();
   const [filter, setFilter] = useState(query);
@@ -46,8 +49,8 @@ export function ModelPicker({ options, value, query = "", thinking, onSelect, on
 
   // Virtual focus keeps the search field editable after any number of arrows.
   useLayoutEffect(() => {
-    (target ? listRef.current : inputRef.current)?.focus({ preventScroll: true });
-  }, [step, target]);
+    if (target || autoFocus) (target ? listRef.current : inputRef.current)?.focus({ preventScroll: true });
+  }, [step, target, autoFocus]);
   useLayoutEffect(() => {
     if (scrollKey !== undefined) rowRefs.current.get(scrollKey)?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [scrollKey, step, filter]);
@@ -126,15 +129,22 @@ export function ModelPicker({ options, value, query = "", thinking, onSelect, on
           const highlighted = active?.key === row.key;
           const current = target ? value && modelKey(value) === modelKey(target) && thinking?.level === row.key
             : row.clear ? !value : value && modelKey(value) === row.key;
-          return <button key={row.key} id={`${id}-option-${index}`} ref={node => { if (node) rowRefs.current.set(row.key, node); else rowRefs.current.delete(row.key); }}
+          const isDefault = row.model && defaultValue && modelKey(row.model) === modelKey(defaultValue);
+          return <div key={row.key} style={{ position: "relative" }}><button id={`${id}-option-${index}`} ref={node => { if (node) rowRefs.current.set(row.key, node); else rowRefs.current.delete(row.key); }}
             type="button" role="option" aria-selected={highlighted} data-current={current || undefined} tabIndex={-1} disabled={saving}
             onMouseDown={event => event.preventDefault()} onClick={() => void select(row)}
-            style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "8px 12px", border: 0, textAlign: "left", cursor: saving ? "wait" : "pointer", background: highlighted ? "var(--bg-selected)" : "none", color: "var(--text)", outline: highlighted ? "1px solid var(--accent)" : "none", outlineOffset: -1 }}>
+            style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: !target && onSetDefault && row.model ? "8px 42px 8px 12px" : "8px 12px", border: 0, textAlign: "left", cursor: saving ? "wait" : "pointer", background: highlighted ? "var(--bg-selected)" : "none", color: "var(--text)", outline: highlighted ? "1px solid var(--accent)" : "none", outlineOffset: -1 }}>
             <span style={{ minWidth: 0, flex: 1 }}><span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 12 }}>{row.label}</span>
               {row.detail && <span style={{ display: "block", color: "var(--text-dim)", fontSize: 10, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: 2 }}>{row.detail}</span>}</span>
             {current && <span title={t("chat.pickerCurrent")} aria-label={t("chat.pickerCurrent")} style={{ color: "var(--accent)" }}>✓</span>}
             {!target && hasThinkingPickerConfig(thinking) && <span style={{ color: "var(--text-dim)" }}>→</span>}
-          </button>;
+          </button>
+            {!target && row.model && onSetDefault && (isDefault
+              ? <span role="img" aria-label={t("chat.defaultModel")} title={t("chat.defaultModel")} style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", color: "var(--text-dim)" }}>★</span>
+              : <button type="button" disabled={saving} aria-label={t("chat.saveDefaultModel")} title={t("chat.saveDefaultModel")}
+                  onClick={event => { event.stopPropagation(); if (!savingRef.current) onSetDefault(row.model!.provider, row.model!.modelId); }}
+                  style={{ position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)", background: "var(--bg-hover)", border: "1px solid var(--border)", borderRadius: 6, color: "var(--text-muted)", cursor: "pointer", width: 28, height: 28 }}>☆</button>)}
+          </div>;
         })}
       </div>
       {error && <div role="alert" style={{ padding: "8px 12px", color: "var(--error, #ef4444)", fontSize: 12 }}>{error}</div>}

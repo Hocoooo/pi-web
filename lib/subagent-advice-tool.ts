@@ -8,6 +8,7 @@ export function createSubagentAdviceTool(
 ) {
   return defineTool({
     name: "assess_subagent",
+    exposure: "model-only",
     label: "Assess delegation",
     description: "Ask Jev for advisory-only direct/delegate/unknown guidance when delegation has a real tradeoff. Skip for simple quick iterations, explicit user delegation requests or prohibitions. Sends only your bounded task summary and a coarse context-usage metric to the external tapsvc service; never include secrets, full transcripts or material not authorized for transmission. Explain the remaining work, independent deliverable, isolation/parallel benefits, handoff dependencies and shared-file risks, including evidence against delegation. It does not launch or block Agent, grant permission, or replace planning. Unavailable/unknown advice means continue with normal judgment, not retry in a loop. Reuse advice until the task or evidence materially changes; confidence is not a correctness guarantee.",
     promptSnippet: "Get optional Jev advice for a genuine delegation tradeoff (no automatic launch or blocking)",

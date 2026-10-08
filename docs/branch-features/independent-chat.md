@@ -68,6 +68,10 @@ PI_WEB_TEST_URL=http://127.0.0.1:30141 node e2e/session-keyboard.mjs
 
 未做真实 provider 首次发送、真实操作系统跨日/进程重启、移动端触屏专项验收；上述持久化和 reload 已由临时文件系统/SDK 与浏览器 fixture 分层验证。更改 agent-dir 是配置迁移，会改变保留 cwd；本功能不自动搬迁旧 agent-dir 的历史。
 
+## v0.10.0 整合说明
+
+继续以固定聊天工作区替代上游 `~/pi-cwd/YYYYMMDD` 快捷入口；`POST /api/default-cwd` 创建后直接将该工作区加入文件授权范围。自定义项目路径仍使用原 `/api/cwd/validate` 流程。删除会话的异步回调使用 `selectedSessionRef.current` 的最新会话身份决定是否导航及是否使用 `?chat=1`，不能回读删除开始时捕获的旧会话。
+
 ## Rebase 与维护
 
 - 保留服务端识别及原生 cwd 持久化，不按 basename 或日期猜聊天。

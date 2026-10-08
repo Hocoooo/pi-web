@@ -10,6 +10,8 @@ interface Props {
   modelNames?: Record<string, string>;
   modelList?: { id: string; name: string; provider: string; input?: string[] }[];
   onModelChange: (provider: string, modelId: string) => void;
+  defaultModel?: { provider: string; modelId: string } | null;
+  onSetDefaultModel?: (provider: string, modelId: string) => void;
   onModelThinkingChange?: (provider: string, modelId: string, level: string) => Promise<SettingChangeResult>;
   modelThinkingLevels?: Record<string, string[]>;
   modelThinkingLevelMaps?: Record<string, Record<string, string | null>>;
@@ -23,7 +25,7 @@ interface Props {
 export function ChatInputModelControl({
   model, isAutoModelSelection, modelNames, modelList, onModelChange, onModelThinkingChange,
   modelThinkingLevels, modelThinkingLevelMaps, modelSwitching, thinkingLevel, disabled,
-  openRequest, onRequestClose,
+  openRequest, onRequestClose, defaultModel, onSetDefaultModel,
 }: Props) {
   const options: PickerModel[] = modelList?.length
     ? modelList.map((entry) => ({ provider: entry.provider, modelId: entry.id, name: entry.name }))
@@ -40,6 +42,8 @@ export function ChatInputModelControl({
       options={options}
       value={model}
       onChange={onModelChange}
+      defaultValue={defaultModel}
+      onSetDefault={onSetDefaultModel}
       disabled={disabled}
       busy={modelSwitching}
       openRequest={openRequest}

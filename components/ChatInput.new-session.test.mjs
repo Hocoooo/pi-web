@@ -6,7 +6,8 @@ import { createJiti } from "jiti";
 import ts from "typescript";
 
 const jiti = createJiti(import.meta.url, { jsx: { runtime: "automatic" }, tsconfigPaths: true });
-const { canRunBuiltinSlashCommandWhileStreaming } = await jiti.import("./ChatInput.tsx");
+const { canRunBuiltinSlashCommandWhileStreaming, offersBuiltinSlashCommandWhileStreaming } = await jiti.import("./ChatInput.tsx");
+const { isBareMcpCommand } = await jiti.import("@/lib/mcp-command");
 const { isSettingsSlashCommand } = await jiti.import("@/lib/model-command");
 const inputText = readFileSync(new URL("./ChatInput.tsx", import.meta.url), "utf8");
 const shellText = readFileSync(new URL("./AppShell.tsx", import.meta.url), "utf8");
@@ -36,7 +37,7 @@ function composer(value, isStreaming, attachedImages = []) {
     clearInput: () => actions.push(["clear"]),
     onSend: (...args) => actions.push(["send", ...args]),
     onPromptWithStreamingBehavior: (...args) => actions.push(["queue", ...args]),
-    canRunBuiltinSlashCommandWhileStreaming, isSettingsSlashCommand,
+    canRunBuiltinSlashCommandWhileStreaming, offersBuiltinSlashCommandWhileStreaming, isBareMcpCommand, isSettingsSlashCommand,
   };
   context.runBuiltinCommand = callback(inputText, "runBuiltinCommand", context);
   return {

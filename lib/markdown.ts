@@ -1,7 +1,7 @@
 import type { Content, Link, Parent, Root } from "mdast";
 import { defaultUrlTransform, type Options as ReactMarkdownOptions } from "react-markdown";
 import rehypeKatex from "rehype-katex";
-import type { Root, Element, RootContent } from "hast";
+import type { Root as HastRoot, Element, RootContent } from "hast";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import remarkFrontmatter from "remark-frontmatter";
@@ -13,8 +13,8 @@ import type { Extension } from "micromark-util-types";
 
 /** A drive letter is a path, not an untrusted URL scheme. Normalize before sanitizing. */
 function rehypeWindowsFileLinks() {
-  return (tree: Root) => {
-    const pending: (Root | RootContent)[] = [tree];
+  return (tree: HastRoot) => {
+    const pending: (HastRoot | RootContent)[] = [tree];
     while (pending.length) {
       const node = pending.pop()!;
       if (node.type === "element" && node.tagName === "a") {

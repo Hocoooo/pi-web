@@ -82,6 +82,10 @@ node .pi/skills/pi-web-local-global-install/scripts/install-global.mjs run --dry
 
 此前现场授权的 macOS 手动安装成功不等于本次新安装器 live 验收。Windows native流程/无窗口 smoke、本次跨平台安装器的真实全局切换仍需另行授权测试。全量仓库测试的无关既有失败应单独报告，不绕过安装前检查。
 
+## v0.10.0 Rebase 版本
+
+本次主线整合将包与 lockfile 根版本统一为 `0.10.0-personal.6`，SDK 依赖保留上游 `1.0.0`，没有退回旧依赖。仅修改源码不等于已更新全局安装；本轮未执行安装、生产构建、发布或服务重启。
+
 ## 维护与 Rebase
 
 保留源码来源/显式重启和 no-wait 授权、隔离构建、完整包/进程验证、共享锁、独立 runner 和可观察错误。不要重新加入备份/自动回滚，也不要把 no-wait 变成默认。改变平台工具、参数、恢复状态或 runtime 环境时同步 skill、恢复指南、本页、测试和[功能索引](README.md)；Windows启动层变更还须核对无窗口契约。

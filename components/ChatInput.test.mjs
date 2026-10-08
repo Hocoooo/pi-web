@@ -13,6 +13,7 @@ const React = await jiti.import("react");
 const { renderToStaticMarkup } = await jiti.import("react-dom/server");
 const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, canClearBuiltinCommandInput, canRestoreUserMessage, canRunBuiltinSlashCommandWhileStreaming, compressImageFile, cycleListIndex, filterModelOptions, getUpwardMenuMaxHeight, getUserMessageText, getUserMessageDraftImages, isExactSlashCommand, modelSupportsImageInput, offersBuiltinSlashCommandWhileStreaming, replaceLinksWithMarkdown, shouldCompressImageFile, submitsSlashCommandOnEnter } = await jiti.import("./ChatInput.tsx");
 const { isBareMcpCommand } = await jiti.import("@/lib/mcp-command.ts");
+const { isSettingsSlashCommand } = await jiti.import("@/lib/model-command.ts");
 const { ModelSelector } = await jiti.import("./ModelSelector.tsx");
 const { clearDraft, getDraft, mergeRestoredSubmissionDraft, mergeRestoredSubmissionText, rekeyDraft, setDraft } = await jiti.import("@/lib/draft-store");
 const { I18nProvider } = await jiti.import("@/hooks/useI18n");
@@ -130,7 +131,7 @@ test("next cue appears inside the empty composer and Tab fills without sending",
     const textareaRef = { current: { value: "Run the tests", focus() {}, setSelectionRange() {} } };
     const handler = script.runInNewContext({
       Date: { now: () => 1000 }, COMPOSITION_END_ENTER_GRACE_MS: 100,
-      isMobile: false, isStreaming: false, compact: false,
+      isMobile: false, enterSendMode: "enter", isStreaming: false, compact: false,
       isComposingRef: { current: false }, lastCompositionEndAtRef: { current: 0 },
       historyMenuOpen: false, inputHistory: [], historyActiveIndex: 0,
       slashMenuOpen: false, slashQuery: null, displayedSlashCommands: [],
@@ -620,6 +621,7 @@ test("while a run streams, a bare /mcp opens Settings or is queued as before", a
       clearInput() { calls.cleared += 1; },
       onBuiltinCommand: async () => ({ handled }),
       canRunBuiltinSlashCommandWhileStreaming,
+      isSettingsSlashCommand,
       isBareMcpCommand,
       runBuiltinCommand: async (message) => { calls.builtin.push(message); return handled; },
       onPromptWithStreamingBehavior: (message, behavior, attached) => calls.prompts.push([message, behavior, attached?.length ?? 0]),
@@ -652,6 +654,7 @@ test("handleSend lets a handled /mcp through while streaming and sends an unowne
       onAudioUnlock() {},
       isStreaming,
       offersBuiltinSlashCommandWhileStreaming,
+      isSettingsSlashCommand,
       runBuiltinCommand: async (message) => { calls.builtin.push(message); return handled; },
       clearInput() {},
       onSend: (message) => calls.sent.push(message),
@@ -875,7 +878,9 @@ test("renders image warnings for known text-only defaults without an explicit mo
 test("only the chat composer offers saving a default model or reasoning level", () => {
   const chatInputSource = readFileSync(new URL("./ChatInput.tsx", import.meta.url), "utf8");
   const agentsConfigSource = readFileSync(new URL("./AgentsConfig.tsx", import.meta.url), "utf8");
-  assert.match(chatInputSource, /<ModelSelector[\s\S]*?defaultValue=\{defaultModel\}[\s\S]*?onSetDefault=\{onSetDefaultModel\}/);
+  assert.match(chatInputSource, /<ChatInputModelControl[\s\S]*?defaultModel=\{defaultModel\}[\s\S]*?onSetDefaultModel=\{onSetDefaultModel\}/);
+  const control = readFileSync(new URL("./ChatInputModelControl.tsx", import.meta.url), "utf8");
+  assert.match(control, /<ModelSelector[\s\S]*?defaultValue=\{defaultModel\}[\s\S]*?onSetDefault=\{onSetDefaultModel\}/);
   // "auto" means "use the default", so it never gets a star of its own.
   assert.match(chatInputSource, /star=\{onSetDefaultThinkingLevel && lvl !== "auto"/);
   // A subagent profile's model is not the default for new chats.

@@ -37,6 +37,7 @@ export function ModelSelector({ options, value, onChange, onClear, emptyLabel, s
   const panelRef = useRef<HTMLDivElement>(null);
   const consumedRequest = useRef<ModelSelectorProps["openRequest"]>(undefined);
   const openedFromCommand = useRef(false);
+  const pickerGeneration = useRef(0);
   const [open, setOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [query, setQuery] = useState("");
@@ -60,6 +61,7 @@ export function ModelSelector({ options, value, onChange, onClear, emptyLabel, s
     if (!openRequest || consumedRequest.current === openRequest || locked || !buttonRef.current) return;
     consumedRequest.current = openRequest;
     openedFromCommand.current = true;
+    pickerGeneration.current++;
     const rect = buttonRef.current.getBoundingClientRect();
     setAnchor({ top: rect.top, bottom: rect.bottom, left: rect.left, width: rect.width });
     setQuery(openRequest.query);
@@ -69,7 +71,9 @@ export function ModelSelector({ options, value, onChange, onClear, emptyLabel, s
   const closePicker = () => {
     setOpen(false);
     const restoreComposer = openedFromCommand.current && onRequestClose;
+    const generation = pickerGeneration.current;
     requestAnimationFrame(() => {
+      if (generation !== pickerGeneration.current) return;
       if (restoreComposer) restoreComposer();
       else buttonRef.current?.focus({ preventScroll: true });
     });
@@ -87,6 +91,7 @@ export function ModelSelector({ options, value, onChange, onClear, emptyLabel, s
       title={busy ? "Switching model" : locked ? currentName : sorted.length || onClear ? "Change model" : "No available models"} style={buttonStyle}
       onClick={() => {
         openedFromCommand.current = false;
+        pickerGeneration.current++;
         const rect = buttonRef.current!.getBoundingClientRect();
         setAnchor({ top: rect.top, bottom: rect.bottom, left: rect.left, width: rect.width });
         setQuery(""); setPickerKey(key => key + 1); setOpen(current => !current);
@@ -109,7 +114,7 @@ export function ModelSelector({ options, value, onChange, onClear, emptyLabel, s
         zIndex: 500, display: "flex", flexDirection: "column", maxHeight, overflow: "hidden", border: "1px solid var(--border)", borderRadius: 10,
         background: "var(--bg)", boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
       }}>
-        <ModelPicker key={pickerKey} options={sorted} value={value} query={query} thinking={thinking} onClose={closePicker} onSubmittingChange={setSubmitting}
+        <ModelPicker key={pickerKey} autoFocus={!isMobile || openedFromCommand.current} options={sorted} value={value} query={query} thinking={thinking} onClose={closePicker} onSubmittingChange={setSubmitting}
           defaultValue={defaultValue} onSetDefault={onSetDefault ? (provider, modelId) => { closePicker(); onSetDefault(provider, modelId); } : undefined}
           emptyLabel={emptyLabel} onClear={onClear ? () => { closePicker(); onClear(); } : undefined}
           onSelect={option => { closePicker(); if (isAutoSelection || option.provider !== value?.provider || option.modelId !== value?.modelId) onChange(option.provider, option.modelId); }} />
