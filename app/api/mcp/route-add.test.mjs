@@ -193,7 +193,7 @@ test("a fresh folder that gained resources since the panel offered the step is n
 test("a fresh folder with a link to nothing under .pi is not offered the step, and the step refuses it", async () => {
   // The SDK's existsSync sees nothing that needs trust yet; the link would need it once its target appears.
   await mkdir(join(fresh, ".pi"));
-  await symlink(join(root, "not-there-yet"), join(fresh, ".pi", "extensions"));
+  await symlink(join(root, "not-there-yet"), join(fresh, ".pi", "extensions"), process.platform === "win32" ? "junction" : "dir");
   const listed = await (await GET(new Request(`http://localhost/api/mcp?cwd=${encodeURIComponent(fresh)}`, { headers: { host: "localhost" } }))).json();
   assert.deepEqual(listed.project.trust, { requiresTrust: false, trusted: true, decision: null, inherited: false });
   assert.deepEqual(listed.project.trustFolder, { allowed: false, reason: "folder-not-fresh" }, "GET and POST share one freshness rule");

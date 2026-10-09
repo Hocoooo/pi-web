@@ -76,14 +76,23 @@ export function workerEnvironment(environment) {
     PI_WEB_INSTALL_RUNTIME_TURBOPACK: environment.TURBOPACK ?? '' };
 }
 
-export function buildEnvironment(environment, runDir, heapMb) {
+export function buildEnvironment(environment, runDir, heapMb, platform = process.platform) {
   // Never mutate the restart/install environment or place runtime data beneath build/.
   const env = commandEnvironment(environment);
   const home = path.join(runDir, 'build-home');
-  // Build temp uses the OS temp dir, which is outside the real home tree: the SDK's
-  // project-trust ancestor scan must not mistake the operator's ~/.agents/skills for
-  // a project resource while HOME is isolated under the run directory.
-  const temp = os.tmpdir();
+  // Windows OS temp normally lives inside the real profile. With HOME isolated,
+  // the SDK would treat that profile's .agents resources as project resources.
+  let temp = os.tmpdir();
+  if (platform === 'win32') {
+    temp = path.win32.join(runDir, 'build-temp');
+    const originalHome = environment.USERPROFILE || environment.HOME;
+    if (originalHome) {
+      const relative = path.win32.relative(originalHome, temp);
+      if (!relative || (!relative.startsWith(`..${path.win32.sep}`) && relative !== '..' && !path.win32.isAbsolute(relative))) {
+        temp = path.win32.join(environment.SystemRoot || environment.WINDIR || 'C:\\Windows', 'Temp', 'pi-web-build', path.win32.basename(runDir));
+      }
+    }
+  }
   return { ...env, HOME: home, USERPROFILE: home, PI_CODING_AGENT_DIR: path.join(home, '.pi', 'agent'), TMP: temp, TEMP: temp, TMPDIR: temp, NODE_OPTIONS: `--max-old-space-size=${heapMb}` };
 }
 

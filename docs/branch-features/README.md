@@ -120,6 +120,7 @@ npm test
 ```
 
 - 各功能文档列出更小范围的单测和浏览器命令，先运行受影响部分，再扩大范围。
+- Windows / SDK 1.0 的模块身份、换行、MCP fixture 清理及安装器隔离条件见 [Windows 全量测试验证契约](windows-test-portability.md)；平台能力跳过必须明确记录，不能算作通过。
 - `npm run test:e2e` 自建临时 agent 数据和独立 dev 服务。只在没有同 checkout dev 服务的工作区执行，详见 [e2e/README.md](../../e2e/README.md)。需安装 Playwright 浏览器。
 - 不要在正在开发的 checkout 运行 `next build`，不要为同一 checkout 换端口绕开 `.next/dev/lock`；遵循根 AGENTS 的服务排查规则。
 - 桌面操作、真实模型、Windows Explorer、全局安装的验收必须先检查环境和用户授权；测试提示不构成执行授权。

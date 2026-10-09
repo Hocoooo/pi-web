@@ -8,6 +8,7 @@ import test, { after, beforeEach } from "node:test";
 import { ProjectTrustStore } from "@earendil-works/pi-coding-agent";
 import { createJiti } from "jiti";
 import { approveSignIn, startFakeOAuthServer } from "../../../../lib/__fixtures__/mcp-oauth-server.mjs";
+import { markerCommand } from "../../../../lib/__fixtures__/mcp-test-helpers.mjs";
 
 // /api/mcp/sign-in connects and writes mcp-auth.json, so every case runs
 // against a PI_CODING_AGENT_DIR in a temporary folder and a fake OAuth server
@@ -68,7 +69,7 @@ beforeEach(async () => {
     },
   }, null, 2)}\n`);
   await writeFile(projectPath, `${JSON.stringify({
-    mcpServers: { repo: { url: fake.url, headers: { "X-Probe": `!touch ${marker} && echo probe` } } },
+    mcpServers: { repo: { url: fake.url, headers: { "X-Probe": markerCommand(marker, "probe") } } },
   }, null, 2)}\n`);
   store.set(cwd, null);
 });

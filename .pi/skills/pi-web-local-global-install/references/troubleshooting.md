@@ -54,7 +54,7 @@ A listener must be the recognized Next server, have a recognized global Pi Web C
 
 ## Build environment
 
-Compilation/typecheck/tests isolate HOME, USERPROFILE, PI_CODING_AGENT_DIR, TEMP, TMP and TMPDIR outside the worktree. Explicit agent-dir overrides must not pull real user configuration into build tracing. Dependency installation keeps real npm auth/cache; install commands strip inherited NODE_OPTIONS/TURBOPACK, while the service retains the original runtime values.
+Compilation/typecheck/tests isolate HOME, USERPROFILE, PI_CODING_AGENT_DIR, TEMP, TMP and TMPDIR outside the worktree. macOS uses OS temp. Windows OS temp is normally under the original user profile, which makes the SDK's ancestor scan find the operator's `.agents/skills` after HOME is isolated. Windows therefore uses `<runDir>/build-temp` outside the original profile, or `<SystemRoot>/Temp/pi-web-build/<run-name>` for a profile-nested run directory. The runner creates HOME and TEMP before checks; permission errors are pre-cutover failures, not a reason to fall back to the original profile. Explicit agent-dir overrides must not pull real user configuration into build tracing. Dependency installation keeps real npm auth/cache; install commands strip inherited NODE_OPTIONS/TURBOPACK, while the service retains the original runtime values.
 
 Build heap defaults to 4096 MB. If a build fails/OOMs, preserve run.log and inspect isolation before requesting a larger bounded heap. Never build in the active checkout's `.next` or pack a failed/stale build. Never substitute `next dev --webpack`.
 

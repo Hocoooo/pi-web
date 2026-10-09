@@ -168,7 +168,9 @@ export async function prepare(host, plan) {
   host.git(plan.repo, 'worktree', 'add', '--detach', build, plan.commit);
   await host.run(process.execPath, [host.npmCli, 'ci', '--include=dev', '--no-audit', '--no-fund'], { cwd: build });
   // Dependency installation uses real npm credentials/cache. HOME isolation begins only for compilation.
-  const env = buildEnvironment(host.env, plan.runDir, plan.heapMb);
+  const env = buildEnvironment(host.env, plan.runDir, plan.heapMb, host.platform);
+  fs.mkdirSync(env.HOME, { recursive: true });
+  fs.mkdirSync(env.TEMP, { recursive: true });
   await host.run(process.execPath, [path.join(build, 'node_modules/typescript/bin/tsc'), '--noEmit'], { cwd: build, env, timeout: 180_000 });
   if (!plan.skipTests) await host.run(process.execPath, [host.npmCli, 'test'], { cwd: build, env, timeout: 300_000 });
   else host.log(`Tests explicitly skipped: ${plan.skipReason}`);

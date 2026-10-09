@@ -32,6 +32,10 @@
 - `node e2e/model-first-prompt.mjs`：通过，使用真实 SDK 和隔离测试 provider 验证首次请求有效 thinking。
 - `node e2e/draft-completion.mjs`：通过，mock provider/HTTP 验证 opt-in、Tab/Enter/Esc、过期响应和移动端保护。
 
+## Windows 后续复测
+
+2026-10-09：Windows 本地全局安装的预检查发现 123 条失败及超时；根因涉及 checkout 换行、Jiti 模块身份、MCP fixture 路径/清理和构建 TEMP 隔离，不以 macOS 的历史绿色结果替代 Windows 验证。修复与完整回归结果见 [Windows 全量测试验证契约](windows-test-portability.md)。原始 macOS 记录保持不变。
+
 ## 边界与后续
 
 - 本轮没有运行生产 build、启动新的 Next 服务、更新全局 npm 安装、发布包或推送重写后的个人分支。运行中的全局服务仍是原安装版本。

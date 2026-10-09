@@ -40,7 +40,7 @@ macOS 只接受正确包 cwd 的 Next listener 和明确指向全局 Pi Web 的 
 ## 构建、包与覆盖不变量
 
 1. 唯一外部 Git worktree、独立 `npm ci --include=dev`，不共享未经验证的 node_modules Junction/symlink。
-2. build-only HOME/USERPROFILE、PI_CODING_AGENT_DIR、TMP/TEMP/TMPDIR 位于外部空目录；npm ci 保持真实 npm auth/cache，重启恢复真实 runtime 环境。默认 heap 4096 MB，不自动 OOM 重试。
+2. build-only HOME/USERPROFILE、PI_CODING_AGENT_DIR、TMP/TEMP/TMPDIR 位于 checkout 外部空目录；TEMP 必须避开真实用户 home，防止 SDK 在祖先扫描中把用户 `.agents/skills` 当作项目资源。macOS 使用 OS temp；Windows 默认用 `<runDir>/build-temp`，若 runDir 本身位于原 USERPROFILE 下则改用 `<SystemRoot>/Temp/pi-web-build/<run-name>`。检查前创建 HOME/TEMP；目录无写权限时在切换前失败，禁止回退到原 profile 临时目录。npm ci 保持真实 npm auth/cache，重启恢复真实 runtime 环境。默认 heap 4096 MB，不自动 OOM 重试。
 3. 构建必须成功并有 BUILD_ID；npm pack manifest 与实际 archive 内版本、BUILD_ID、SHA-256 一致。拒绝 dev/cache、env、日志；允许正常 `.next/diagnostics`。
 4. 默认 prefix 共享 durable lease；macOS 首次创建前也解析现有祖先，`/var` 与 `/private/var` 不生成两个锁。runner 本地 guard 解析真实路径，不错误使用全局安装中的依赖。
 5. `--defer` / `--no-wait` 从复制的外部 runner 启动 worker；guard 依赖随 runner 独立复制，无依赖 checkout 只 bootstrap pinned proper-lockfile。handoff 需 worker-ready 回执。token/环境不进入 plan。
@@ -85,6 +85,10 @@ node .pi/skills/pi-web-local-global-install/scripts/install-global.mjs run --dry
 ## v0.10.0 Rebase 版本
 
 本次主线整合将包与 lockfile 根版本统一为 `0.10.0-personal.6`，SDK 依赖保留上游 `1.0.0`，没有退回旧依赖。仅修改源码不等于已更新全局安装；本轮未执行安装、生产构建、发布或服务重启。
+
+## Windows 全量测试可移植性
+
+SDK 1.0 的 Windows 安装前检查曾出现批量失败和五分钟超时。TEMP 隔离修复由 `lib/local-global-install.test.mjs` 覆盖原 profile 内外两种 runDir，以及 macOS 的 OS-temp 保留；MCP fixture 清理、模块身份与换行规则见 [Windows 测试验证契约](windows-test-portability.md)。修复测试不等于完成全局安装或服务重启，仍须另跑安装器并核对实时状态。
 
 ## 维护与 Rebase
 

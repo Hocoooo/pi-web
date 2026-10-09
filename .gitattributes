@@ -1,0 +1,6 @@
+# Keep source-contract tests and generated fixtures stable on Windows too.
+* text=auto eol=lf
+
+# Native command scripts keep their platform line endings.
+*.bat text eol=crlf
+*.cmd text eol=crlf
