@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { LocalHost, sleep } from './local-host.mjs';
 import { PACKAGE, restartEnvironment, samePath, sameProcess } from './policy.mjs';
+import { delegateTerminal } from './mac-terminal.mjs';
+import { LaunchAgent } from './mac-launchagent.mjs';
 
 export function executableOnPath(name, env) {
   for (const directory of (env.PATH ?? '').split(path.delimiter)) {
@@ -35,6 +37,102 @@ export class MacOSHost extends LocalHost {
     for (const file of [this.tar, '/bin/ps', '/usr/sbin/lsof']) fs.accessSync(file, fs.constants.X_OK);
   }
   packageDir(prefix) { return path.join(prefix, 'lib', 'node_modules', PACKAGE); }
+  launchctl(args) {
+    return cp.spawnSync('/bin/launchctl', args, { encoding: 'utf8', env: this.env, timeout: 20_000, maxBuffer: 4 * 1024 * 1024 });
+  }
+  restartOptions(options, source) {
+    if (!options.restart) {
+      if (options.macosLaunch || options.macosEnvFile) throw new Error('macOS launch options require --restart');
+      if (new LaunchAgent(this, { prefix: source.prefix, port: options.port, runtimeHome: this.runtimeEnv.HOME }).existing()) throw new Error('Registered LaunchAgent requires --restart for package replacement');
+      return {};
+    }
+    if (process.getuid() === 0) throw new Error('macOS restart requires the logged-in user, not root');
+    const plan = { prefix: source.prefix, port: options.port, runtimeHome: this.runtimeEnv.HOME };
+    const agent = new LaunchAgent(this, plan);
+    const existing = agent.existing();
+    plan.macosLaunch = options.macosLaunch ?? (existing ? 'launchagent' : 'terminal');
+    if (options.macosEnvFile && !path.isAbsolute(options.macosEnvFile)) throw new Error('--macos-env-file must be absolute');
+    plan.macosEnvFile = options.macosEnvFile ?? existing?.envFile;
+    agent.preflight();
+    return { macosLaunch: plan.macosLaunch, ...(plan.macosEnvFile ? { macosEnvFile: plan.macosEnvFile } : {}) };
+  }
+  preflightRestart(plan) {
+    if (!plan.restart) {
+      if (new LaunchAgent(this, plan).existing()) throw new Error('Registered LaunchAgent requires --restart for package replacement');
+      return;
+    }
+    if (!['terminal', 'launchagent'].includes(plan.macosLaunch)) throw new Error('Legacy macOS restart plan: create a fresh Terminal/LaunchAgent plan');
+    new LaunchAgent(this, plan).preflight();
+  }
+  startWorker(plan) { return delegateTerminal(this, plan); }
+  async stopService(plan) {
+    if (!plan.restart) return;
+    const agent = new LaunchAgent(this, plan);
+    agent.stop(); // bootout first: launchd must not race package replacement or restart.
+    if (plan.service) {
+      await this.kill(plan.service.server);
+      await this.kill(plan.service.launcher);
+    }
+    await this.waitFree(plan.port);
+    if (plan.macosLaunch === 'terminal') agent.disableRegistration();
+  }
+  async launch(plan, onSpawn = () => {}) {
+    if (!this.terminalDelegated) throw new Error('macOS launch must run in the acknowledged Terminal worker');
+    if (this.listeners(plan.port).length) throw new Error('Port occupied before launch');
+    if (plan.macosLaunch === 'launchagent') {
+      const agent = new LaunchAgent(this, plan);
+      this.agentStartAttempted = true;
+      agent.start();
+      for (let i = 0; i < 45; i++) {
+        const current = this.service(plan.prefix, plan.port);
+        if (current) {
+          const job = agent.loaded();
+          if (!job?.pid || current.launcher.parentPid !== job.pid) throw new Error('Listener does not belong to the LaunchAgent');
+          onSpawn(current.launcher);
+          return current.launcher;
+        }
+        await sleep(1000);
+      }
+      throw new Error('LaunchAgent did not start a recognized service');
+    }
+    const fd = fs.openSync(path.join(plan.runDir, 'service.log'), 'a', 0o600);
+    try {
+      // Attached to the delegated Terminal worker, never detached back into an updater context.
+      const child = cp.spawn(process.execPath, [path.join(this.packageDir(plan.prefix), 'bin/pi-web.js'), '--port', String(plan.port), '--hostname', plan.host, '--no-open'], {
+        cwd: this.packageDir(plan.prefix), env: this.runtimeEnv, stdio: ['inherit', fd, fd],
+      });
+      await new Promise((resolve, reject) => { child.once('spawn', resolve); child.once('error', reject); });
+      onSpawn({ pid: child.pid, unverifiedStartup: true });
+      const identity = this.processInfo(child.pid);
+      if (!identity || identity.parentPid !== process.pid) throw new Error('Terminal launcher exited during startup');
+      onSpawn(identity);
+      return identity;
+    } finally { fs.closeSync(fd); }
+  }
+  async diagnose(plan) {
+    try {
+      const response = await fetch(`${this.url(plan.host, plan.port)}/api/service/health`, this.requestOptions());
+      const data = await response.json();
+      const names = ['user', 'dns', 'childUser', 'childDns', 'paths'];
+      if ([200, 503].includes(response.status) && names.every(name => typeof data.checks?.[name] === 'boolean')) {
+        const checks = Object.fromEntries(names.map(name => [name, data.checks[name]]));
+        return { status: Object.values(checks).every(Boolean) ? 'healthy' : 'degraded', checks };
+      }
+    } catch { /* Missing endpoint in older installations is not a passing runtime check. */ }
+    return { status: 'unavailable' };
+  }
+  async health(plan, launcher) {
+    const current = await super.health(plan, launcher);
+    if (!current) return null;
+    let runtimeHealth = await this.diagnose(plan);
+    if (runtimeHealth.status === 'healthy') {
+      await sleep(5500); // Past the endpoint's five-second coalescing cache.
+      runtimeHealth = await this.diagnose(plan);
+    }
+    this.assertService(plan.prefix, plan.port, current);
+    // Diagnostic failures retain the service for investigation, but never mark the run verified.
+    return { ...current, runtimeHealth };
+  }
   terminateCommand(pid) {
     // run() creates a new process group; only its exact owned command tree is terminated.
     try { process.kill(-pid, 'SIGKILL'); } catch (error) { if (error.code !== 'ESRCH') throw error; }
@@ -48,7 +146,7 @@ export class MacOSHost extends LocalHost {
     if (!match) throw new Error('Unexpected macOS ps identity output');
     // A terminated child may briefly be <defunct> until its parent reaps it. It is not a live reused PID.
     if (match[3].startsWith('Z')) return null;
-    return { pid, parentPid: Number(match[1]), created: match[2], command: match[4] };
+    return { pid, parentPid: Number(match[1]), created: match[2], command: match[4], ...(match[3].includes('E') ? { exiting: true } : {}) };
   }
   processDetails(pid, environment = false) {
     const helper = fileURLToPath(new URL('./mac-process.py', import.meta.url));
@@ -104,9 +202,14 @@ export class MacOSHost extends LocalHost {
     if (!current) return;
     if (!sameProcess(current, identity)) throw new Error('Refusing to stop a reused or changed PID');
     process.kill(identity.pid, 'SIGTERM');
+    // macOS briefly reports ?E (trying to exit) and '(node)' instead of the argv.
+    // Only wait in that kernel state for the already-signalled creation identity;
+    // never use a shortened command as authority to send another signal.
+    const exiting = info => info?.exiting === true && info.pid === identity.pid && info.created === identity.created;
     for (let i = 0; i < 20; i++) {
       const info = this.processInfo(identity.pid);
       if (!info) return;
+      if (exiting(info)) { await sleep(250); continue; }
       if (!sameStartedProcess(info, identity)) throw new Error('PID changed during shutdown');
       await sleep(250);
     }
@@ -116,6 +219,7 @@ export class MacOSHost extends LocalHost {
     for (let i = 0; i < 20; i++) {
       const info = this.processInfo(identity.pid);
       if (!info) return;
+      if (exiting(info)) { await sleep(250); continue; }
       if (!sameStartedProcess(info, identity)) throw new Error('PID changed after shutdown');
       await sleep(250);
     }
@@ -126,6 +230,11 @@ export class MacOSHost extends LocalHost {
     return rows.map(row => row.trim().split(/\s+/).map(Number)).filter(([, parent]) => parent === pid).map(([child]) => this.processInfo(child)).filter(Boolean);
   }
   async stopNew(plan, launcher) {
+    if (this.agentStartAttempted) {
+      new LaunchAgent(this, plan).stop();
+      await this.waitFree(plan.port);
+      return;
+    }
     if (!launcher) return;
     if (launcher.unverifiedStartup) throw new Error('Startup process ownership could not be verified; stop it manually before recovery');
     const current = this.processInfo(launcher.pid);

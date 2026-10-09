@@ -1,6 +1,6 @@
 # 本地源码 → 默认全局 npm：Windows / macOS 直接覆盖
 
-关联[Windows 无窗口启动链](windows-silent-start.md)。原始功能基线 `63c6e4e` / 上游 `96966e5`；本页同步后续 macOS 支持与用户明确要求的无备份覆盖策略，不以历史部署记录代表当前脚本已完成真实切换验收。
+关联[Windows 无窗口启动链](windows-silent-start.md)与[macOS 服务生命周期](macos-service-lifecycle.md)。原始功能基线 `63c6e4e` / 上游 `96966e5`；本页同步后续 macOS 支持与用户明确要求的无备份覆盖策略，不以历史部署记录代表当前脚本已完成真实切换验收。
 
 ## 目的、范围与唯一入口
 
@@ -15,6 +15,7 @@ Canonical skill：[SKILL.md](../../.pi/skills/pi-web-local-global-install/SKILL.
 - 默认 committed HEAD，`--commit REF` 选择已提交版本；tracked dirty 阻止真实安装，untracked 只报告且排除。dry-run 可检查 dirty checkout。平台扩展不等于允许自动提交或工作区快照。
 - 安装不自动授权停止服务。已有全局实例时需要 `--restart`；未运行时该选项会在安装后启动。
 - 普通重启先等 idle。self-hosted 或来源不确定时采用 `--restart --defer 90`。
+- 仅重启已安装包用 `restart --defer 90`，不构建/全局安装，不接受 commit/build/test-skip 参数；dirty checkout 不阻止 restart。macOS 首次默认 Terminal 委托；显式 `--macos-launch launchagent --macos-env-file /absolute/private-env.json` 才创建用户级登录服务，已有注册默认保留。权限与私有环境文件规则见 macOS 契约。
 - 用户明确要求“不等待/直接中断”时才用 `--restart --no-wait`：跳过 idle，由外部 worker 立即切换；可额外组合 `--defer N`。无等待不是跳过构建/核验。
 - 没有任何流程会停止未知监听者、用 npm `--force` 绕过占用或改变 npm script policy。
 
@@ -26,7 +27,7 @@ node .pi/skills/pi-web-local-global-install/scripts/install-global.mjs run --res
 node .pi/skills/pi-web-local-global-install/scripts/install-global.mjs status --run-dir "RUN"
 ```
 
-默认检查 `tsc --noEmit`、全量 `npm test`（五分钟上限）、production build。只有用户明确接受具体测试缺口时可用 `--skip-tests-reason`；类型检查、构建、包和安装验证不能省略。版本升级仍须单独授权，修改 package.json 与根 lock 两个 version 后先验证/提交。
+安装默认检查 `tsc --noEmit`、全量 `npm test`（五分钟上限）、production build。只有用户明确接受具体测试缺口时可用 `--skip-tests-reason`；类型检查、构建、包和安装验证不能省略。版本升级仍须单独授权，修改 package.json 与根 lock 两个 version 后先验证/提交。
 
 ## 平台适配
 
@@ -35,7 +36,7 @@ node .pi/skills/pi-web-local-global-install/scripts/install-global.mjs status --
 | Windows | Node bundled npm CLI；`<prefix>/node_modules/@agegr/pi-web` | PowerShell/CIM/NetTCP、Windows tar.exe、隐藏 detached launcher；保留原有无窗口契约 |
 | macOS | PATH 中 npm 必须解析到 npm-cli.js；`<prefix>/lib/node_modules/@agegr/pi-web` | Node/Git/python3、系统 ps/lsof/BSD tar；KERN_PROCARGS2 读取真实 argv/env，支持路径空格和 CLI symlink |
 
-macOS 只接受正确包 cwd 的 Next listener 和明确指向全局 Pi Web 的 CLI parent；不按进程名猜归属。正向识别后才读取原服务环境，保存在内存/子进程环境中，不写日志或 plan。Windows 保留调用者 runtime 环境。两平台均复核 PID、创建时间、父进程和 command。
+macOS 只接受正确包 cwd 的 Next listener 和明确指向全局 Pi Web 的 CLI parent；不按进程名猜归属。正向识别后才读取原服务环境，保存在内存/子进程环境中，不写日志或 plan。LaunchAgent 的持久环境另外来自用户明确准备的私有文件，不自动转储原服务环境。Windows 保留调用者 runtime 环境。两平台均复核 PID、创建时间、父进程和 command。
 
 ## 构建、包与覆盖不变量
 
@@ -43,10 +44,10 @@ macOS 只接受正确包 cwd 的 Next listener 和明确指向全局 Pi Web 的 
 2. build-only HOME/USERPROFILE、PI_CODING_AGENT_DIR、TMP/TEMP/TMPDIR 位于 checkout 外部空目录；TEMP 必须避开真实用户 home，防止 SDK 在祖先扫描中把用户 `.agents/skills` 当作项目资源。macOS 使用 OS temp；Windows 默认用 `<runDir>/build-temp`，若 runDir 本身位于原 USERPROFILE 下则改用 `<SystemRoot>/Temp/pi-web-build/<run-name>`。检查前创建 HOME/TEMP；目录无写权限时在切换前失败，禁止回退到原 profile 临时目录。npm ci 保持真实 npm auth/cache，重启恢复真实 runtime 环境。默认 heap 4096 MB，不自动 OOM 重试。
 3. 构建必须成功并有 BUILD_ID；npm pack manifest 与实际 archive 内版本、BUILD_ID、SHA-256 一致。拒绝 dev/cache、env、日志；允许正常 `.next/diagnostics`。
 4. 默认 prefix 共享 durable lease；macOS 首次创建前也解析现有祖先，`/var` 与 `/private/var` 不生成两个锁。runner 本地 guard 解析真实路径，不错误使用全局安装中的依赖。
-5. `--defer` / `--no-wait` 从复制的外部 runner 启动 worker；guard 依赖随 runner 独立复制，无依赖 checkout 只 bootstrap pinned proper-lockfile。handoff 需 worker-ready 回执。token/环境不进入 plan。
+5. 外部 runner/guard 独立复制，无依赖 checkout 只 bootstrap pinned proper-lockfile。Windows 延迟/no-wait worker 保持 detached；macOS 维护事务先通过 Terminal 私有 IPC 传递原运行环境，确认 worker 后才交接 lease，禁止回退 detached。服务分别 attached 到 Terminal worker 或交给用户 GUI LaunchAgent，后者环境来自用户指定的私有文件而非自动导出。handoff 需 worker-ready 回执，环境/凭证不进入 plan。
 6. 覆盖前核验 prefix、旧包身份和服务身份；idle 后再核验一次。`--no-wait` 仅跳过 idle，不能跳过身份/授权检查。
-7. npm install 只使用核验后的**新** tarball，一次正常覆盖；无旧包 archive 和失败重装。安装后核验 version、BUILD_ID、npm ls、CLI help、native node-pty、HTTP、进程及 runtime home。
-8. 失败的新启动可在归属确定时清理；未知/reused/orphaned 进程拒绝清理，不覆盖其占用文件。macOS 有界 SIGTERM 后只对已授权、同创建时间/command 的精确 PID 强制结束；短暂 zombie 视为已退出。
+7. npm install 只使用核验后的**新** tarball，一次正常覆盖；无旧包 archive 和失败重装。安装后核验 version、BUILD_ID、npm ls、CLI help、native node-pty、HTTP、进程及 runtime home。macOS 增加服务内 user/DNS/child/path 诊断；缺接口或退化写 degraded，不假报 verified。restart-only 跳过 prepare/pack/install，但保留已安装包与运行核验。
+8. 失败的新启动可在归属确定时清理；未知/reused/orphaned 进程拒绝清理，不覆盖其占用文件。macOS 有界 SIGTERM 后只对已授权、同创建时间/command 的精确 PID 强制结束；短暂 zombie 视为已退出；已发 SIGTERM 后遇到 macOS `?E`/`(node)` 退出过渡态，只在 PID/创建时间一致时等待消失，不用缩短 command 授权额外信号。
 
 ## 状态、恢复与留存
 
@@ -55,6 +56,7 @@ macOS 只接受正确包 cwd 的 Next listener 和明确指向全局 Pi Web 的 
 - `building/built/packed/failed`：切换尚未开始，pre-cutover 失败可在原约束下明确 resume。
 - `stopping/installing/starting/recovery_required`：中断风险已发生，拒绝盲目 resume；没有旧版备份可自动恢复。
 - `verified`：核验通过；status 仍需比较当前实际 BUILD_ID/进程，不把旧 verified 当成当前健康证明。
+- `degraded`：新服务 HTTP/身份通过但运行诊断未通过或不可用，保留服务供检查，不循环重启；status 报当前诊断，不允许 resume。
 - legacy rollback 状态仅兼容读取；当前流程不再进入自动 rollback。
 
 错误写状态也不能把中断包装成 harmless failed。保留最后 durable interrupted phase 或 recovery_required。手动恢复使用核验的新 archive 或另行授权选择的 release，并先确认进程/端口归属；详见[恢复指南](../../.pi/skills/pi-web-local-global-install/references/troubleshooting.md)。成功后仅清理己方已确认的干净 worktree；不自动删除旧 run/备份。
@@ -73,12 +75,12 @@ macOS 只接受正确包 cwd 的 Next listener 和明确指向全局 Pi Web 的 
 ## 验收与覆盖边界
 
 ```sh
-node --experimental-strip-types --test lib/local-global-install.test.mjs lib/local-global-install.macos.test.mjs
+node --experimental-strip-types --test lib/local-global-install.test.mjs lib/local-global-install.macos.test.mjs lib/macos-service.test.mjs lib/service-health.test.mjs
 node --test lib/pi-web-launch.test.mjs lib/pi-web-options.test.mjs lib/process-lifecycle.test.mjs
 node .pi/skills/pi-web-local-global-install/scripts/install-global.mjs run --dry-run
 ```
 
-安装器 38 项测试覆盖参数、直接覆盖无备份、失败不重装、无等待授权、运行环境、包核验、锁/guard/bootstrap/handoff、macOS 路径空格/CLI symlink、未知进程拒绝与状态写失败。macOS native probe 只创建、检查和停止己方临时 Node process，不触碰实际服务。真实 macOS dry-run 已核对当前 npm prefix、全局 BUILD_ID、server/launcher 和 self-hosted 身份；没有执行这次新脚本的实际覆盖。
+安装器及 macOS 生命周期测试覆盖参数、直接覆盖无备份、失败不重装、无等待授权、运行环境、包核验、锁/guard/bootstrap/handoff、macOS 路径空格/CLI symlink、未知进程拒绝与状态写失败。macOS native probe 只创建、检查和停止己方临时 Node process，不触碰实际服务。真实 macOS dry-run 已核对当前 npm prefix、全局 BUILD_ID、server/launcher 和 self-hosted 身份；没有执行这次新脚本的实际覆盖。
 
 此前现场授权的 macOS 手动安装成功不等于本次新安装器 live 验收。Windows native流程/无窗口 smoke、本次跨平台安装器的真实全局切换仍需另行授权测试。全量仓库测试的无关既有失败应单独报告，不绕过安装前检查。
 

@@ -70,7 +70,7 @@ export function recordFailure(plan, error, { preserveScheduled = false, read = r
   // must not turn an interrupted installation into a failure that resume treats as safe.
   let phase;
   try { phase = read(path.join(plan.runDir, 'status.json')).phase; } catch { phase = null; }
-  const preserve = ['stopping', 'installing', 'starting', 'rolling_back', 'recovery_required', 'verified'];
+  const preserve = ['stopping', 'installing', 'starting', 'rolling_back', 'recovery_required', 'verified', 'degraded'];
   if (preserve.includes(phase) || (preserveScheduled && phase === 'scheduled')) return;
   const next = interruptedPlans.has(plan) ? 'recovery_required' : 'failed';
   try { write(plan, next, { error: error.message }); } catch (writeError) {
@@ -85,17 +85,19 @@ export function inspectSource(host, options, cwd = process.cwd()) {
   const dirty = host.git(repo, 'status', '--porcelain', '--untracked-files=no');
   // --allow-dirty is an explicit owner opt-in: the build still uses the committed ref,
   // so uncommitted tracked edits are reported in the plan but never installed.
-  if (dirty && !options.dryRun && !options.allowDirty) throw new Error('Tracked changes are uncommitted. Commit intended changes, or pass --allow-dirty to proceed without installing them (the build still uses the committed ref); no automatic commit is performed.');
+  if (dirty && options.command !== 'restart' && !options.dryRun && !options.allowDirty) throw new Error('Tracked changes are uncommitted. Commit intended changes, or pass --allow-dirty to proceed without installing them (the build still uses the committed ref); no automatic commit is performed.');
   const pkg = JSON.parse(host.git(repo, 'show', `${commit}:package.json`));
   const lock = JSON.parse(host.git(repo, 'show', `${commit}:package-lock.json`));
   assertVersions(pkg, lock);
   const prefix = host.prefix();
   const old = host.installed(prefix);
+  if (options.command === 'restart' && !old) throw new Error('No global Pi Web installation to restart');
   const service = host.service(prefix, options.port);
   if (service && !options.restart && !options.dryRun) throw new Error('Global Pi Web is running. --restart is required to authorize interruption.');
   const requiresDefer = !!service && host.hostsCurrentProcess(service);
   if (requiresDefer && options.restart && !options.defer && !options.noWait && !options.dryRun) throw new Error('This service hosts the installer. Use --restart --defer 90, or explicitly authorize interruption with --restart --no-wait.');
-  return { repo, commit, version: pkg.version, prefix, old, service, requiresDefer, trackedChanges: dirty || null, untracked: host.git(repo, 'ls-files', '--others', '--exclude-standard') };
+  const source = { repo, commit, version: pkg.version, prefix, old, service, requiresDefer, trackedChanges: dirty || null, untracked: host.git(repo, 'ls-files', '--others', '--exclude-standard') };
+  return { ...source, ...host.restartOptions?.(options, source) };
 }
 
 export const runsRoot = repo => path.join(path.dirname(repo), '.pi-web-installs', lockKey(repo));
@@ -107,9 +109,11 @@ export async function createPlan(host, options, source) {
   const root = runsRoot(source.repo);
   fs.mkdirSync(root, { recursive: true });
   const runDir = fs.mkdtempSync(path.join(root, `${source.commit.slice(0, 8)}-`));
+  if (host.platform === 'darwin') fs.chmodSync(runDir, 0o700);
   const plan = {
     schema: 1, package: PACKAGE, ...source, runDir, platform: host.platform ?? 'win32',
-    noWait: options.noWait, overwriteOnly: true,
+    version: options.command === 'restart' ? source.old.version : source.version,
+    noWait: options.noWait, overwriteOnly: true, operation: options.command === 'restart' ? 'restart' : 'install',
     port: options.port, host: source.service?.host ?? '127.0.0.1', restart: options.restart,
     heapMb: options.heapMb, skipTests: options.skipTests, skipReason: options.skipReason ?? null,
     runtimeHome: runtimeHome(host), requiresJevKey: Boolean((host.runtimeEnv ?? host.env).TAPSVC_API_KEY?.trim()),
@@ -136,6 +140,7 @@ export function assertCurrent(host, plan) {
   if (JSON.stringify(current) !== JSON.stringify(plan.old)) throw new Error('Global installation changed since this run was prepared');
   host.assertService(plan.prefix, plan.port, plan.service);
   if (plan.service && !plan.restart) throw new Error('Restart not authorized');
+  host.preflightRestart?.(plan);
 }
 
 export function cleanupBuild(host, plan) {
@@ -190,20 +195,24 @@ export async function apply(host, plan) {
   let verifiedService;
   const install = artifact => host.run(process.execPath, [host.npmCli, 'install', '-g', artifact.file, '--no-audit', '--no-fund', '--prefer-offline'], { cwd: plan.runDir });
   await cutoverTransaction({
-    preflight: async () => { assertCurrent(host, plan); assertArtifact(plan.artifact); },
-    idle: () => plan.noWait ? Promise.resolve() : host.waitIdle(plan.service, plan.port),
+    preflight: async () => { assertCurrent(host, plan); if (plan.operation !== 'restart') assertArtifact(plan.artifact); },
+    idle: async () => {
+      if (!plan.noWait) await host.waitIdle(plan.service, plan.port);
+      assertCurrent(host, plan); // Revalidate after waiting, before any interruption.
+    },
     stop: async markTransactionInterrupted => {
       // Persist before interruption so an abruptly killed updater cannot silently resume forward.
       markInterrupted(plan);
       state(plan, 'stopping');
-      if (plan.service) {
+      if (host.stopService) { await host.stopService(plan); markTransactionInterrupted(); }
+      else if (plan.service) {
         await host.kill(plan.service.server); markTransactionInterrupted();
         await host.kill(plan.service.launcher);
         await host.waitFree(plan.port);
       }
     },
-    install: async () => { state(plan, 'installing'); await install(plan.artifact); },
-    verify: () => host.verify(plan, plan.artifact),
+    install: async () => { if (plan.operation !== 'restart') { state(plan, 'installing'); await install(plan.artifact); } },
+    verify: () => host.verify(plan, plan.operation === 'restart' ? plan.old : plan.artifact),
     launch: async () => {
       if (!plan.restart) return null;
       state(plan, 'starting');
@@ -216,8 +225,11 @@ export async function apply(host, plan) {
     },
     health: async launcher => { verifiedService = await host.health(plan, launcher); },
     success: async () => {
-      state(plan, 'verified', { buildId: plan.artifact.buildId, service: verifiedService, testsSkipped: plan.skipReason });
-      try { cleanupBuild(host, plan); } catch (error) { host.log(`Cleanup deferred: ${error.message}`); }
+      const degraded = verifiedService?.runtimeHealth && verifiedService.runtimeHealth.status !== 'healthy';
+      state(plan, degraded ? 'degraded' : 'verified', { buildId: (plan.operation === 'restart' ? plan.old : plan.artifact).buildId, service: verifiedService, testsSkipped: plan.skipReason });
+      if (plan.operation !== 'restart') {
+        try { cleanupBuild(host, plan); } catch (error) { host.log(`Cleanup deferred: ${error.message}`); }
+      }
     },
     failure: async error => {
       markInterrupted(plan);
@@ -231,19 +243,24 @@ export async function apply(host, plan) {
 }
 
 export async function schedule(host, plan, owner, delaySeconds) {
-  const fd = fs.openSync(path.join(plan.runDir, 'updater.log'), 'a');
-  let child;
-  try {
-    child = cp.spawn(process.execPath, [path.join(plan.runDir, 'runner/install-global.mjs'), 'worker', '--run-dir', plan.runDir], {
-      cwd: plan.runDir,
-      env: workerEnvironment(host.runtimeEnv),
-      detached: true, windowsHide: true, stdio: ['ignore', fd, fd],
-    });
-    await new Promise((resolve, reject) => { child.once('spawn', resolve); child.once('error', reject); });
-    child.unref();
-  } finally { fs.closeSync(fd); }
-  const worker = host.processInfo(child.pid);
-  if (!worker || worker.parentPid !== owner.pid) throw new Error('Detached worker did not start');
+  let worker;
+  if (host.startWorker) worker = await host.startWorker(plan);
+  else {
+    const fd = fs.openSync(path.join(plan.runDir, 'updater.log'), 'a');
+    let child;
+    try {
+      child = cp.spawn(process.execPath, [path.join(plan.runDir, 'runner/install-global.mjs'), 'worker', '--run-dir', plan.runDir], {
+        cwd: plan.runDir,
+        env: workerEnvironment(host.runtimeEnv),
+        detached: true, windowsHide: true, stdio: ['ignore', fd, fd],
+      });
+      await new Promise((resolve, reject) => { child.once('spawn', resolve); child.once('error', reject); });
+      child.unref();
+    } finally { fs.closeSync(fd); }
+    worker = host.processInfo(child.pid);
+    if (!worker || worker.parentPid !== owner.pid) throw new Error('Detached worker did not start');
+  }
+  if (!worker || !host.alive(worker)) throw new Error('Delegated worker exited before handoff');
   plan.worker = worker;
   plan.notBefore = Date.now() + delaySeconds * 1000;
   savePlan(plan);
@@ -289,7 +306,7 @@ export async function execute(host, plan, options, resume = false) {
     if (resume) {
       const previous = readJson(path.join(plan.runDir, 'status.json')).phase;
       if (['stopping', 'installing', 'starting', 'rolling_back', 'recovery_required'].includes(previous)) throw new Error('Interrupted cutover requires manual recovery; inspect archives and run.log before starting a new run');
-      if (previous === 'verified') throw new Error('This run is already verified');
+      if (['verified', 'degraded'].includes(previous)) throw new Error('This run has already completed; diagnose health or create a new restart plan');
       if (JSON.stringify(host.installed(plan.prefix)) !== JSON.stringify(plan.old)) throw new Error('Installed build changed; do not reuse this run');
       plan.service = host.service(plan.prefix, plan.port);
       if (plan.service && !options.restart) throw new Error('Resume requires --restart to authorize stopping the current service');
@@ -303,8 +320,8 @@ export async function execute(host, plan, options, resume = false) {
       savePlan(plan);
     }
     assertCurrent(host, plan);
-    await prepare(host, plan);
-    if (options.defer || plan.noWait) await schedule(host, plan, owner, options.defer);
+    if (plan.operation !== 'restart') await prepare(host, plan);
+    if (host.startWorker || options.defer || plan.noWait) await schedule(host, plan, owner, options.defer);
     else await apply(host, plan);
   } catch (error) {
     recordFailure(plan, error, { preserveScheduled: true });

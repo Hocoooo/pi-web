@@ -7,6 +7,8 @@ Commands below are relative to the repository root. Supports Windows and macOS; 
 ```bash
 node .pi/skills/pi-web-local-global-install/scripts/install-global.mjs --help
 node .pi/skills/pi-web-local-global-install/scripts/install-global.mjs run --dry-run
+node .pi/skills/pi-web-local-global-install/scripts/install-global.mjs restart --dry-run
+node .pi/skills/pi-web-local-global-install/scripts/install-global.mjs restart --defer 90
 node .pi/skills/pi-web-local-global-install/scripts/install-global.mjs run --restart --defer 90
 node .pi/skills/pi-web-local-global-install/scripts/install-global.mjs run --restart --no-wait
 node .pi/skills/pi-web-local-global-install/scripts/install-global.mjs status --run-dir "RUN"
@@ -17,7 +19,9 @@ node .pi/skills/pi-web-local-global-install/scripts/install-global.mjs resume --
 
 `run --dry-run` is read-only and reports dirty/untracked source. Real runs still use committed source. Resume cannot accept new source, heap, test-skip settings or `--dry-run`; it only reuses integrity-checked pre-cutover work. Restart/no-wait permissions must be confirmed for that resume.
 
-Default tests are the full `npm test`. A documented test gap needs explicit acceptance before `--skip-tests-reason`. There is no automatic bypass.
+`restart` only restarts the installed package, with no global npm install or build; it still verifies package/CLI/native/service health. macOS launch modes and their authorization are specified in [the lifecycle contract](../../../../docs/branch-features/macos-service-lifecycle.md). All macOS maintenance transactions currently use a Terminal worker, including LaunchAgent updates; the LaunchAgent service itself has an independent lifetime.
+
+Default installation tests are the full `npm test`. A documented test gap needs explicit acceptance before `--skip-tests-reason`. There is no automatic bypass.
 
 ## Direct overwrite, states and artifacts
 
@@ -26,6 +30,7 @@ Default tests are the full `npm test`. A documented test gap needs explicit acce
 - `building`, `built`, `packed`: global installation is untouched.
 - `scheduled`: external worker owns the lease; pending, never success. Normal mode observes delay and then waits for idle; `--no-wait` skips the idle wait.
 - `stopping`, `installing`, `starting`: service interruption/package mutation may have begun. A crash requires diagnosis, not forward resume.
+- `degraded`: service startup/identity passed but macOS runtime checks failed or were unavailable (including old packages without `/api/service/health`). The service is retained for diagnosis, not automatically restarted. This is not verified and cannot be resumed. `status` includes fresh `currentRuntimeHealth` when the service is recognized.
 - `verified`: requested version/BUILD_ID and required CLI/native/service checks passed. Compare the record against the current installation and listener.
 - `failed`: a pre-interruption failure; no global cutover started.
 - `recovery_required`: interrupted overwrite or failed startup needs manual recovery. The package may be partial and the old service may be stopped. There is no automatic restoration of a prior archive.
@@ -46,11 +51,17 @@ Lease publication is a complete atomic JSON rename. Unreadable leases fail close
 
 ## macOS dependencies and identity
 
-macOS requires Node/Git plus executable `npm`, `python3`, `/bin/ps`, `/usr/sbin/lsof` and `/usr/bin/tar`. `npm` on PATH must resolve to `npm-cli.js`. The package lives at `<default-prefix>/lib/node_modules/@agegr/pi-web`, unlike Windows's `<prefix>/node_modules` layout.
+macOS requires Node/Git plus executable `npm`, `python3`, `/bin/ps`, `/usr/sbin/lsof`, `/usr/bin/tar`, `/usr/bin/osascript` and `/bin/launchctl`. A logged-in GUI user and Terminal Automation permission are required for maintenance delegation; root is refused for restart. `npm` on PATH must resolve to `npm-cli.js`. The package lives at `<default-prefix>/lib/node_modules/@agegr/pi-web`, unlike Windows's `<prefix>/node_modules` layout.
 
 The native Python helper reads `KERN_PROCARGS2` over an anonymous pipe. Argv values are NUL-delimited, so paths with spaces are not split using `ps` text. Only after cwd, launcher and Next identity are recognized is the original launch environment read; it stays in memory and is inherited by the external worker/service, never persisted. Lack of inspection permission is a blocker, not permission to guess process ownership.
 
-A listener must be the recognized Next server, have a recognized global Pi Web CLI parent, and have the correct package cwd. PID, creation time, parent and command are rechecked. SIGTERM is followed by a bounded, identity-checked SIGKILL only for the already authorized exact process. A brief zombie (`Z`, `<defunct>`) is already exited, not a live reused PID. Unknown/reused processes are never stopped.
+Terminal delegation denial/timeout leaves the old service untouched. Do not bypass it with `nohup`, detached spawning, sudo, permission broadening, or credential dumps. If the calling context already cannot reach GUI launchd/Automation, initiate the same authorized command from a healthy Terminal instead.
+
+LaunchAgent mode must be explicitly authorized on first use. Its user-supplied environment JSON must be an absolute, owner-only 0600 regular file with the original HOME and explicit PATH; never paste real secrets in chat. Plist/config contain paths only, not environment values. Existing password/agent-home/required provider credential must not silently change. Do not auto-copy Terminal's entire environment or grant general Node Full Disk Access. A LaunchAgent has its own TCC context; test needed folders/automation explicitly.
+
+The installer refuses unknown jobs or modified plists. Owned jobs are booted out before replacement; KeepAlive is disabled, so crashes and diagnostic failures do not loop. The login registration persists in `~/Library/LaunchAgents/`; private helpers/config/logs are under `~/Library/Application Support/Pi Web/`. To migrate back, explicitly use `restart --macos-launch terminal --defer 90`; this removes the confirmed owned registration, not the user's env file. Changing an existing env-file path is a manual migration, not a silent rewrite.
+
+A listener must be the recognized Next server, have a recognized global Pi Web CLI parent, and have the correct package cwd. PID, creation time, parent and command are rechecked. SIGTERM is followed by a bounded, identity-checked SIGKILL only for the already authorized exact process. A brief zombie (`Z`, `<defunct>`) is already exited, not a live reused PID. After SIGTERM, macOS can briefly return `?E` (trying to exit) with a shortened `(node)` command. The updater only waits through that state for the same PID/creation time; it never uses that shortened command to authorize an additional signal. Unknown/reused processes are never stopped.
 
 ## Build environment
 
@@ -73,7 +84,7 @@ Failures while saving status must not relabel interrupted mutation as a harmless
 A verified run removes only its owned Git worktree after checking path, commit, clean tracked content and non-symlink node_modules. Cleanup failure is logged and does not undo a healthy install. New archive/status/logs are retained; there is no automatic deletion of old run directories.
 
 ```bash
-node --experimental-strip-types --test lib/local-global-install.test.mjs lib/local-global-install.macos.test.mjs
+node --experimental-strip-types --test lib/local-global-install.test.mjs lib/local-global-install.macos.test.mjs lib/macos-service.test.mjs lib/service-health.test.mjs
 ```
 
 Fixtures cover options, leases, handoff, dependency bootstrapping, canonical macOS paths, archive checks, overwrite ordering, failure states and owned startup cleanup. The native macOS probe inspects/stops only its own disposable Node process. A real macOS `run --dry-run` checks discovery without installing or restarting. Windows native live cutover and actual macOS global replacement through this new script require separate owner authorization; fixture success alone does not prove deployment.

@@ -19,12 +19,15 @@ export const PACKAGE = '@agegr/pi-web';
 export function parseArgs(argv) {
   const options = { command: argv[0] ?? 'help', restart: false, noWait: false, defer: 0, port: 30141, heapMb: 4096, skipTests: false, allowDirty: false, commit: 'HEAD' };
   if (['--help', '-h'].includes(options.command)) options.command = 'help';
-  if (!['run', 'resume', 'status', 'help', 'worker'].includes(options.command)) throw new Error('Expected run, resume, status, or help');
+  if (!['run', 'restart', 'resume', 'status', 'help', 'worker'].includes(options.command)) throw new Error('Expected run, restart, resume, status, or help');
+  if (options.command === 'restart') options.restart = true;
+  const macOptions = ['--macos-launch', '--macos-env-file'];
   const allowed = {
-    run: ['--commit', '--defer', '--port', '--heap-mb', '--skip-tests-reason', '--allow-dirty', '--restart', '--no-wait', '--dry-run'],
+    run: ['--commit', '--defer', '--port', '--heap-mb', '--skip-tests-reason', '--allow-dirty', '--restart', '--no-wait', '--dry-run', ...macOptions],
+    restart: ['--defer', '--port', '--no-wait', '--dry-run', ...macOptions],
     resume: ['--run-dir', '--restart', '--defer', '--no-wait'], status: ['--run-dir'], worker: ['--run-dir'], help: [],
   };
-  const valued = new Map([['--commit', 'commit'], ['--run-dir', 'runDir'], ['--defer', 'defer'], ['--port', 'port'], ['--heap-mb', 'heapMb'], ['--skip-tests-reason', 'skipReason']]);
+  const valued = new Map([['--commit', 'commit'], ['--run-dir', 'runDir'], ['--defer', 'defer'], ['--port', 'port'], ['--heap-mb', 'heapMb'], ['--skip-tests-reason', 'skipReason'], ['--macos-launch', 'macosLaunch'], ['--macos-env-file', 'macosEnvFile']]);
   for (let i = 1; i < argv.length; i++) {
     const arg = argv[i];
     if (!allowed[options.command].includes(arg)) throw new Error(`Unsupported option for ${options.command}: ${arg}`);
@@ -42,6 +45,9 @@ export function parseArgs(argv) {
     options[key] = Number(options[key]);
     if (!Number.isInteger(options[key]) || options[key] < min || options[key] > max) throw new Error(`Invalid ${key}`);
   }
+  if (options.macosLaunch && !['terminal', 'launchagent'].includes(options.macosLaunch)) throw new Error('--macos-launch must be terminal or launchagent');
+  if ((options.macosLaunch || options.macosEnvFile) && !options.restart) throw new Error('macOS launch options require --restart');
+  if (options.macosEnvFile && options.macosLaunch !== 'launchagent') throw new Error('--macos-env-file requires --macos-launch launchagent');
   if (options.defer && !options.restart) throw new Error('--defer requires --restart');
   if (options.noWait && !options.restart) throw new Error('--no-wait requires --restart');
   if (options.skipReason !== undefined) {
@@ -143,6 +149,10 @@ export function validatePlan(plan, runDir) {
       !Number.isInteger(plan.port) || plan.port < 1 || plan.port > 65535 ||
       !Number.isInteger(plan.heapMb) || plan.heapMb < 1024 || plan.heapMb > 16384 ||
       (plan.platform !== undefined && !['win32', 'darwin'].includes(plan.platform)) ||
+      (plan.operation !== undefined && !['install', 'restart'].includes(plan.operation)) ||
+      (plan.operation === 'restart' && (!plan.restart || !plan.old?.buildId || !plan.old?.version)) ||
+      (plan.macosLaunch !== undefined && (plan.platform !== 'darwin' || !['terminal', 'launchagent'].includes(plan.macosLaunch))) ||
+      (plan.macosEnvFile !== undefined && !path.isAbsolute(plan.macosEnvFile)) ||
       (plan.noWait !== undefined && typeof plan.noWait !== 'boolean') || (plan.noWait && !plan.restart)) throw new Error('Invalid installation plan');
   if (samePath(plan.repo, runDir) || path.relative(plan.repo, runDir).split(path.sep)[0] !== '..') throw new Error('Run directory must be outside the checkout');
   for (const artifact of [plan.artifact, plan.fallback].filter(Boolean)) {

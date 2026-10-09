@@ -10,14 +10,14 @@
 
 ## 入口与行为要求
 
-1. **最外层**：安装器以 `detached: true`、`windowsHide: true`、stdin ignore、stdout/stderr 指向 `service.log` 的方式启动 Node CLI，保留当前用户的 runtime 环境。该配置已存在，本功能不替换安装器的进程归属检查。安装器后续已统一 Windows/macOS 直接覆盖、不备份或自动回滚；普通重启仍等 idle，仅在显式授权 `--no-wait` 时跳过等待，失败保留人工恢复状态。
+1. **最外层（Windows）**：安装器以 `detached: true`、`windowsHide: true`、stdin ignore、stdout/stderr 指向 `service.log` 的方式启动 Node CLI，保留当前用户的 runtime 环境。该配置已存在，本功能不替换安装器的进程归属检查。安装器后续已统一 Windows/macOS 直接覆盖、不备份或自动回滚；普通重启仍等 idle，仅在显式授权 `--no-wait` 时跳过等待，失败保留人工恢复状态。
 2. **Next 子进程**：`bin/pi-web.js` 直接启动 Node + Next JS 入口并设置 `windowsHide: true`。不要增加 `.cmd`、`npm` 或 `shell: true` 中间层。
 3. **Next 生命周期**：Next 仍然不是 detached 子进程，不调用 `unref()`；继续由 `wireChildProcessLifecycle` 转发退出信号、处理启动失败和退出码。不能为了隐藏窗口将其变成无人管理的服务。
 4. **日志不丢失**：Next stdio 仍为 `["inherit", "pipe", "inherit"]`。stdout 继续转发到 CLI stdout，stderr 继续继承外层；安装器启动时因此进入文件日志，终端启动时仍在终端可见。
 5. **浏览器 opener**：Windows `cmd.exe /c start "" <url>` 也设置 `windowsHide: true`，保留结构化 argv、ignore stdio、detached 和 unref。只抑制辅助控制台，不阻止浏览器窗口打开。
 6. **完全后台的受控路径**：安装器传 `--no-open`，所以既没有自动浏览器，也明确要求隐藏所有受控的控制台子进程。普通 CLI 的浏览器默认值不变；用户可用 `--no-open` 或 `PI_WEB_NO_OPEN` 禁止浏览器打开。
 7. **错误可观察**：浏览器 opener 错误保留 warning；Next 启动/运行失败保留原生命周期日志。无窗口不等于吞掉错误、丢弃日志或一直假报健康。
-8. **跨平台**：Node 的 `windowsHide` 是 Windows 选项；macOS/Linux 继续使用 `open`/`xdg-open` 和原有启动逻辑。
+8. **跨平台**：Node 的 `windowsHide` 是 Windows 选项；macOS/Linux 的 CLI 浏览器 opener 继续使用 `open`/`xdg-open`。macOS 安装器的服务重启已独立为 [Terminal 委托/LaunchAgent](macos-service-lifecycle.md)，不能为了复用启动代码恢复 detached；Windows 启动行为不受此变更影响。
 9. **环境身份**：不切换到 SYSTEM 或非交互账户来达到隐藏效果，避免改变 home、认证、会话目录，以及桌面文件操作的可用性。
 
 ## 实现导航
