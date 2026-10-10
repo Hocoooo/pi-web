@@ -209,6 +209,7 @@ function sessionListUrl(summary: boolean, force: boolean): string {
 }
 
 interface Props {
+  onOpenTasks?: () => void;
   selectedSessionId: string | null;
   onSelectSession: (session: SessionInfo, isRestore?: boolean, entryId?: string, blockIndex?: number) => void;
   onNewSession?: (sessionId: string, cwd: string) => void;
@@ -487,7 +488,7 @@ function PiWebTitle() {
   );
 }
 
-export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, onNewChat, chatWorkspaceCwd: chatWorkspaceCwdProp, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onOpenTerminal, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionsChange }: Props) {
+export function SessionSidebar({ onOpenTasks, selectedSessionId, onSelectSession, onNewSession, onNewChat, chatWorkspaceCwd: chatWorkspaceCwdProp, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onOpenTerminal, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionsChange }: Props) {
   const [sessionMenu, setSessionMenu] = useState<SessionContextMenuState | null>(null);
   const closeSessionMenu = useCallback(() => setSessionMenu(null), []);
   const { t } = useI18n();
@@ -1420,6 +1421,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       >
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
           <PiWebTitle />
+          <ToolbarIconButton onClick={() => onOpenTasks?.()} title={t("tasks.dashboard")} color="var(--text-muted)">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+              <rect x="3" y="4" width="18" height="16" rx="3" /><path d="M9 4v16M15 4v16M6 8v4m6-4v7m6-7v3" />
+            </svg>
+          </ToolbarIconButton>
           <div style={{ display: "flex", gap: 6 }}>
             {showAllProjects && (
               <button

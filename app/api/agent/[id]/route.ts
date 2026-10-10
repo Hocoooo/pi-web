@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { resolveSessionPath } from "@/lib/session-reader";
 import { startRpcSession, getRpcSession, setRpcSessionTools } from "@/lib/rpc-manager";
 import { validateVideoCommand } from "@/lib/video-attachments";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { taskOperation } from "@/lib/task-operations";
+import { SessionCopyError } from "@/lib/task-session-copy";
 
 // POST /api/agent/[id] - Send a command to an existing session
 export async function POST(
@@ -54,6 +57,11 @@ export async function POST(
       }, { status: 404 });
     }
 
+    // Refuse archived sleeping chats before loading resources/extensions, then
+    // recheck inside the wrapper's reserved admission to close the start race.
+    if (["prompt", "steer", "follow_up", "compact", "bash", "extension_ui_input"].includes(body.type)) {
+      await taskOperation({ action: "admit-session-work", sessionId: id }, { agentDir: getAgentDir() });
+    }
     const { session } = await startRpcSession(id, filePath, undefined, {
       ...(toolNames !== undefined ? { toolNames } : {}),
     });
@@ -64,6 +72,7 @@ export async function POST(
   } catch (error) {
     return NextResponse.json({
       error: error instanceof Error ? error.message : String(error),
+      ...(error instanceof SessionCopyError ? { code: error.code, operationId: error.operationId, newSessionId: error.newSessionId, taskCode: error.taskCode } : {}),
       ...(commandType === "prompt" && !promptAccepted
         ? { code: "prompt_rejected", accepted: false }
         : {}),

@@ -1,4 +1,8 @@
 "use client";
+import { useSearchParams } from "next/navigation";
+import { taskPreviewForTarget, rememberTaskPreview } from "@/lib/task-start-client";
+import { TaskStartMaterial } from "./TaskStart";
+import { TaskContextUpdates } from "./TaskContextUpdates";
 import { NewSessionProjectPicker } from "./NewSessionProjectPicker";
 import { registerAbortHandler } from "@/hooks/useKeyboardShortcuts";
 import Image from "next/image";
@@ -40,6 +44,7 @@ import {
 } from "@/lib/chat-lazy-load";
 
 interface Props {
+  preparedTaskToken?: string | null;
   session: SessionInfo | null;
   searchTarget?: { sessionId: string; entryId: string; blockIndex?: number } | null;
   onSearchTargetHandled?: (target: { sessionId: string; entryId: string }) => void;
@@ -237,9 +242,44 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, defaultExpanded = fa
   );
 }
 
-export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initialScrollPosition, onScrollPositionChange, sessionRunning, newSessionCwd, independentChat = false, newSessionDraftKey, onNewSessionProjectChange, onNewSession, onAgentEnd, onSessionTitleChange, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onOpenSettings, onContextUsageChange, onOpenFile, onFilesUploaded, onOpenSession, onAskInNewChat, quoteSelectionEnabled = false, initialPrompt, onInitialPromptConsumed, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio }: Props) {
+export function ChatWindow({ preparedTaskToken, session, searchTarget, onSearchTargetHandled, initialScrollPosition, onScrollPositionChange, sessionRunning, newSessionCwd, independentChat = false, newSessionDraftKey, onNewSessionProjectChange, onNewSession, onAgentEnd, onSessionTitleChange, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onOpenSettings, onContextUsageChange, onOpenFile, onFilesUploaded, onOpenSession, onAskInNewChat, quoteSelectionEnabled = false, initialPrompt, onInitialPromptConsumed, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio }: Props) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
+  const searchParams = useSearchParams();
+  const taskStartToken = preparedTaskToken === undefined ? searchParams.get("taskStart") : preparedTaskToken;
+  const [taskPreview, setTaskPreview] = useState(() => taskPreviewForTarget(taskStartToken, session?.id ?? null, newSessionCwd));
+  const [taskRiskConfirmed, setTaskRiskConfirmed] = useState(false);
+  const [taskReviewError, setTaskReviewError] = useState<string | null>(null);
+  // The task panel now lives over this shell. Adopting a prepared chat can
+  // change only its token (including Continue on the already-selected chat).
+  const adoptedTaskToken = useRef(taskPreview ? taskStartToken : null);
+  useEffect(() => {
+    // Shell-owned intent clears on ordinary New/selection, independently of
+    // delayed URL updates. Native promotion preserves the shell's token.
+    if (!taskStartToken) {
+      if (adoptedTaskToken.current) { setTaskPreview(null); adoptedTaskToken.current = null; setTaskRiskConfirmed(false); setTaskReviewError(null); }
+      return;
+    }
+    if (taskStartToken === adoptedTaskToken.current) return;
+    const preview = taskPreviewForTarget(taskStartToken, session?.id ?? null, newSessionCwd);
+    if (preview) adoptedTaskToken.current = taskStartToken;
+    setTaskPreview(preview);
+    setTaskRiskConfirmed(false);
+    setTaskReviewError(null);
+  }, [taskStartToken, session?.id, newSessionCwd]);
+  const taskStart = useMemo(() => taskPreview ? { ...taskPreview.selection, confirmSameCwd: taskRiskConfirmed } : null, [taskPreview, taskRiskConfirmed]);
+  async function reviewTaskStart() {
+    if (!taskPreview) return;
+    try {
+      const response = await fetch("/api/tasks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+        action: "prepare-start", id: taskPreview.selection.taskId, operationId: taskPreview.selection.operationId,
+        sessionId: session?.id ?? taskPreview.selection.sessionId,
+      }) });
+      const value = await response.json();
+      if (!response.ok) throw new Error(value.error ?? `HTTP ${response.status}`);
+      setTaskPreview(value); rememberTaskPreview(value); setTaskReviewError(null); setTaskRiskConfirmed(false);
+    } catch (cause) { setTaskReviewError((cause as Error).message); }
+  }
   const fallbackChatInputRef = useRef<ChatInputHandle | null>(null);
   const composerRef = chatInputRef ?? fallbackChatInputRef;
   const completionNotificationsEnabled = session?.relation?.kind !== "subagent";
@@ -292,6 +332,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     handleToolPresetChange, handleThinkingLevelChange, handleSetDefaultModel, handleSetDefaultThinkingLevel, loadSlashCommands, scrollUserMsgToTop,
     loadContext, activeLeafId, scrollToBottom, scrollToMessage,
   } = useAgentSession({
+    taskStart, taskPreview, taskStartRequired: !!taskStartToken,
     session, sessionRunning, newSessionCwd, independentChat, newSessionDraftKey, onAgentEnd: wrappedOnAgentEnd, onSessionTitleChange, onAttentionNeeded, onSessionCreated, onSessionForked,
     modelsRefreshKey, chatInputRef: composerRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsPanelOpen,
     onOpenSettings,
@@ -1037,6 +1078,15 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
       {isEmptyNew && newSessionCwd && onNewSessionProjectChange && (
         <NewSessionProjectPicker cwd={newSessionCwd} isChat={independentChat} onChange={onNewSessionProjectChange} />
       )}
+      {taskPreview && <details style={{ maxHeight: "35%", overflow: "auto", padding: 8, borderBottom: "1px solid var(--border)" }} open>
+        <summary>{t("tasks.startPreview")}</summary>
+        <TaskStartMaterial preview={taskPreview} />
+        <label><input type="checkbox" checked={taskRiskConfirmed} onChange={e => setTaskRiskConfirmed(e.target.checked)} />{t("tasks.startConfirmRisk")}</label>
+        <button type="button" disabled={sessionBusy} onClick={() => void reviewTaskStart()}>{t("tasks.startReview")}</button>
+        {taskReviewError && <p role="alert">{taskReviewError}</p>}
+      </details>}
+      {taskStartToken && !taskPreview && <p role="alert">{t("tasks.startExpired")}</p>}
+      {session?.id && <TaskContextUpdates key={session.id} sessionId={session.id} busy={sessionBusy} />}
       {isDragOver && (
         <div className="pointer-events-none absolute inset-0 z-50 flex animate-[drop-zone-in_0.15s_ease_both] items-center justify-center bg-[rgba(37,99,235,0.06)] backdrop-blur-[1px]">
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">

@@ -1,5 +1,9 @@
 # 独立聊天：固定隐藏工作区
 
+## 09显式共享更新（resolved）
+
+已有关联无项目聊天同样只提醒，不自动追版；用户明确接收只保存pending，原普通Send在完整idle/queue结束后采用，固定cwd与普通权限/工具/exact-system合同不变。跨刷新选择持久，child只继承native历史不copy source pending/read。[09合同](task-context-updates.md)记录v6迁移、成功SDK input/response与actual Provider捕获的事实区别；09源green不替父验收。
+
 ## 目的与范围
 
 无需选择项目即可直接对话；跨天、刷新和重启后，所有独立聊天仍属于同一个聊天列表。不为每天建立新目录，不迁移或识别旧 `~/pi-cwd-*` 会话。
@@ -71,6 +75,40 @@ PI_WEB_TEST_URL=http://127.0.0.1:30141 node e2e/session-keyboard.mjs
 5. 打开 System 面板并 reload：聊天的工具、扩展、技能、指令与普通会话一致，不再强制为空或 Chat only。
 
 未做真实 provider 首次发送、真实操作系统跨日/进程重启、移动端触屏专项验收；上述持久化和 reload 已由临时文件系统/SDK 与浏览器 fixture 分层验证。更改 agent-dir 是配置迁移，会改变保留 cwd；本功能不自动搬迁旧 agent-dir 的历史。
+
+## 任务看板往返（票据 01）
+
+空白无项目 composer 经侧栏进入 [任务看板](task-dashboard.md) 后，回到聊天或浏览器后退，
+复用原标签页 cwd/聊天身份与内存 parked draft 恢复文字及图片；再次后退/前进离开聊天到
+`/tasks` 时，AppShell 的 layout cleanup 重新停放，覆盖 `back tasks → back 原 chat` 和
+`back tasks → forward chat`，统一覆盖 Link/history。Link 点击不提前停放，只有真正
+layout departure 保存最终快照；路由尚未完成时用户修改文字、清空或删图，不会重复合并
+或复活旧内容。不创建 session 或发送消息。
+返回标记仅匹配原 cwd，显式 URL、普通新建与 picker 切项目仍优先；刷新后只恢复导航身份，
+不承诺草稿存活。浏览器回归：`E2E_BASE_URL=<checkout dev> node e2e/task-dashboard-drafts.mjs`，
+全 API fixture、两条 history 离开路线各三轮、最新文字/图片数量与字节/cwd 和零 Agent
+请求；普通导航仍按原 hook 弃用清理，不全局保留废弃草稿。
+
+## 已有聊天关联任务（04主claimed，待复审/父验收）
+
+已选聊天通过侧栏原生Link `/tasks?sourceSession=<id>` 创建无项目任务，精确chat-workspace身份
+由服务端判断；无项目任务只关联同身份未归属聊天，普通同basename目录不得混入。原session cwd、
+JSONL、工具、模型、权限不变，不强制Chat-only；关联/目录/GET running快照不ensure/start/MCP/model。
+回聊天使用原 `/?session=<id>`，保持原未发草稿和01departure/history/慢导航合同。空白composer无来源入口。
+主fresh SDK/Git/浏览器/联合迁移及平台缺口见[task-dashboard](task-dashboard.md)与/tmp/m04-MOJzzo/REPORT.md。
+
+## 复制已关联独立聊天（11主集成并已父验收resolved）
+
+原fork/clone/引用branch-copy形成新session后继承来源无项目task，仍使用精确保留cwd和普通资源/权限；
+普通New与未归属source不推断task，同session树导航不增count。不改变SDK复制的历史或采用06latest，
+也不自动prompt或为了保存关系停止source。异常2xx显示error且保留同UUID，未知prepared保持拒绝；所有入口都给出先检查列表、再手动打开无opener空tab显式新尝试的流程及重复/孤儿风险，不自动换ID或删receipt。范围/CAS/失败精确重试及08采用交点见[11合同](task-session-copy.md)。
+
+## 08无项目任务准备（主已验收resolved）
+
+[08合同](task-start-chat.md)沿固定chat-workspace和普通资源权限准备新/继续chat，不ensure/prompt或替换草稿。
+原Send才绑定真实UUID/选定snapshot；Chat-only仍为显式通用预设，exact-system不改，未flush预设重建保持prepared UUID。
+Continue不追current；11 child仅展示继承原生历史及原版本/来源，不复制source selection/read receipt。
+真正busy同cwd先拒，用户确认风险后可并行，不承诺隔离/worktree。保留01departure/history/慢路由末次草稿和普通New优先。
 
 ## v0.10.0 整合说明
 

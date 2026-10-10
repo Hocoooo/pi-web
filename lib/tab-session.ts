@@ -9,6 +9,9 @@
  * New session is a selection too: the tab stores the composer cwd so a reload
  * returns to the new-session UI instead of the previous chat. Deleting the
  * current session forgets that id so it cannot come back on refresh.
+ * Dashboard departure may mark this cwd for restoring its parked in-memory
+ * draft on remount. It stores no draft content and ordinary selections clear
+ * the marker; a reload still loses the in-memory text and images.
  *
  * sessionStorage is the only per-tab store the browser offers: it survives
  * reloads and in-app navigations and is never shared with other tabs. A tab
@@ -29,7 +32,7 @@ interface StorageLike {
 
 export type TabOpen =
   | { kind: "session"; sessionId: string }
-  | { kind: "new"; cwd: string };
+  | { kind: "new"; cwd: string; parkedDraftKey?: string };
 
 function getBrowserStorage(): StorageLike | null {
   if (typeof window === "undefined") return null;
@@ -46,12 +49,12 @@ function parseTabOpen(raw: string | null): TabOpen | null {
     try {
       const parsed: unknown = JSON.parse(raw);
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
-      const record = parsed as { kind?: unknown; sessionId?: unknown; cwd?: unknown };
+      const record = parsed as { kind?: unknown; sessionId?: unknown; cwd?: unknown; parkedDraftKey?: unknown };
       if (record.kind === "session" && typeof record.sessionId === "string" && record.sessionId) {
         return { kind: "session", sessionId: record.sessionId };
       }
       if (record.kind === "new" && typeof record.cwd === "string" && record.cwd.trim()) {
-        return { kind: "new", cwd: record.cwd };
+        return { kind: "new", cwd: record.cwd, ...(typeof record.parkedDraftKey === "string" && record.parkedDraftKey ? { parkedDraftKey: record.parkedDraftKey } : {}) };
       }
       return null;
     } catch {
@@ -92,11 +95,12 @@ export function setTabOpenSession(
 export function setTabOpenNewSession(
   cwd: string,
   storage: StorageLike | null = getBrowserStorage(),
+  parkedDraftKey?: string,
 ): void {
   const trimmed = cwd.trim();
   if (!storage || !trimmed) return;
   try {
-    writeTabOpen({ kind: "new", cwd: trimmed }, storage);
+    writeTabOpen({ kind: "new", cwd: trimmed, ...(parkedDraftKey ? { parkedDraftKey } : {}) }, storage);
   } catch {
     // storage unavailable — memory is best-effort
   }

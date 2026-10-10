@@ -71,7 +71,7 @@ export function proxy(request: NextRequest) {
   if (!authenticated) {
     if (!isApiRequest) {
       const loginUrl = new URL("/login", request.url);
-      if (request.nextUrl.search) {
+      if (request.nextUrl.pathname !== "/" || request.nextUrl.search) {
         loginUrl.searchParams.set("next", `${request.nextUrl.pathname}${request.nextUrl.search}`);
       }
       return NextResponse.redirect(loginUrl);
@@ -88,4 +88,4 @@ export function proxy(request: NextRequest) {
   return NextResponse.next();
 }
 
-export const config = { matcher: ["/", "/login", "/api/:path*"] };
+export const config = { matcher: ["/", "/tasks", "/login", "/api/:path*"] };

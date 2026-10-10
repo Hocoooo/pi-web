@@ -449,6 +449,26 @@ export async function listSessionsIncremental(
 		.map(({ info }) => info);
 }
 
+/** Header/stat-only catalogue for task linking. Never schedules transcript hydration.
+ * Enumerate on each explicit read: a cached path must not resurrect deleted sessions.
+ * Reuse already-hydrated names only when their fingerprint still matches. */
+export async function listSessionMetadata(agentDir: string): Promise<ScannedSessionInfo[]> {
+	if (agentDir === getAgentDir()) loadPersistedIndex();
+	const index = agentDir === getAgentDir() ? getIndex() : new Map<string, IndexEntry>();
+	const files = await enumerateSessionFiles(join(agentDir, "sessions"));
+	const results = await Promise.all(files.map(async (filePath) => {
+		try {
+			const stats = await stat(filePath);
+			if (!stats.isFile()) return null;
+			const fp = { size: stats.size, mtimeMs: stats.mtimeMs };
+			const cached = index.get(filePath);
+			return hasMatchingFingerprint(cached, fp) ? cached.info : deferredSessionInfo(filePath, fp);
+		} catch { return null; }
+	}));
+	return results.filter((info): info is ScannedSessionInfo => info !== null)
+		.sort((a, b) => b.modified.getTime() - a.modified.getTime());
+}
+
 /** Test seam: drop all in-memory index state. */
 export function resetSessionScanIndexForTests(): void {
 	globalThis.__piWebScanIndex = undefined;

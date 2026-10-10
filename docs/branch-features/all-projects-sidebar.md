@@ -96,6 +96,24 @@ E2E_BASE_URL=http://127.0.0.1:30141 E2E_SIDEBAR_NON_GIT=1 node e2e/sidebar-view.
 
 没有项目名称过滤、手动排序、固定项目或全局多工作区文件浏览器。折叠 key 没有主动垃圾回收；活动空目录离开后可消失。列表错误后保留旧数据不是离线一致性承诺。现有独立浏览器脚本主要验证 fixture UI；真实多标签存储受限场景、实际 worktree 和目录失败需手工验收。
 
+## 任务看板入口（票据 01）
+
+侧栏头部新增独立 [任务看板](task-dashboard.md) 链接（`/tasks`），不把任务放进项目/session
+列表，不改变分组、折叠、历史会话或显式导航规则。该链接走原生 Tab/Enter，不占用会话行的
+方向键导航；Link 不注册 eager `onNavigate` 草稿回调，慢路由期间仍允许编辑。
+AppShell 仅在真正离开且目标 `/tasks` 的 layout cleanup 保存最终文字/图片一次并记录
+匹配 cwd 的返回标记，统一覆盖 Link/history，避免早期快照与末次内容合并。新标签页/
+修饰点击不卸载源 composer，其他弃用清理不变。返回由既有
+草稿/导航机制恢复，显式 URL/普通新建/项目切换仍优先；不创建 session 或发送消息。
+看板的项目键仍复用服务端身份，但其目录不扩大文件访问权限。
+
+## 已有聊天来源任务入口（04主claimed，待复审/父验收）
+
+已选session时新增原生侧栏Link `/tasks?sourceSession=<id>`，空白composer无来源按钮。
+不插入任务到session/project列表、不改变分组/折叠/selected cwd或发送prompt；关联详情回原session URL。
+服务端await权威项目身份（不使用展示SWR cache作授权），但sidebar原展示cache/性能不变。
+无eager draft接线，保留01真正departure/history/慢导航最终草稿。主验证见[task-dashboard](task-dashboard.md)。
+
 ## 维护规则与基线
 
 契约基线固定为 **`63c6e4e`**；本次比较的 `origin/main` 为 `96966e5`。以源码及测试为依据，分清新增分组/偏好与继承的项目机制，不以提交标题代替核对。修改本功能时同步更新受影响的不变量、实现链接和验收覆盖；只有完成重新核对后才明确更换基线，不能把此文当作永久代表“最新 HEAD”。

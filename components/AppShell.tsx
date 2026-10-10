@@ -12,6 +12,7 @@ import { FileViewer } from "./FileViewer";
 import { TabBar, type Tab } from "./TabBar";
 import { openFileTab, saveFileViewerState } from "./file-tab-state";
 import { SettingsPanel, SettingsSectionIcon } from "./SettingsPanel";
+import { TaskPanel } from "./TaskPanel";
 import { ProjectTrustDialog, type ProjectTrustFailure } from "./ProjectTrustDialog";
 import { BranchNavigator, hasSessionBranches } from "./BranchNavigator";
 import { SystemPromptPanel } from "./SystemPromptPanel";
@@ -182,6 +183,12 @@ export function AppShell() {
   }, []);
   const [explorerRefreshKey, setExplorerRefreshKey] = useState(0);
   const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
+  const [tasksOpen, setTasksOpen] = useState(() => searchParams.get("tasks") === "1");
+  const [tasksMounted, setTasksMounted] = useState(() => searchParams.get("tasks") === "1");
+  const taskNavigationIntentRef = useRef(0);
+  const [preparedTaskToken, setPreparedTaskToken] = useState<string | null>(() => searchParams.get("taskStart"));
+  const closeTasks = useCallback(() => { taskNavigationIntentRef.current++; setTasksOpen(false); }, []);
+  const openTasks = useCallback(() => { setTasksMounted(true); setTasksOpen(true); }, []);
   const [modelsRefreshKey, setModelsRefreshKey] = useState(0);
   const [projectTrust, setProjectTrust] = useState<ProjectTrustStatus | null>(null);
   const [projectTrustDialogOpen, setProjectTrustDialogOpen] = useState(false);
@@ -630,7 +637,14 @@ export function AppShell() {
         suppressCwdBumpRef.current = true;
         const draftId = `initial:${requestedCwd ?? "chat"}`;
         setNewSessionDraftId(draftId);
-        activeNewSessionDraftKeyRef.current = `new:${draftId}:${data.cwd}`;
+        const draftKey = `new:${draftId}:${data.cwd}`;
+        const tabOpen = getTabOpen();
+        // Only the explicit dashboard departure parks a draft for remount.
+        // A different URL target or an ordinary New never consumes it.
+        if (tabOpen?.kind === "new" && tabOpen.cwd === data.cwd && tabOpen.parkedDraftKey) {
+          rekeyDraft(tabOpen.parkedDraftKey, draftKey);
+        }
+        activeNewSessionDraftKeyRef.current = draftKey;
         setNewSessionCwd(data.cwd);
         setInitialCwdStatus("ready");
         if (independentChat || !new URLSearchParams(window.location.search).get("cwd")) {
@@ -645,6 +659,25 @@ export function AppShell() {
 
     return () => controller.abort();
   }, [initialNavigation, router]);
+
+  const handleNavigateTasks = useCallback(() => {
+    invalidateWorkspaceRestore();
+    const draftKey = activeNewSessionDraftKeyRef.current;
+    if (!selectedSession && newSessionCwd && draftKey) {
+      // Keep this composer's identity separate from ordinary New's cwd draft,
+      // especially after /new deliberately left an older parked draft behind.
+      const parkedKey = `parked-new:${draftKey}`;
+      rekeyDraft(draftKey, parkedKey);
+      setTabOpenNewSession(newSessionCwd, undefined, parkedKey);
+    }
+  }, [invalidateWorkspaceRestore, newSessionCwd, selectedSession]);
+
+  // Save only on actual /tasks departure (Link or history), not its click.
+  // A pending route leaves this composer editable; retain its latest draft
+  // before the hook's passive abandonment cleanup, exactly once.
+  useLayoutEffect(() => () => {
+    if (window.location.pathname === "/tasks") handleNavigateTasks();
+  }, [handleNavigateTasks]);
 
   // Restore the workspace's last open session after switching to it. Called
   // from handleCwdChange once the outgoing context has been reset. The session
@@ -736,6 +769,7 @@ export function AppShell() {
     }
     // Close any session that belongs to a different project — it no longer
     // matches the selected project directory.
+    setPreparedTaskToken(null);
     const previousDraftKey = activeNewSessionDraftKeyRef.current;
     if (previousDraftKey && currentFreshCwd) {
       rekeyDraft(previousDraftKey, parkedNewSessionDraftKey(currentFreshCwd));
@@ -775,8 +809,9 @@ export function AppShell() {
     router.replace(typeof window !== "undefined" ? window.location.pathname : "/", { scroll: false });
   }, [activeCwd, activeFileTabId, invalidateWorkspaceRestore, newSessionCwd, router, selectedSession, restoreWorkspaceContext]);
 
-  const handleSelectSession = useCallback((session: SessionInfo, isRestore = false, entryId?: string, blockIndex?: number) => {
+  const handleSelectSession = useCallback((session: SessionInfo, isRestore = false, entryId?: string, blockIndex?: number, taskStartToken?: string) => {
     setSearchTarget(entryId ? { sessionId: session.id, entryId, blockIndex } : null);
+    setPreparedTaskToken(taskStartToken ?? null);
     invalidateWorkspaceRestore();
     const activeDraftKey = activeNewSessionDraftKeyRef.current;
     const activeDraftCwd = newSessionCwd ?? (selectedSession === null ? activeCwd : null);
@@ -804,6 +839,7 @@ export function AppShell() {
       const sameProject =
         workspaceKeyOf(selectedSession) === workspaceKeyOf(session);
       if (selectedSession.id === session.id && sameProject) {
+        if (taskStartToken) router.replace(`?session=${encodeURIComponent(session.id)}&taskStart=${encodeURIComponent(taskStartToken)}`, { scroll: false });
         if (isMobile) setSidebarOpen(false);
         return;
       }
@@ -831,11 +867,12 @@ export function AppShell() {
     // Tab-memory restore lands on `/` and must write `?session=` so reload
     // and copy-link keep this session.
     if (!isRestore || new URLSearchParams(window.location.search).get("session") !== session.id) {
-      router.replace(`?session=${encodeURIComponent(session.id)}`, { scroll: false });
+      router.replace(`?session=${encodeURIComponent(session.id)}${taskStartToken ? `&taskStart=${encodeURIComponent(taskStartToken)}` : ""}`, { scroll: false });
     }
   }, [activeCwd, activeFileTabId, invalidateWorkspaceRestore, router, isMobile, newSessionCwd, selectedSession]);
 
-  const handleNewSession = useCallback((sessionId: string, cwd: string, restoreParkedDraft = true, independentChat = cwd === chatWorkspaceCwd) => {
+  const handleNewSession = useCallback((sessionId: string, cwd: string, restoreParkedDraft = true, independentChat = cwd === chatWorkspaceCwd, taskStartToken?: string) => {
+    setPreparedTaskToken(taskStartToken ?? null);
     invalidateWorkspaceRestore();
     const draftKey = `new:${sessionId}:${cwd}`;
     if (restoreParkedDraft) rekeyDraft(parkedNewSessionDraftKey(cwd), draftKey);
@@ -852,8 +889,35 @@ export function AppShell() {
     setSystemInfoLoading(false);
     setActiveTopPanel(null);
     if (isMobile) setSidebarOpen(false);
-    router.replace(independentChat ? "?chat=1" : `?cwd=${encodeURIComponent(cwd)}`, { scroll: false });
+    const query = taskStartToken ? `?cwd=${encodeURIComponent(cwd)}&taskStart=${encodeURIComponent(taskStartToken)}` : independentChat ? "?chat=1" : `?cwd=${encodeURIComponent(cwd)}`;
+    router.replace(query, { scroll: false });
   }, [chatWorkspaceCwd, invalidateWorkspaceRestore, router, isMobile]);
+
+  const navigateTaskChat = useCallback(async (href: string) => {
+    const intent = ++taskNavigationIntentRef.current;
+    const workspaceIntent = workspaceRestoreTokenRef.current;
+    const params = new URL(href, window.location.origin).searchParams;
+    const sessionId = params.get("session");
+    const token = params.get("taskStart") ?? undefined;
+    if (sessionId) {
+      const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`, { cache: "no-store" });
+      const data = await response.json() as { info?: SessionInfo; error?: string };
+      if (intent !== taskNavigationIntentRef.current || workspaceIntent !== workspaceRestoreTokenRef.current) return;
+      if (!response.ok || !data.info) throw new Error(data.error ?? `HTTP ${response.status}`);
+      handleSelectSession(data.info, false, undefined, undefined, token);
+    } else {
+      const cwd = params.get("cwd");
+      if (!cwd || !token) throw new Error("Missing task chat target");
+      const previousKey = activeNewSessionDraftKeyRef.current;
+      const previousCwd = newSessionCwd ?? (selectedSession === null ? activeCwd : null);
+      const sameComposer = !!previousKey && previousCwd === cwd;
+      // Do not merge an intentional /new draft with an older cwd parking slot.
+      if (sameComposer) rekeyDraft(previousKey, `new:${token}:${cwd}`);
+      else if (previousKey && previousCwd) rekeyDraft(previousKey, parkedNewSessionDraftKey(previousCwd));
+      handleNewSession(token, cwd, !sameComposer, cwd === chatWorkspaceCwd, token);
+    }
+    closeTasks();
+  }, [activeCwd, chatWorkspaceCwd, closeTasks, handleNewSession, handleSelectSession, newSessionCwd, selectedSession]);
 
   const handleNewChat = useCallback((cwd: string) => {
     const previousKey = activeNewSessionDraftKeyRef.current;
@@ -870,6 +934,7 @@ export function AppShell() {
 
   const handleNewSessionProjectChange = useCallback((cwd: string, projectKey: string) => {
     if (selectedSession || cwd === (newSessionCwd ?? activeCwd)) return;
+    setPreparedTaskToken(null);
     invalidateWorkspaceRestore();
     const draftId = crypto.randomUUID();
     const draftKey = `new:${draftId}:${cwd}`;
@@ -1124,6 +1189,7 @@ export function AppShell() {
   const handleSessionForked = useCallback((newSessionId: string) => {
     invalidateWorkspaceRestore();
     activeNewSessionDraftKeyRef.current = null;
+    setPreparedTaskToken(null);
     setRefreshKey((k) => k + 1);
     setSessionKey((k) => k + 1);
     setNewSessionCwd(null);
@@ -1170,6 +1236,7 @@ export function AppShell() {
         : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
       setNewSessionDraftId(draftId);
       activeNewSessionDraftKeyRef.current = cwd ? `new:${draftId}:${cwd}` : null;
+      setPreparedTaskToken(null);
       setSelectedSession(null);
       setNewSessionCwd(cwd ?? null);
       setSessionKey((k) => k + 1);
@@ -1351,6 +1418,7 @@ export function AppShell() {
   const sidebarContent = (
     <>
       <SessionSidebar
+        onOpenTasks={openTasks}
         selectedSessionId={selectedSession?.id ?? null}
         onSelectSession={handleSelectSession}
         onNewSession={handleNewSession}
@@ -2510,6 +2578,7 @@ export function AppShell() {
         <div ref={chatPanelRef} tabIndex={-1} style={{ flex: 1, overflow: "hidden", position: "relative" }}>
           {showChat ? (
             <ChatWindow
+              preparedTaskToken={preparedTaskToken}
               key={sessionKey}
               session={selectedSession}
               searchTarget={searchTarget?.sessionId === selectedSession?.id ? searchTarget : null}
@@ -2722,6 +2791,7 @@ export function AppShell() {
         </div>
       </div>
     </div>
+    {tasksMounted && <TaskPanel open={tasksOpen} onClose={closeTasks} onNavigate={navigateTaskChat} sessionId={selectedSession?.id ?? null} />}
     {settingsSection && (
       <SettingsPanel
         cwd={projectTrustCwd}

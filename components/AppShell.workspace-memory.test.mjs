@@ -54,6 +54,96 @@ test("workspace restoration remains inside the cross-project branch", () => {
   );
 });
 
+test("dashboard departure parks only the active composer, never merges an older /new cwd draft", () => {
+  const callback = callbackBody("handleNavigateTasks", "restoreWorkspaceContext");
+  for (const active of [{ value: "", images: [] }, { value: "active text", images: [{ data: "active-image", mimeType: "image/png" }] }]) {
+    const cwd = "/dashboard-project";
+    const key = `new:dashboard-${active.value ? "text" : "empty"}:${cwd}`;
+    const oldKey = `parked-new:${cwd}`;
+    const old = { value: "older deliberately unadopted draft", images: [{ data: "old-image", mimeType: "image/png" }] };
+    draftStore.setDraft(oldKey, old);
+    draftStore.setDraft(key, active);
+    let memory;
+    const context = vm.createContext({
+      ...draftStore, useCallback: (fn) => fn, useLayoutEffect() {}, invalidateWorkspaceRestore() {},
+      activeNewSessionDraftKeyRef: { current: key }, selectedSession: null, newSessionCwd: cwd,
+      setTabOpenNewSession: (directory, _storage, parkedDraftKey) => { memory = { cwd: directory, parkedDraftKey }; },
+    });
+    vm.runInContext(stripTypeScriptTypes(`${callback}\nhandleNavigateTasks();`), context);
+    assert.equal(memory.cwd, cwd);
+    assert.equal(memory.parkedDraftKey, `parked-new:${key}`);
+    assert.deepEqual(draftStore.getDraft(oldKey), old, "ordinary New's unadopted draft stays separate");
+    assert.deepEqual(draftStore.getDraft(memory.parkedDraftKey), active.value ? active : null);
+    draftStore.clearDraft(oldKey);
+    draftStore.clearDraft(memory.parkedDraftKey);
+  }
+});
+
+test("actual departure cleanup parks only for /tasks, never during mount or ordinary navigation", () => {
+  assert.doesNotMatch(source, /onNavigateTasks=/, "no eager Link callback may snapshot an editable composer");
+  const start = source.indexOf("  // Save only on actual /tasks departure");
+  const end = source.indexOf("  // Restore the workspace's last open session", start);
+  assert.ok(start >= 0 && end > start);
+  let cleanup, parked = 0;
+  const window = { location: { pathname: "/" } };
+  const context = vm.createContext({ window, handleNavigateTasks: () => parked++, useLayoutEffect: (effect) => { cleanup = effect(); } });
+  vm.runInContext(stripTypeScriptTypes(source.slice(start, end)), context);
+  assert.equal(parked, 0, "mount does not park an active draft");
+  cleanup();
+  assert.equal(parked, 0, "ordinary session/project history keeps normal abandonment cleanup");
+  window.location.pathname = "/tasks";
+  cleanup();
+  assert.equal(parked, 1, "dashboard departure parks before passive draft cleanup");
+});
+
+test("task panel navigation selects the live shell and preserves prepared tokens without sending", async () => {
+  const calls = [];
+  const context = vm.createContext({
+    URL, window: { location: { origin: "http://localhost" } },
+    useCallback: callback => callback,
+    fetch: async () => ({ ok: true, json: async () => ({ info: { id: "linked", cwd: "/chat" } }) }),
+    handleSelectSession: (...args) => calls.push(["select", ...args]),
+    handleNewSession: (...args) => calls.push(["new", ...args]),
+    closeTasks: () => calls.push(["close"]),
+    activeNewSessionDraftKeyRef: { current: "draft" },
+    taskNavigationIntentRef: { current: 0 }, workspaceRestoreTokenRef: { current: 0 },
+    newSessionCwd: "/chat", activeCwd: "/chat", chatWorkspaceCwd: "/chat", selectedSession: null,
+    rekeyDraft: (...args) => calls.push(["park", ...args]),
+    parkedNewSessionDraftKey: cwd => `parked:${cwd}`,
+  });
+  vm.runInContext(stripTypeScriptTypes(`${callbackBody("navigateTaskChat", "handleNewChat")} globalThis.navigate = navigateTaskChat;`), context);
+  await context.navigate("/?session=linked&taskStart=prepared");
+  assert.equal(calls[0][0], "select");
+  assert.equal(calls[0][1].id, "linked");
+  assert.equal(calls[0].at(-1), "prepared");
+  assert.deepEqual(calls[1], ["close"]);
+  calls.length = 0;
+  await context.navigate("/?cwd=%2Fchat&taskStart=new-preview");
+  assert.deepEqual(calls, [["park", "draft", "new:new-preview:/chat"], ["new", "new-preview", "/chat", false, true, "new-preview"], ["close"]]);
+  calls.length = 0;
+  context.fetch = async () => ({ ok: false, json: async () => ({ error: "Missing session" }) });
+  await assert.rejects(context.navigate("/?session=missing"), /Missing session/);
+  assert.deepEqual(calls, [], "failure keeps panel and current chat intact");
+  const first = Promise.withResolvers(), second = Promise.withResolvers();
+  context.fetch = href => href.endsWith("first") ? first.promise : second.promise;
+  const firstNavigation = context.navigate("/?session=first");
+  const secondNavigation = context.navigate("/?session=second");
+  second.resolve({ ok: true, json: async () => ({ info: { id: "second", cwd: "/chat" } }) });
+  await secondNavigation;
+  first.resolve({ ok: true, json: async () => ({ info: { id: "first", cwd: "/chat" } }) });
+  await firstNavigation;
+  assert.equal(calls.filter(call => call[0] === "select").length, 1);
+  assert.equal(calls[0][1].id, "second", "latest navigation wins");
+  calls.length = 0;
+  const dismissed = Promise.withResolvers();
+  context.fetch = () => dismissed.promise;
+  const dismissedNavigation = context.navigate("/?session=dismissed");
+  context.taskNavigationIntentRef.current++;
+  dismissed.resolve({ ok: true, json: async () => ({ info: { id: "dismissed", cwd: "/chat" } }) });
+  await dismissedNavigation;
+  assert.deepEqual(calls, [], "dismissed navigation never selects an old target");
+});
+
 test("New restores the draft after session navigation and workspace auto-restore", async (t) => {
   const callbacks = [
     callbackBody("restoreWorkspaceContext", "handleCwdChange"),
@@ -84,6 +174,7 @@ test("New restores the draft after session navigation and workspace auto-restore
         workspaceKeyOf: (value) => value.projectKey ?? value.cwd,
         useCallback: (callback) => callback,
         useGlobalKeyboardShortcuts() {},
+        closeTasks() {},
         activeNewSessionDraftKeyRef: { current: `new:initial:${cwd}` },
         activeProjectKeyRef: { current: cwd },
         workspaceRestoreTokenRef: { current: 0 },

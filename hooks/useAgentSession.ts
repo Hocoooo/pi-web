@@ -21,6 +21,8 @@ import {
   setSessionViewSnapshot,
 } from "@/lib/session-view-cache";
 import { clearDraft, getDraft, rekeyDraft, restoreDraftSubmission, type ChatDraft } from "@/lib/draft-store";
+import type { TaskStartSelection, TaskStartPreview } from "@/lib/task-types";
+import { rememberTaskSession } from "@/lib/task-start-client";
 import type { SettingChangeResult } from "@/lib/model-command";
 import { getPreferredToolPreset, setPreferredToolPreset } from "@/lib/tool-preset-preference";
 import { CONFIGURED_TOOL_PRESET, getPresetFromToolNames, getToolNamesForPreset, type ToolEntry, type ToolPreset } from "@/lib/tool-presets";
@@ -172,6 +174,9 @@ export type BuiltinSlashCommandResult =
   | { handled: true; message?: string; error?: string; action?: "openSessionStats" | "openSettings" | "openModelSelector" | "openThinkingSelector"; query?: string };
 
 export interface UseAgentSessionOptions {
+  taskStart?: TaskStartSelection | null;
+  taskPreview?: TaskStartPreview | null;
+  taskStartRequired?: boolean;
   session: SessionInfo | null;
   sessionRunning?: boolean;
   newSessionCwd: string | null;
@@ -946,6 +951,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         body: JSON.stringify({
           cwd: newSessionCwd,
           type: "ensure_session",
+          ...(opts.taskStart ? { taskStart: opts.taskStart } : {}),
           ...(toolNames !== undefined ? { toolNames } : {}),
           ...(selectedModel ? { provider: selectedModel.provider, modelId: selectedModel.modelId } : {}),
           ...(selectedThinkingLevel
@@ -961,6 +967,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       };
       const realId = result.sessionId;
       sessionIdRef.current = realId;
+      if (opts.taskPreview) rememberTaskSession(realId, opts.taskPreview);
       if (result.model && newSessionModelOverrideRef.current === selectedModel) {
         setPendingModel(result.model);
         if (!selectedModel) setNewSessionDefaultModel(result.model);
@@ -983,7 +990,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } finally {
       ensuringNewSessionRef.current = null;
     }
-  }, [isNew, newSessionCwd, toolPreset]);
+  }, [isNew, newSessionCwd, toolPreset, opts.taskStart, opts.taskPreview]);
 
   // Opening the System or Tools panel may initialize an otherwise dormant
   // session. This is deliberately a non-prompt command: it creates no message
@@ -1843,6 +1850,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         return;
       }
     }
+    if (opts.taskStartRequired && !opts.taskStart) {
+      addNotice({ type: "error", message: "Task preparation expired. Return to the task and preview again before sending." });
+      restoreSubmission(message, images, composerDraftKey, video); return;
+    }
     if (!trimmedMessage && !images?.length) return;
     if (agentRunningRef.current || bashRunningRef.current) {
       if (video) addNotice({ type: "error", message: "Video requires an idle session. Nothing was sent." });
@@ -1941,6 +1952,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         await sendAgentCommand(sid, {
           type: "prompt",
           message,
+          ...(opts.taskStart ? { taskStart: opts.taskStart } : {}),
           ...(piImages?.length ? { images: piImages } : {}),
           ...(video ? { video } : {}),
         });
@@ -1952,6 +1964,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         await sendAgentCommand(session.id, {
           type: "prompt",
           message,
+          ...(opts.taskStart ? { taskStart: opts.taskStart } : {}),
           ...(piImages?.length ? { images: piImages } : {}),
           ...(video ? { video } : {}),
         });
@@ -2004,7 +2017,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setAgentPhase(null);
       dispatch({ type: "end" });
     }
-  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, cancelEventStreamGrace, clearSubmittedDraft, closeEvents, composerDraftKey, reconcileAgentState, restoreSubmission, editEntryId, setEdit]);
+  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, cancelEventStreamGrace, clearSubmittedDraft, closeEvents, composerDraftKey, reconcileAgentState, restoreSubmission, editEntryId, setEdit, opts.taskStart, opts.taskStartRequired]);
 
   const executeBash = useCallback(async (command: string, excludeFromContext: boolean) => {
     if (agentRunningRef.current || bashRunningRef.current) return;
@@ -2542,6 +2555,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       addNotice({ type: "warning", message: "Check the pending submission or wait for navigation before queuing another question. Nothing was sent." });
       return;
     }
+    if (opts.taskStartRequired && !opts.taskStart) {
+      restore();
+      addNotice({ type: "error", message: "Task preparation expired. Return to the task and preview again before sending." });
+      return;
+    }
     // A pending history edit must branch when sent, never join the current run.
     if (editEntryId) {
       restore();
@@ -2576,6 +2594,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         type: "prompt",
         message,
         streamingBehavior: behavior,
+        ...(opts.taskStart ? { taskStart: opts.taskStart } : {}),
         ...(piImages?.length ? { images: piImages } : {}),
         ...(video ? { video } : {}),
       });
@@ -2596,7 +2615,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } finally {
       streamingSubmissionPendingRef.current = false;
     }
-  }, [addNotice, clearSubmittedDraft, composerDraftKey, editEntryId, ensureEventsConnected, loadSession, queuedMessages.inputs, restoreSubmission]);
+  }, [addNotice, clearSubmittedDraft, composerDraftKey, editEntryId, ensureEventsConnected, loadSession, queuedMessages.inputs, restoreSubmission, opts.taskStart, opts.taskStartRequired]);
 
   const handleSteer = useCallback(async (message: string, images?: AttachedImage[], video?: VideoReference) => {
     await sendStreamingPrompt(message, "steer", images, video);

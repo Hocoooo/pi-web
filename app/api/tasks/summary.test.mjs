@@ -1,0 +1,25 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { readFile, rm } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { createJiti } from "jiti";
+import { summaryFixture, content } from "../../../lib/task-summary-fixture.mjs";
+const f = await summaryFixture();
+const previous = process.env.PI_CODING_AGENT_DIR; process.env.PI_CODING_AGENT_DIR = f.agentDir;
+const { GET, POST } = await createJiti(import.meta.url, { alias: { "@": process.cwd() } }).import("./route.ts");
+test.after(async () => { if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous; await rm(f.agentDir, { recursive: true, force: true }); });
+const post = (input) => POST(new Request("http://localhost/api/tasks", { method: "POST", body: JSON.stringify(input) }));
+test("real HTTP handler validates task/source before any model path, keeps no-store and 06 server provenance boundary", async () => {
+  const before = await readFile(f.file);
+  const response = await post({ action: "summary-source", id: f.task.id, sessionId: f.source.getSessionId(), leafId: null });
+  assert.equal(response.status, 200); assert.equal(response.headers.get("cache-control"), "no-store");
+  const preview = await response.json(); assert.deepEqual(preview.items.map((i) => i.entryId), [f.user, f.assistant, f.tool]);
+  assert.equal((await post({ action: "summary-source", id: randomUUID(), sessionId: f.source.getSessionId(), leafId: null })).status, 404);
+  assert.equal((await post({ action: "summary-source", id: f.task.id, sessionId: randomUUID(), leafId: null })).status, 400);
+  assert.equal((await post({ action: "summary-source", id: f.task.id, sessionId: "../escape", leafId: null })).status, 400);
+  assert.equal((await post({ action: "summary-generate", id: f.task.id, operationId: randomUUID(), expectedCurrentVersionId: null, model: { provider: "unavailable", modelId: "none" }, sources: [{ snapshotId: randomUUID(), items: [{ entryId: "fake", text: "fake" }] }] })).status, 409);
+  assert.equal((await post({ action: "publish-context", id: f.task.id, operationId: randomUUID(), expectedCurrentVersionId: null, generationId: randomUUID(), content })).status, 409);
+  assert.equal((await post({ action: "publish-context", id: f.task.id, operationId: randomUUID(), expectedCurrentVersionId: null, content, source: { kind: "ai" } })).status, 400);
+  assert.deepEqual(await readFile(f.file), before); assert.equal(f.captures.length, 0);
+  assert.equal((await GET()).headers.get("cache-control"), "no-store");
+});

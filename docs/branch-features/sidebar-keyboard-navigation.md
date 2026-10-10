@@ -67,6 +67,15 @@ PI_WEB_TEST_URL=http://127.0.0.1:30141 node e2e/session-keyboard.mjs
 
 [session-keyboard.mjs](../../e2e/session-keyboard.mjs)使用真实 Chromium 和拦截会话/变更 API：隐藏侧栏后 Alt+Left、80 行 End/Home、Enter 打开、Alt+Right、草稿不丢、真实 `<dialog>` 阻断、Delete 尚未发请求、Escape、all 模式标题/更多、刷新后选中末尾根的揭示。注意其变量是 `PI_WEB_TEST_URL`，不是其他脚本的 `E2E_BASE_URL`；浏览器渠道使用 `PLAYWRIGHT_CHANNEL`。未覆盖真实删除成功/失败、inline rename、移动键盘及消息区 Alt+Up/Down 的浏览器联动。该脚本不是 `npm run test:e2e` 的子步骤。
 
+### 会话载入的脚本前置（2026-10-09）
+
+`session-keyboard.mjs` 在 Enter 打开会话后，除等待 session URL，还须等待新 composer 可见
+再发送 Alt+Right；URL 更新早于异步 history 载入，未挂载 composer 时回退 chat container
+本就是合同允许的行为。票据 01 验证中 line53 的间歇超时由此时序复现：按键时 textarea=0，
+之后 textarea=1 但焦点留在 container。350ms fixture 延迟稳定复现，加入前置等待后原焦点
+断言通过；未放宽焦点/草稿/删除/展开断言，不修改产品快捷键。该路线无 `/tasks`，相关产品
+焦点代码与原 HEAD 相同；本轮证据见 `/tmp/pi-web-ticket01-history-fxzcewjw/REPORT.md`。
+
 ## 手工验收
 
 前置：隔离目录至少 80 个根会话（可用 API fixture），其中一个 transient；桌面窄会话窗确保虚拟化生效，all 模式有至少两个项目。需要验证真实删除时只用可丢弃会话。
