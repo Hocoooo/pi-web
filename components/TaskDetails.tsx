@@ -1,13 +1,10 @@
 "use client";
 
-import { TaskStart } from "./TaskStart";
 import { TaskSessions } from "./TaskSessions";
 import { type FormEvent } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { TASK_PRIORITIES, TASK_TEXT_LIMITS, type TaskRecord, type TaskRequest, type TaskSessionInfo, type TaskSessionActivity } from "@/lib/task-types";
 import styles from "./TaskDashboard.module.css";
-import { TaskSharedContext, type TaskContextDraft } from "./TaskSharedContext";
-import type { TaskContextRequest } from "@/lib/task-types";
 
 type EditRequest = Extract<TaskRequest, { action: "edit" }>;
 export interface TaskEditDraft {
@@ -17,16 +14,13 @@ export interface TaskEditDraft {
 }
 
 /** Drafts live above columns so a refreshed/moved card cannot discard or silently rebase input. */
-export function TaskDetails({ task, disabled, editDraft, onDraftChange, onSave, contextDraft, onContextDraftChange, onPublishContext, newOperationId, onLink, onChangeRelation, runningIds, sessionActivity, onSummarize }: {
+export function TaskDetails({ task, disabled, active = true, currentSessionId, editDraft, onDraftChange, onSave, onLink, onChangeRelation, runningIds, sessionActivity }: {
+  active?: boolean;
+  currentSessionId?: string | null;
   onChangeRelation: (session: TaskSessionInfo) => void;
-  onSummarize: () => void;
   onLink: (request: Extract<TaskRequest, { action: "link" }>) => Promise<void>;
   runningIds: Set<string> | null;
   sessionActivity: Record<string, TaskSessionActivity>;
-  contextDraft: TaskContextDraft | null;
-  onContextDraftChange: (draft: TaskContextDraft | null) => void;
-  onPublishContext: (request: TaskContextRequest) => Promise<void>;
-  newOperationId: () => string;
   task: TaskRecord;
   disabled: boolean;
   editDraft: TaskEditDraft | null;
@@ -56,6 +50,7 @@ export function TaskDetails({ task, disabled, editDraft, onDraftChange, onSave, 
   }
   return <section aria-label={task.title}>
     <h2 className={styles.detailTitle}>{task.title}</h2>
+    <TaskSessions task={task} active={active} currentSessionId={currentSessionId} disabled={disabled} onLink={onLink} onChangeRelation={onChangeRelation} runningIds={runningIds} sessionActivity={sessionActivity} />
     {draft ? <form onSubmit={save} className={styles.editForm} aria-label={t("tasks.edit")}>
       <label>{t("tasks.title")}<input aria-label={t("tasks.title")} autoFocus required maxLength={TASK_TEXT_LIMITS.title} disabled={disabled} value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} /></label>
       <label>{t("tasks.description")}<textarea aria-label={t("tasks.description")} rows={3} maxLength={TASK_TEXT_LIMITS.description} disabled={disabled} value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} /></label>
@@ -76,12 +71,5 @@ export function TaskDetails({ task, disabled, editDraft, onDraftChange, onSave, 
       {task.project && <><h3>{t("tasks.projectDirectory")}</h3><p className={styles.text}>{task.project.cwd}</p></>}
       <button type="button" disabled={disabled} onClick={beginEdit}>{t("tasks.edit")}</button>
     </>}
-    {task.archived && <p>{t("tasks.archive.restoreRequired")}</p>}
-    <TaskStart task={task} disabled={disabled || task.archived} newOperationId={newOperationId} />
-    <TaskSessions task={task} disabled={disabled} onLink={onLink} onChangeRelation={onChangeRelation} runningIds={runningIds} sessionActivity={sessionActivity} />
-    <button type="button" disabled={disabled || task.archived || !!contextDraft} onClick={onSummarize}>{t("tasks.summary.title")}</button>
-    {contextDraft && <p className={styles.hint}>{t("tasks.summary.draftExists")}</p>}
-    <TaskSharedContext task={task} disabled={disabled} draft={contextDraft} onDraftChange={onContextDraftChange}
-      onPublish={onPublishContext} newOperationId={newOperationId} />
   </section>;
 }

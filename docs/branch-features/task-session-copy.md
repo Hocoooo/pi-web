@@ -1,4 +1,8 @@
-# 复制 / fork 新对话继承任务（11，resolved）
+# 复制 / fork 新对话继承任务
+
+## 当前范围
+
+见[任务 session 管理契约](task-session-management.md)。复制/fork 继续继承唯一任务归属，不因任务归档拒绝，不因此恢复任务。保持 SDK 原有复制生命周期、权威 scope、owner/generation、幂等 receipt 与未知结果处理；不引入共享材料，也不复制旧 pending/start 选择。以下涉及 07/08/09 的新共享行为与归档发送限制已暂停，仅保留兼容背景。
 
 当前01–14全部父resolved，统一[当前schema/CAS/迁移权威表](task-dashboard.md#当前存储cas与迁移权威表)为v7。主 `/tmp/m11-84vHSp/REPORT.md`、独立 `/tmp/rm11iv/` 与[阶段历史](task-dashboard-validation-history.md#11-copy异常2xx与未知结果)分列；当前08/09/10均已接入，不凭源green/原报告claimed替最终综合验证。
 [11票据](../../.scratch/task-dashboard/issues/11-inherit-task-on-fork.md)、

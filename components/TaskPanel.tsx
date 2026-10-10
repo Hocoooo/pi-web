@@ -8,7 +8,7 @@ import { TaskDashboard } from "./TaskDashboard";
 import styles from "./TaskDashboard.module.css";
 
 /** Kept mounted after first opening: dismissing the panel never discards task drafts. */
-export function TaskPanel({ open, onClose, sessionId, onNavigate }: { open: boolean; onClose: () => void; sessionId: string | null; onNavigate: (href: string) => Promise<void> }) {
+export function TaskPanel({ open, onClose, sessionId, onNavigate, requestedTask }: { open: boolean; onClose: () => void; sessionId: string | null; onNavigate: (href: string) => Promise<void>; requestedTask?: { id: string; request: number } | null }) {
   const { t } = useI18n();
   const panel = useRef<HTMLDivElement>(null);
   const containActive = useRef(false);
@@ -61,7 +61,7 @@ export function TaskPanel({ open, onClose, sessionId, onNavigate }: { open: bool
         else if (!event.shiftKey && (document.activeElement === last || !scope.contains(document.activeElement) || document.activeElement === scope)) { event.preventDefault(); first.focus(); }
       }}>
       <TaskPanelNavigation.Provider value={onNavigate}>
-        <TaskDashboard active={open} onClose={onClose} currentSessionId={sessionId} />
+        <TaskDashboard active={open} onClose={onClose} currentSessionId={sessionId} requestedTask={requestedTask} />
       </TaskPanelNavigation.Provider>
     </div>
   </div>;

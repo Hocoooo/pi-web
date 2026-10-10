@@ -25,6 +25,7 @@ function runHandleSessionDeleted(capturedSelectedSession, active) {
     sessionKey: 0,
     routerReplaced: null,
     refreshBumped: false,
+    preparedTaskToken: "stale-preparation",
   };
   const context = vm.createContext({
     crypto: globalThis.crypto,
@@ -38,6 +39,7 @@ function runHandleSessionDeleted(capturedSelectedSession, active) {
     clearTabOpenSession() {},
     setRefreshKey: () => { state.refreshBumped = true; },
     setNewSessionDraftId: (id) => { state.newSessionDraftId = id; },
+    setPreparedTaskToken: (value) => { state.preparedTaskToken = value; },
     setSelectedSession: (value) => { state.setSelectedSession.push(value); },
     setNewSessionCwd: (value) => { state.setNewSessionCwd.push(value); },
     setSessionKey: (fn) => { state.sessionKey = fn(state.sessionKey); },
@@ -78,6 +80,7 @@ test("a delete completing after the user navigated away keeps the new chat", () 
   assert.equal(state.newSessionDraftId, null);
   assert.equal(state.sessionKey, 0, "chat does not remount");
   assert.equal(state.routerReplaced, null, "URL does not move");
+  assert.equal(state.preparedTaskToken, "stale-preparation", "other workspace state is untouched");
 });
 
 test("a delete completing while the user is still on it falls back to the empty composer", () => {
@@ -88,5 +91,6 @@ test("a delete completing while the user is still on it falls back to the empty 
   assert.deepEqual(state.setNewSessionCwd, ["/project-a"]);
   assert.ok(state.newSessionDraftId);
   assert.equal(state.sessionKey, 1, "chat remounts as a fresh composer");
+  assert.equal(state.preparedTaskToken, null, "fresh composer cannot inherit old preparation");
   assert.equal(state.routerReplaced, `?cwd=${encodeURIComponent("/project-a")}`);
 });

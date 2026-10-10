@@ -1,5 +1,9 @@
 # 当前分支功能契约与验收索引
 
+## 当前任务范围调整（优先于旧任务执行描述）
+
+**任务面板现阶段仅管理 session 归属。** [F31：任务 session 管理](task-session-management.md)覆盖 F21–F30 中共享重点、AI 整理、任务启动、共享更新及归档执行限制的旧行为：F22/F24/F26/F28 暂停新执行并移除 UI；F27 归档不再限制聊天，F30 关系更新不要求 active/idle。下面旧阶段的 resolved/验收记录不代表这些功能仍启用；v7 存储及历史兼容继续保留。
+
 ## 必须先读：Agent 工作规则
 
 **每次开发迭代开始前，必须先阅读本 README，再阅读本次涉及的功能文档及其关联功能文档。** 适用于新增、修改、修复、重构、测试调整，以及 merge/rebase 冲突处理；不能等修改完成后才补读。
@@ -48,17 +52,18 @@
 | F19 | [独立聊天与固定隐藏工作区](independent-chat.md) | 无项目直接对话，入口在“会话项目”选择器内；固定 cwd 保持跨日历史，权限与界面均与项目会话一致，侧栏显示“对话” | default-cwd、NewSessionProjectPicker、AppShell、SessionSidebar、rpc-manager、session-reader |
 | F20 | [macOS 服务重启与运行诊断](macos-service-lifecycle.md) | 默认 Terminal 私有交接、显式用户级 LaunchAgent、独立 restart 命令；不转储环境、不自动授予权限，诊断失败不假报 verified | 安装器 mac-terminal/mac-launchagent、service-health API |
 | F21 | [任务看板、资料编辑、手动排序、全局列与已有对话关联](task-dashboard.md) | 按钮唤起的 Settings 风格悬浮面板、紧凑卡片/独立详情抽屉、主次筛选与条件标签、关闭保留草稿、[全界面UI检查](../testing/task-dashboard-ui.md)、用户确认状态；单任务邻居移动、全局稳定列、原子批量关联、权威项目scope、metadata-only运行提示；统一存储/CAS/迁移权威表 | tasks API/page、TaskDashboard/Details/Sessions/DragTargets/ColumnSettings、task-operations/store/types/sessions、worktree/scanner/RPC、proxy、SessionSidebar |
-| F22 | [人工共享重点版本](task-shared-context.md) | 任务详情四节编辑/被动安全 Markdown 审核/确认、不可变 current/history、确认恢复/独立版本 CAS/精确 receipt；06 已主集成、独立 review 与 SSR 故障复验，父验收 resolved，不启动 AI/主动注入 session | TaskSharedContext/TaskContextPreview、task-context、task-operations/store/types |
+| F22 | [人工共享重点版本（暂停）](task-shared-context.md) | F31 暂停编辑/审核/发布/历史/恢复 UI 与新操作；保留不可变 current/history、来源、独立 CAS/receipt 的旧数据兼容，下文原06验收仅作历史 | TaskSharedContext/TaskContextPreview、task-context、task-operations/store/types |
 | F23 | [任务筛选、自动排序与保存视图](task-views.md) | 六条件/无项目/稳定列ID/unknown运行态；自动排序不写回手动；views独立CAS/精确receipt，过滤移动/固定双草稿，05 resolved | TaskViewControls、TaskDashboard、task-view/task-saved-views、task-types/store/operations |
-| F24 | [主动AI整理共享重点](task-ai-summary.md) | 07已主集成并验收resolved：同任务明确branch/工具opt-in/删减预览/临时模型→独立无工具SDK生成→06审核确认；服务端provenance/关系权威，快失败Promise局部及时观察且错误向caller传播，不干预来源，不含08采用；11复制见F25 | task-summary/types、TaskSummary、task-context/operations、Dashboard/Sidebar |
+| F24 | [主动AI整理共享重点（暂停）](task-ai-summary.md) | F31 移除任务/当前对话的整理和草稿入口，所有 summary-* 新操作在存储/模型调用前拒绝；旧 AI 来源数据保留，原07执行测试明确退役 | task-summary/types、TaskSummary、task-context/operations、Dashboard/Sidebar |
 | F25 | [复制/fork继承任务](task-session-copy.md) | 11已主集成并验收resolved：原clone/fork/fork_branch新SDK session继承唯一关系、source-owner CAS/权威scope、durable intent/精确receipt；异常2xx保留UUID、未知结果人工检查后显式新tab尝试；不伪造08采用 | rpc-manager、agent-client、task-session-copy、task-operations/store、agent route |
-| F26 | [任务准备对话与独立发送](task-start-chat.md) | 08主集成已独立复审并验收resolved：默认新建/合法继续，独立预览不改draft不prompt；原admission同锁真实ID/锁版，Stop后Continue补原snapshot一次，未flush工具重建同UUID，native metadata/HTTP拒绕过；child原生历史事实不伪新receipt/read；当前统一存储见F21 | TaskStart、ChatWindow/useAgentSession、task-start/types/store/operations、agent/new、rpc-manager |
-| F27 | [任务归档与恢复](task-archive.md) | 12主已语义集成并父验收resolved：可发现归档列表/恢复、独立archive CAS/精确receipt；同board锁/原pending生命周期重查全发送与关系/复制busy，不Stop/done、不改05条件/07来源/08选择/11未知复制；只管PiWeb入口、不拦外部进程 | task-archive/types/store/operations、rpc-manager、agent routes、TaskDashboard/Details |
-| F28 | [已有对话显式接收共享更新](task-context-updates.md) | 09主集成已父验收resolved：明确版本/pending CAS/固定预览base；原eligible Send才投递，native append≠成功SDK input/response≠provider wire/read；原pending预留/同锁guard，不复制source pending或strictnew receipt；与10关系epoch及14删列接缝见专属合同 | TaskContextUpdates/ChatWindow、task-context-updates/update-send、task-start/types/store/operations、RPC/tasks API |
+| F26 | [任务准备对话与独立发送（暂停）](task-start-chat.md) | F31 移除开始执行/材料预览；旧 taskStart 在路由 startup/权限变更前及 wrapper 再次拒绝，旧准备 URL 明确提示；普通聊天后关联 session，不再注入任务资料，旧 receipt/native 历史兼容 | TaskStart、ChatWindow/useAgentSession、task-start/types/store/operations、agent/new、rpc-manager |
+| F27 | [任务归档与恢复](task-archive.md) | 可发现归档列表/恢复、独立 archive CAS/精确 receipt；F31 归档只改变管理显示，不要求 session 空闲、不阻止聊天/关联/复制，不 Stop/自动恢复/自动完成，保留全部历史 | task-archive/types/store/operations、rpc-manager、agent routes、TaskDashboard/Details |
+| F28 | [已有对话显式接收共享更新（暂停）](task-context-updates.md) | F31 移除版本/更新 UI 及其轮询；拒绝新选择/投递，普通 prompt 不消费旧 pending、不安装发送观察器；保留 choices/deliveries/native 历史，暂停不等于遗忘 | TaskContextUpdates/ChatWindow、task-context-updates/update-send、task-start/types/store/operations、RPC/tasks API |
 | F29 | [安全删除状态列](task-column-removal.md) | 14 resolved：done/lastunfinished保护、独立完成确认、完整ordered源摘要/有界请求、hidden/archive原子迁移、旧board receipt返回当前派生digest、删todo两create首unfinished；与10联合回归 | TaskColumnSettings、TaskDashboard、task-operations/store/types、tasks API |
-| F30 | [解除/改绑任务关系](task-session-relation.md) | 10 resolved：同锁active/fullbusy/权威scope/clear+唯一owner；owner+generation防07/08/09/11 ABA；hydrated目标写前跨epoch验证，未来copy/不一致legacy拒读不写；旧receipt只确认事实、native不遗忘 | task-relations/operations/store、TaskRelation/TaskSessions/Dashboard、task-summary/start/context-update-send/session-copy |
+| F30 | [解除/改绑任务关系](task-session-relation.md) | F31 关系只管理归属，不要求任务 active 或 session idle；仍保留同锁权威 scope、唯一 owner、generation/CAS/精确 receipt、旧 pending 清理和复制 ABA 保护，不改 cwd/模型/工具/原生历史 | task-relations/operations/store、TaskRelation/TaskSessions/Dashboard、task-summary/start/context-update-send/session-copy |
+| F31 | [任务 session 管理](task-session-management.md) | 任务详情以关联对话为主体、当前会话归属与直达入口、卡片数量/运行提示；管理与执行解耦，停用共享/启动/更新路径，旧数据与历史兼容保留 | TaskDashboard/Details/Sessions/Relation、SessionTaskLink/ChatWindow/AppShell、task-operations/relations/archive/session-copy、rpc-manager |
 
-## 任务功能当前快照（2026-10-09 文档收尾）
+## 任务功能历史快照（2026-10-09 文档收尾；当前范围见 F31）
 
 - **01–14 全部已由父代理按各票范围验收 resolved**；10 最终独立主复审见 `/tmp/t10mr-mus4_2wp/REPORT.md`，修复证据见 `/tmp/t10fix-l8beyj3o/REPORT.md`。最终独立综合核验及父review已完成，见[最终接受记录](../../.scratch/task-dashboard/FINAL-ACCEPTANCE.md)；仅已执行范围通过，不代表全平台/真实provider验收。
 - 当前存储为 **v7**；唯一的[当前 schema、独立 CAS 与迁移表](task-dashboard.md#当前存储cas与迁移权威表)由 F21 维护，其余任务合同引用它。14 `columnRemovalDigests` 同锁派生、不持久；09 选择 ≠ native append ≠ 成功 SDK input/response ≠ provider wire/read。

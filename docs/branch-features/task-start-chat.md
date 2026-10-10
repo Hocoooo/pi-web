@@ -1,4 +1,6 @@
-# 从任务准备对话并独立发送（08，resolved）
+# 从任务准备对话并独立发送（08，历史功能）
+
+> **当前暂停**：见[任务 session 管理契约](task-session-management.md)。不再显示“开始执行”及准备材料，不新增任务上下文；旧 taskStart 请求明确拒绝、旧准备 URL 要求重新打开普通聊天。使用普通聊天后关联已有 session。原 receipt/原生历史不删除，下面是原行为背景。
 
 当前01–14均父验收resolved，统一[当前schema/CAS/迁移权威表](task-dashboard.md#当前存储cas与迁移权威表)为v7。主08证据 `/tmp/m08-v3uqlo_0/REPORT.md`、独立 `/tmp/m8iv-1009/REPORT.md`；恢复、R1–R5、child联合red与N1见[历史附录](task-dashboard-validation-history.md#08-恢复r1r5及主0811适配)，原claimed和无exit输出不改称最终pass。
 关联：[看板](task-dashboard.md)、[知识](task-shared-context.md)、[独立聊天](independent-chat.md)、[草稿](new-session-project.md)、[09更新](task-context-updates.md)、[10关系](task-session-relation.md)、[11复制](task-session-copy.md)、[归档](task-archive.md)、[删列](task-column-removal.md)、[08票据](../../.scratch/task-dashboard/issues/08-start-task-session.md)。

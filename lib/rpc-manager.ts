@@ -5,7 +5,6 @@ import { KeybindingsManager as TuiKeybindingsManager, TUI_KEYBINDINGS } from "@e
 import { randomUUID } from "crypto";
 import { taskSessionPathInScope } from "./task-sessions";
 import { copySessionWithTask } from "./task-session-copy";
-import { contextUpdateBoundary } from "./task-context-updates";
 import { existsSync, realpathSync, writeFileSync } from "fs";
 import { resolve } from "path";
 import { validateAgentImages } from "./image-attachments";
@@ -810,11 +809,8 @@ export class AgentSessionWrapper {
   async send(command: Record<string, unknown>): Promise<unknown> {
     const type = command.type as string;
     validateVideoCommand(command);
-    const contextUpdateSubmission = type === "prompt" ? contextUpdateBoundary() : null;
-    const contextUpdateWasIdle = this.isAlive() && !this.isRunning() && this.inner.pendingMessageCount === 0
-      && this.pendingUiResponses.size === 0 && this.activeCustomUis.size === 0;
-    if ((type === "steer" || type === "follow_up") && Object.hasOwn(command, "taskStart")) {
-      throw new Error("Task metadata requires prompt with streamingBehavior; native queue commands cannot admit a task.");
+    if (Object.hasOwn(command, "taskStart")) {
+      throw new Error("Task-start and shared context are suspended. Remove taskStart and use ordinary chat; manage task links separately. Nothing was sent.");
     }
     const allowedDuringReplacement = COMMANDS_ALLOWED_DURING_SESSION_REPLACEMENT.has(type);
     if (this.sessionReplacement && !allowedDuringReplacement) {
@@ -830,20 +826,13 @@ export class AgentSessionWrapper {
       this.titles.cancel();
     }
     if (type === "abort") this.titles.stopRun();
-    // Reserve in the ORIGINAL lifecycle before any await. Archive/link check this
-    // same pending count under the board lock; no second runtime state or run lock.
+    // Reserve in the original lifecycle before any await. Task management does
+    // not gate work; running hints still reflect all pending session commands.
     const admitsWork = ["prompt", "steer", "follow_up", "compact", "bash", "extension_ui_input"].includes(type);
     if (admitsWork) this.pendingPromptCount += 1;
 
     if (admitsWork && this.extensionUiAbortController.signal.aborted) this.extensionUiAbortController = new AbortController();
-    const workAdmissionSignal = this.extensionUiAbortController.signal;
     try {
-      if (admitsWork && !(type === "prompt" && command.taskStart !== undefined)) {
-        const { taskOperation } = await import("./task-operations");
-        await taskOperation({ action: "admit-session-work", sessionId: this.inner.sessionId,
-          ...(command.taskStart && typeof command.taskStart === "object" ? { taskId: (command.taskStart as { taskId?: unknown }).taskId } : {}) }, { agentDir: getAgentDir() });
-        if (workAdmissionSignal.aborted || !this.isAlive()) throw new Error("Work cancelled before admission. Nothing was sent.");
-      }
       // Status reconciliation must not postpone forced cleanup after Stop.
       if (type !== "get_state") this.resetIdleTimer();
       if (this.shouldWaitForExtensions(type)) await this.waitForExtensionsBound();
@@ -871,14 +860,6 @@ export class AgentSessionWrapper {
           }
           const promptImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
           const streamingBehavior = command.streamingBehavior as "steer" | "followUp" | undefined;
-          // Discount only this send's earliest archive reservation. Other pending
-          // admissions, queues and UI work still make this submission ineligible.
-          const contextUpdateEligible = contextUpdateWasIdle && this.pendingPromptCount === 1
-            && !this.inner.isStreaming && !this.inner.isCompacting && !this.inner.isBashRunning
-            && this.pendingUiResponses.size === 0 && this.activeCustomUis.size === 0 && this.inner.pendingMessageCount === 0 && !streamingBehavior
-            && typeof command.message === "string" && !command.message.trimStart().startsWith("/");
-          const contextUpdateSignal = this.extensionUiAbortController.signal;
-          let restoreContextUpdateObserver: (() => void) | undefined;
           let preflightAccepted = false;
           let preflightSettled = false;
           let promptSettled = false;
@@ -901,7 +882,6 @@ export class AgentSessionWrapper {
           const finishPrompt = () => {
             if (promptSettled) return;
             promptSettled = true;
-            restoreContextUpdateObserver?.();
             this.pendingPromptCount = Math.max(0, this.pendingPromptCount - 1);
             this.resetIdleTimer();
             this.notifyAgentRunCompleteIfIdle();
@@ -939,30 +919,6 @@ export class AgentSessionWrapper {
           }
           let prompt: Promise<void>;
           try {
-            if (command.taskStart !== undefined) {
-              const taskAdmissionSignal = this.extensionUiAbortController.signal;
-              const { taskOperation } = await import("./task-operations");
-              const { taskContextText } = await import("./task-start");
-              const { context } = await taskOperation({ action: "admit-start", id: (command.taskStart as { taskId?: string }).taskId,
-                selection: command.taskStart, realSessionId: this.inner.sessionId }, { agentDir: getAgentDir() }) as { context: import("./task-types").TaskSessionContext | null };
-              if (taskAdmissionSignal.aborted || !this.isAlive()) throw new Error("Task prompt cancelled before admission. Nothing was sent.");
-              if (context) {
-                // SDK-owned custom messages become ordinary user-role provider material.
-                // Persist once via the SDK; a failed prompt can retry without duplicate context.
-                const seen = this.inner.sessionManager.getEntries().some((entry: { type: string; customType?: string; details?: unknown }) => entry.type === "custom_message" && entry.customType === "pi-web:task-context"
-                  && (entry.details as { operationId?: string } | undefined)?.operationId === context.operationId);
-                if (!seen && (this.inner.isStreaming || this.inner.isCompacting)) throw new Error("First task context requires an idle session. Nothing was sent.");
-                if (!seen) await this.inner.sendCustomMessage({ customType: "pi-web:task-context", content: taskContextText(context.snapshot), display: true,
-                  details: { taskId: context.snapshot.taskId, versionId: context.snapshot.version?.id ?? null, source: context.snapshot.version?.source ?? null, operationId: context.operationId } }, { triggerTurn: false });
-              }
-              if (taskAdmissionSignal.aborted || !this.isAlive()) throw new Error("Task prompt cancelled before admission. Nothing was sent.");
-            }
-            if (contextUpdateEligible) {
-              const { prepareContextUpdateSend } = await import("./task-context-update-send");
-              restoreContextUpdateObserver = await prepareContextUpdateSend(this.inner, getAgentDir(), contextUpdateSignal,
-                () => this.isAlive() && this.pendingPromptCount === 2 && !this.inner.isStreaming && !this.inner.isCompacting && !this.inner.isBashRunning
-                  && this.pendingUiResponses.size === 0 && this.activeCustomUis.size === 0 && this.inner.pendingMessageCount === 0, contextUpdateSubmission!);
-            }
             prompt = this.videoTransport.prompt(command.message as string, {
               ...(promptImages?.length ? { images: promptImages } : {}),
               ...(streamingBehavior ? { streamingBehavior } : {}),

@@ -1,4 +1,6 @@
-# 人工共享重点：审核、不可变版本与确认恢复（06，resolved）
+# 人工共享重点：审核、不可变版本与确认恢复（06，历史功能）
+
+> **当前暂停**：见[任务 session 管理契约](task-session-management.md)。编辑/发布/历史/恢复入口已退出 UI，新发布和恢复操作拒绝；旧不可变版本及存储校验保留。下文是原行为与兼容背景，不是当前可用功能。
 
 当前01–14父验收resolved，统一[当前schema/CAS/迁移权威表](task-dashboard.md#当前存储cas与迁移权威表)为v7。06主集成、独立review与SSR恢复后接受；[历史附录](task-dashboard-validation-history.md#06-人工知识与ssr恢复)保留原失败/恢复/旧.next，不用green推定缓存唯一责任。关联：[看板](task-dashboard.md)、[06票据](../../.scratch/task-dashboard/issues/06-shared-context-versions.md)、[规格D8](../../.scratch/task-dashboard/spec.md)、[ADR0007](../adr/0007-persistent-task-board.md)、[术语](../../GLOSSARY.md)。最终综合/平台核验另报。
 

@@ -1,4 +1,8 @@
-# 解除或改绑对话（10，resolved）
+# 解除或改绑对话
+
+## 当前契约：管理归属而非执行准入
+
+见[任务 session 管理契约](task-session-management.md)。仍保留唯一 owner、同项目权威校验、generation、CAS/精确重试、旧 receipt 与历史；不再要求任务 active 或 session 空闲，归档目标可选。UI 不显示共享版本或“先恢复任务”提示，变更不修改 cwd/模型/工具/聊天历史。以下涉及共享功能新执行或 active/fullbusy 限制的部分仅为历史说明。
 
 2026-10-10 UI 检查：确认面板长名称/ID/路径可换行，目标 select 使用显式可访问名称；Escape 保护 `isComposing` 和 `keyCode=229`，取消后焦点留在任务浮层。关联列表在活动读取失败时显示未知，不把旧状态呈现为当前事实。合成响应下的改绑/解除/错误重试/取消已走浏览器流程，见 [UI记录](../testing/task-dashboard-ui.md)；不替代真实关系 CAS/权限验证。
 

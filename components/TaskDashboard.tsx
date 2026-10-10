@@ -11,9 +11,7 @@ import { TaskColumnSettings, taskColumnName } from "./TaskColumnSettings";
 import { DirectoryPicker } from "./DirectoryPicker";
 import { TaskDetails, type TaskEditDraft } from "./TaskDetails";
 import { TaskInspector } from "./TaskInspector";
-import type { TaskContextDraft } from "./TaskSharedContext";
 import { TaskRelation } from "./TaskRelation";
-import { TaskSummary } from "./TaskSummary";
 import { useI18n } from "@/hooks/useI18n";
 import { useTheme } from "@/hooks/useTheme";
 import { TASK_TEXT_LIMITS, type TaskBoard, type TaskColumnId, type TaskRecord, type TaskRequest, type TaskMovePosition, type TaskMutationResult, type TaskSessionsResult, type TaskSessionInfo, type TaskRelationRequest, type TaskSessionActivity, type TaskSort } from "@/lib/task-types";
@@ -22,7 +20,7 @@ import styles from "./TaskDashboard.module.css";
 async function requestTask(input: { action: "list" }): Promise<TaskBoard>;
 async function requestTask(input: Extract<TaskRequest, { action: "set-columns" | "remove-column" | "save-view" | "change-session-relation" }>): Promise<TaskBoard>;
 async function requestTask(input: { action: "sessions"; id: string }): Promise<TaskSessionsResult>;
-async function requestTask(input: Exclude<TaskRequest, { action: "list" | "set-columns" | "remove-column" | "save-view" | "change-session-relation" | "sessions" }>): Promise<TaskMutationResult>;
+async function requestTask(input: Extract<TaskRequest, { action: "create" | "createFromSession" | "edit" | "link" | "move" | "set-archive" }>): Promise<TaskMutationResult>;
 async function requestTask(input: TaskRequest): Promise<TaskBoard | TaskMutationResult | TaskSessionsResult> {
   const response = await fetch("/api/tasks", input.action === "list" ? { cache: "no-store" } : {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input),
@@ -49,10 +47,9 @@ const taskCollision: CollisionDetection = (args) => {
     ? hits.filter((hit) => String(hit.id).startsWith("task:")) : hits;
 };
 
-export function TaskDashboard({ active = true, onClose, currentSessionId = null }: { active?: boolean; onClose?: () => void; currentSessionId?: string | null }) {
+export function TaskDashboard({ active = true, onClose, currentSessionId = null, requestedTask }: { active?: boolean; onClose?: () => void; currentSessionId?: string | null; requestedTask?: { id: string; request: number } | null }) {
   const { t } = useI18n();
   const params = useSearchParams();
-  const [initialSummarySession] = useState(() => params.get("summarySession"));
   const [initialSourceSession] = useState(() => params.get("sourceSession"));
   useTheme();
   const [board, setBoard] = useState<TaskBoard | null>(null);
@@ -70,8 +67,8 @@ export function TaskDashboard({ active = true, onClose, currentSessionId = null 
   const feedbackRef = useRef<HTMLDivElement>(null);
   const chatActionsRef = useRef<HTMLDetailsElement>(null);
   useLayoutEffect(() => {
-    // A hidden generation may select a review, but must not capture the chat
-    // composer as a nested return-focus target. Parent open owns that focus.
+    // A late metadata response must not capture the chat composer as a nested
+    // return-focus target while hidden. Parent open owns that focus.
     if (selectedTaskId && activeRef.current) return focusModalPanel(document, inspector.current);
   }, [selectedTaskId]);
   useLayoutEffect(() => {
@@ -101,18 +98,8 @@ export function TaskDashboard({ active = true, onClose, currentSessionId = null 
     useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 5 } }));
   const [creating, setCreating] = useState(false);
   const [sourceSessionId, setSourceSessionId] = useState<string | null>(null);
-  const [summaryTaskId, setSummaryTaskId] = useState<string | null>(null);
-  const [summaryOrigin, setSummaryOrigin] = useState<string | null>(null);
-  const summaryQueryHandled = useRef(false);
-  useEffect(() => {
-    if (!board || summaryQueryHandled.current) return;
-    summaryQueryHandled.current = true;
-    const source = initialSummarySession;
-    if (!source) return;
-    const task = board.tasks.find((task) => task.sessionIds.includes(source));
-    if (task) { setSummaryTaskId(task.id); setSummaryOrigin(source); }
-    else setError(t("tasks.summary.notLinked"));
-  }, [board, t, initialSummarySession]);
+  const [linkTargetId, setLinkTargetId] = useState("");
+  const handledTaskRequest = useRef<number | null>(null);
   const [runningIds, setRunningIds] = useState<Set<string> | null>(null);
   const [activityError, setActivityError] = useState(false);
   const [sessionActivity, setSessionActivity] = useState<Record<string, TaskSessionActivity>>({});
@@ -146,7 +133,6 @@ export function TaskDashboard({ active = true, onClose, currentSessionId = null 
   }, [active]);
   const [configuringColumns, setConfiguringColumns] = useState(false);
   const [editDrafts, setEditDrafts] = useState<Record<string, TaskEditDraft>>({});
-  const [contextDrafts, setContextDrafts] = useState<Record<string, TaskContextDraft>>({});
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [completionCriteria, setCompletionCriteria] = useState("");
@@ -168,13 +154,21 @@ export function TaskDashboard({ active = true, onClose, currentSessionId = null 
         setBoard(next);
         // Reading authority does not confirm the outstanding move's exact receipt.
         setError((current) => retryMove || retryArchive ? current : null);
+        // Membership may have changed in another tab while this panel was hidden.
+        // Consume direct navigation only against the completed authoritative read.
+        if (activeRef.current && requestedTask && handledTaskRequest.current !== requestedTask.request) {
+          handledTaskRequest.current = requestedTask.request;
+          const target = next.tasks.find(task => task.id === requestedTask.id);
+          setSelectedTaskId(target?.id ?? null);
+          if (!target) setError(t("tasks.taskUnavailable"));
+        }
       }
     } catch (cause) {
       if (requestVersion.current === version) setError((cause as Error).message);
     } finally {
       if (requestVersion.current === version) setLoading(false);
     }
-  }, [retryMove, retryArchive]);
+  }, [retryMove, retryArchive, requestedTask, setSelectedTaskId, t]);
   useEffect(() => {
     if (!active) return;
     void reload();
@@ -186,6 +180,14 @@ export function TaskDashboard({ active = true, onClose, currentSessionId = null 
       window.removeEventListener("focus", refreshVisible);
     };
   }, [reload, active]);
+  const pendingNavigation = useRef(false);
+  useEffect(() => {
+    const finishedMutation = pendingNavigation.current && !pending;
+    pendingNavigation.current = pending;
+    // A direct open attempted during a mutation was deferred by reload's guard.
+    // Do not refresh ordinary mutation failures and erase their explanation.
+    if (finishedMutation && active && requestedTask && handledTaskRequest.current !== requestedTask.request) void reload();
+  }, [pending, active, requestedTask, reload]);
 
   function startMutation() {
     pendingRef.current = true;
@@ -194,7 +196,10 @@ export function TaskDashboard({ active = true, onClose, currentSessionId = null 
     setError(null);
     setNotice(""); setRetryMove(null); setRetryArchive(null);
   }
-  function finishMutation() { pendingRef.current = false; setPending(false); }
+  function finishMutation() {
+    pendingRef.current = false; setPending(false);
+    window.dispatchEvent(new Event("pi-web:tasks-changed"));
+  }
   function applyResult(result: TaskMutationResult) { setBoard(result.board); }
   async function createTask(event: FormEvent) {
     event.preventDefault();
@@ -286,15 +291,6 @@ export function TaskDashboard({ active = true, onClose, currentSessionId = null 
     } finally { finishMutation(); }
   }
 
-  async function publishTaskContext(request: Extract<TaskRequest, { action: "publish-context" | "restore-context" }>) {
-    if (pendingRef.current) throw new Error(t("tasks.saving"));
-    startMutation();
-    try {
-      applyResult(await requestTask(request));
-      setNotice(t("tasks.context.published"));
-    } finally { finishMutation(); }
-  }
-
   async function saveColumns(request: Extract<TaskRequest, { action: "set-columns" | "remove-column" }>) {
     if (pendingRef.current) throw new Error(t("tasks.saving"));
     startMutation();
@@ -321,9 +317,15 @@ export function TaskDashboard({ active = true, onClose, currentSessionId = null 
   }
 
   const selectedTask = board?.tasks.find(task => task.id === selectedTaskId);
-  function beginSummary(task: TaskRecord, origin: string | null) {
-    if (contextDrafts[task.id]) { setSelectedTaskId(task.id); setNotice(t("tasks.summary.draftExists")); return; }
-    setSelectedTaskId(null); setSummaryTaskId(task.id); setSummaryOrigin(origin);
+  const currentTask = board?.tasks.find(task => currentSessionId && task.sessionIds.includes(currentSessionId));
+  async function linkCurrentSession() {
+    const target = board?.tasks.find(task => task.id === linkTargetId);
+    if (!target || !currentSessionId) return;
+    try {
+      await editTask({ action: "link", id: target.id, expectedRevision: target.revision, sessionIds: [currentSessionId] });
+      setLinkTargetId(""); setSelectedTaskId(target.id);
+      if (chatActionsRef.current) chatActionsRef.current.open = false;
+    } catch (cause) { setError((cause as Error).message); }
   }
   const feedback = <>
     {error && <div ref={feedbackRef} role="alert" className={styles.error}>{error} <button type="button" disabled={disabled} onClick={() => void reload()}>{t("tasks.refresh")}</button>
@@ -357,12 +359,18 @@ export function TaskDashboard({ active = true, onClose, currentSessionId = null 
             event.preventDefault(); event.stopPropagation(); event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus();
           }
         }}><summary>{t("tasks.panel.currentChat")}</summary><div>
-          <button type="button" disabled={disabled} onClick={() => { if (chatActionsRef.current) chatActionsRef.current.open = false; setSourceSessionId(currentSessionId); setCreating(true); }}>{t("tasks.createFromChat")}</button>
-          <button type="button" disabled={disabled || !!summaryTaskId || !!relation} onClick={() => {
+          {currentTask ? <button type="button" disabled={disabled} onClick={() => {
             if (chatActionsRef.current) chatActionsRef.current.open = false;
-            const task = board?.tasks.find(task => task.sessionIds.includes(currentSessionId));
-            if (task) beginSummary(task, currentSessionId); else setError(t("tasks.summary.notLinked"));
-          }}>{t("tasks.summary.title")}</button>
+            setSelectedTaskId(currentTask.id);
+          }}>{t("tasks.sessionTask")}: {currentTask.title}</button> : <>
+            <button type="button" disabled={disabled} onClick={() => { if (chatActionsRef.current) chatActionsRef.current.open = false; setSourceSessionId(currentSessionId); setCreating(true); }}>{t("tasks.createFromChat")}</button>
+            <label>{t("tasks.linkToTask")}<select aria-label={t("tasks.linkToTask")} value={linkTargetId} disabled={disabled} onChange={event => setLinkTargetId(event.target.value)}>
+              <option value="">{t("tasks.chooseTask")}</option>
+              {board?.tasks.map(task => <option key={task.id} value={task.id}>{task.title}{task.archived ? ` · ${t("tasks.archive.archived")}` : ""}</option>)}
+            </select></label>
+            <p className={styles.hint}>{t("tasks.linkPolicy")}</p>
+            <button type="button" disabled={disabled || !linkTargetId} onClick={() => void linkCurrentSession()}>{t("tasks.linkToTask")}</button>
+          </>}
         </div></details>}
       </div>
       <div className={styles.content}>
@@ -376,13 +384,6 @@ export function TaskDashboard({ active = true, onClose, currentSessionId = null 
       {board && !projection.invalid && visibleTasks.length === 0 && <p role="status">{t("tasks.view.empty")}</p>}
       {board && sort !== "manual" && <p className={styles.hint}>{t("tasks.view.autoHelp")}</p>}
       {configuringColumns && board && <TaskColumnSettings board={board} disabled={disabled} newId={newTaskId} onSave={saveColumns} onCancel={() => setConfiguringColumns(false)} />}
-      {summaryTaskId && board?.tasks.find((task) => task.id === summaryTaskId) && <TaskSummary key={`${summaryTaskId}:${summaryOrigin}`}
-        task={board.tasks.find((task) => task.id === summaryTaskId)!} originSessionId={summaryOrigin} newId={newTaskId}
-        onClose={() => { setSummaryTaskId(null); setSummaryOrigin(null); }}
-        onDraft={(draft) => {
-          setContextDrafts(current => current[summaryTaskId] ? current : { ...current, [summaryTaskId]: draft });
-          setSelectedTaskId(summaryTaskId);
-        }} />}
       {relation && board && <TaskRelation source={relation.source} session={relation.session} tasks={board.tasks} disabled={disabled}
         newOperationId={newTaskId} onSave={changeRelation} onCancel={() => setRelation(null)} />}
       {creating && <form onSubmit={createTask} className={styles.form}>
@@ -423,7 +424,7 @@ export function TaskDashboard({ active = true, onClose, currentSessionId = null 
               <p className={styles.cardProject} title={task.project?.projectRoot}>{task.project?.projectRoot.split(/[\\/]/).filter(Boolean).at(-1) ?? t("tasks.noProject")}</p>
               <div className={styles.cardMeta}>
                 <span data-priority={task.priority}>{t(`tasks.priority.${task.priority}`)}</span>
-                <span data-task-activity data-working={taskActivity(task, runningIds, activityError) === "working" || undefined}>{taskActivity(task, runningIds, activityError) === "working" ? t("tasks.aiWorking") : `${t("tasks.sessions")} ${task.sessionIds.length}`}{taskActivity(task, runningIds, activityError) === "unknown" ? " · ?" : ""}</span>
+                <span data-task-activity data-working={taskActivity(task, runningIds, activityError) === "working" || undefined}>{`${t("tasks.sessions")} ${task.sessionIds.length}`}{taskActivity(task, runningIds, activityError) === "working" ? ` · ${t("tasks.aiWorking")} ${task.sessionIds.filter(id => runningIds?.has(id)).length}` : ""}{taskActivity(task, runningIds, activityError) === "unknown" ? " · ?" : ""}</span>
               </div>
               {task.archived && <span className={styles.archiveBadge}>{t("tasks.archive.archived")}</span>}
               {task.labels.length > 0 && <ul className={styles.cardLabels}>{task.labels.slice(0, 2).map(label => <li key={label}>{label}</li>)}{task.labels.length > 2 && <li>+{task.labels.length - 2}</li>}</ul>}
@@ -440,14 +441,10 @@ export function TaskDashboard({ active = true, onClose, currentSessionId = null 
         return <TaskInspector hidden={id !== selectedTaskId} key={selectedTask.id} task={selectedTask} board={board} visibleTasks={visibleTasks} sort={sort} disabled={disabled} panelRef={id === selectedTaskId ? inspector : undefined}
         onClose={() => { setSelectedTaskId(null); dashboard.current?.focus({ preventScroll: true }); }} onMove={moveTask} feedback={id === selectedTaskId ? feedback : null}
         onArchive={() => void submitArchive({ action: "set-archive", id: selectedTask.id, archived: !selectedTask.archived, expectedArchiveRevision: selectedTask.archiveRevision, operationId: newTaskId() })}>
-        <TaskDetails task={selectedTask} disabled={disabled || !!summaryTaskId || !!relation}
+        <TaskDetails task={selectedTask} active={active && id === selectedTaskId} currentSessionId={currentSessionId} disabled={disabled || !!relation}
           onChangeRelation={session => { setSelectedTaskId(null); setRelation({ source: selectedTask, session }); }}
-          onSummarize={() => beginSummary(selectedTask, null)} onLink={editTask} runningIds={activityError ? null : runningIds} sessionActivity={sessionActivity}
+          onLink={editTask} runningIds={activityError ? null : runningIds} sessionActivity={sessionActivity}
           editDraft={editDrafts[selectedTask.id] ?? null} onSave={editTask}
-          contextDraft={contextDrafts[selectedTask.id] ?? null} onPublishContext={publishTaskContext} newOperationId={newTaskId}
-          onContextDraftChange={draft => setContextDrafts(current => {
-            const next = { ...current }; if (draft) next[selectedTask.id] = draft; else delete next[selectedTask.id]; return next;
-          })}
           onDraftChange={draft => setEditDrafts(current => {
             const next = { ...current }; if (draft) next[selectedTask.id] = draft; else delete next[selectedTask.id]; return next;
           })} />

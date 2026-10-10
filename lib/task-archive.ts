@@ -18,20 +18,16 @@ export function assertTaskActive(task: StoredTaskRecord): void {
 export async function assertTaskSessionsIdle(agentDir: string, ids: readonly string[]): Promise<void> {
   const { getTaskSessionActivity } = await import("./rpc-manager");
   const busy = getTaskSessionActivity(agentDir, ids).filter(s => s.running || s.waitingForInput || s.compacting || s.bashRunning || s.queued);
-  if (busy.length) throw new TaskOperationError("conflict", `Associated conversation is busy (${busy.map(s => `${s.id}: ${s.waitingForInput ? "waiting for input" : s.compacting ? "compacting" : s.bashRunning ? "shell running" : s.queued ? "queued work" : "running or awaiting admission"}`).join(", ")}). Wait for all work to finish or explicitly Stop it in chat, then retry. Archive does not stop work.`);
+  if (busy.length) throw new TaskOperationError("conflict", `Associated conversation is busy (${busy.map(s => `${s.id}: ${s.waitingForInput ? "waiting for input" : s.compacting ? "compacting" : s.bashRunning ? "shell running" : s.queued ? "queued work" : "running or awaiting admission"}`).join(", ")}). Wait for all work to finish or explicitly Stop it in chat, then retry. Changing task links does not stop work.`);
 }
-export async function setTaskArchive(task: StoredTaskRecord, request: ArchiveRequest, agentDir: string): Promise<boolean> {
+export async function setTaskArchive(task: StoredTaskRecord, request: ArchiveRequest): Promise<boolean> {
   const fingerprint = createHash("sha256").update(JSON.stringify([request.id, request.archived, request.expectedArchiveRevision])).digest("hex");
   if (task.archiveReceipt?.operationId === request.operationId) {
     if (task.archiveReceipt.fingerprint !== fingerprint) throw new TaskOperationError("conflict", "This archive operation ID was used for another request.");
     return false;
   }
   if (task.archiveRevision !== request.expectedArchiveRevision) throw new TaskOperationError("conflict", "Archive state changed in another page. Refresh and explicitly choose archive or restore again; no changes were saved.");
-  if (request.archived) {
-    const { hasActiveTaskSummary } = await import("./task-summary");
-    if (hasActiveTaskSummary(agentDir, task.id)) throw new TaskOperationError("conflict", "A task summary is still working. Wait for it to finish or explicitly cancel; archive does not cancel generation.");
-    await assertTaskSessionsIdle(agentDir, task.sessionIds);
-  }
+  // Visibility only: archiving never waits for, stops, or restricts session work.
   if (task.archived !== request.archived) {
     if (task.archiveRevision === Number.MAX_SAFE_INTEGER) throw new TaskOperationError("storage-unavailable", "Archive revision limit reached; no changes were saved.");
     task.archived = request.archived;

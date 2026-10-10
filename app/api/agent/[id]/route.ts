@@ -2,8 +2,6 @@ import { NextResponse } from "next/server";
 import { resolveSessionPath } from "@/lib/session-reader";
 import { startRpcSession, getRpcSession, setRpcSessionTools } from "@/lib/rpc-manager";
 import { validateVideoCommand } from "@/lib/video-attachments";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { taskOperation } from "@/lib/task-operations";
 import { SessionCopyError } from "@/lib/task-session-copy";
 
 // POST /api/agent/[id] - Send a command to an existing session
@@ -18,6 +16,9 @@ export async function POST(
   try {
     const body = await req.json() as { type: string; [key: string]: unknown };
     commandType = typeof body.type === "string" ? body.type : undefined;
+    if (Object.hasOwn(body, "taskStart")) {
+      throw new Error("Task-start and shared context are suspended. Remove taskStart and use ordinary chat; manage task links separately. Nothing was sent.");
+    }
     validateVideoCommand(body);
     const requestedToolNames = body.toolNames;
     if (
@@ -57,11 +58,6 @@ export async function POST(
       }, { status: 404 });
     }
 
-    // Refuse archived sleeping chats before loading resources/extensions, then
-    // recheck inside the wrapper's reserved admission to close the start race.
-    if (["prompt", "steer", "follow_up", "compact", "bash", "extension_ui_input"].includes(body.type)) {
-      await taskOperation({ action: "admit-session-work", sessionId: id }, { agentDir: getAgentDir() });
-    }
     const { session } = await startRpcSession(id, filePath, undefined, {
       ...(toolNames !== undefined ? { toolNames } : {}),
     });

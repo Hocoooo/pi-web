@@ -1,4 +1,6 @@
-# 已有对话显式接收共享更新（09，resolved）
+# 已有对话显式接收共享更新（09，历史功能）
+
+> **当前暂停**：见[任务 session 管理契约](task-session-management.md)。聊天不挂载版本/更新 UI 或其轮询，不接受新选择，不投递旧 pending，也不安装发送观察器。存储历史与原生 JSONL 保留；下文是原执行契约与兼容背景。
 
 当前01–14全部父验收resolved；统一[当前schema/CAS/迁移权威表](task-dashboard.md#当前存储cas与迁移权威表)为v7。09原v6组合、R1/R2/R3恢复与失败日志见[历史附录](task-dashboard-validation-history.md#09-r1--r2--r3依次关闭证据不能互代)，原报告claimed保留当时语义。最终综合/真实平台验证另报。
 关联：[08启动](task-start-chat.md)、[06版本](task-shared-context.md)、[11复制](task-session-copy.md)、[10关系](task-session-relation.md)、[归档](task-archive.md)、[删列](task-column-removal.md)、[会话](../agents/sessions.md)、[权限](../agents/tools.md)、[09票据](../../.scratch/task-dashboard/issues/09-accept-context-updates.md)。

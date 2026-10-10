@@ -38,3 +38,20 @@ test("API source creates, metadata, atomic link/no-op/conflict/deletion and fiel
   const missing = await (await post({ action: "sessions", id: create.id })).json(); assert.equal(missing.linked[1].missing, true);
   assert.equal((await post({ action: "sessions", id: randomUUID() })).status, 404);
 });
+test("session-task is minimal read-only ownership metadata, including archived/missing native sessions", async () => {
+  const board = await (await GET()).json(), task = board.tasks[0];
+  assert.equal((await post({ action: "set-archive", id: task.id, archived: true, expectedArchiveRevision: task.archiveRevision, operationId: randomUUID() })).status, 200);
+  const file = join(agentDir, "tasks/board.json"), before = await readFile(file);
+  // The extra session file was removed above. Lookup is deliberately board-only.
+  for (const sessionId of [source.getSessionId(), extra.getSessionId()]) {
+    const response = await post({ action: "session-task", sessionId });
+    assert.equal(response.status, 200); assert.equal(response.headers.get("cache-control"), "no-store");
+    assert.deepEqual(await response.json(), { task: { id: task.id, title: task.title, archived: true } });
+  }
+  assert.deepEqual(await (await post({ action: "session-task", sessionId: "unowned-native-id" })).json(), { task: null });
+  for (const sessionId of [null, "", "../escape", "/absolute", "a".repeat(201)]) {
+    assert.equal((await post({ action: "session-task", sessionId })).status, 400);
+  }
+  assert.equal((await post({ action: "session-task", sessionId: source.getSessionId(), includeContext: true })).status, 400);
+  assert.deepEqual(await readFile(file), before);
+});

@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import { assertTaskActive, assertTaskSessionsIdle } from "./task-archive";
 import { clearContextUpdate, updateState } from "./task-context-updates";
 import { sameTaskSessionProject, taskSessionCatalogue } from "./task-sessions";
 import { TASK_ID_PATTERN, isTaskSessionId, TaskOperationError, type TaskRelationRequest } from "./task-types";
@@ -59,15 +58,10 @@ export async function changeSessionRelation(document: RelationDocument, request:
   const target = request.targetTaskId === null ? undefined : document.tasks.find(t => t.id === request.targetTaskId);
   if (!source || source.id !== request.sourceTaskId) throw new TaskOperationError("conflict", "Source relationship changed. Nothing was reassigned.");
   if (request.targetTaskId !== null && !target) throw new TaskOperationError("not-found", "Target task no longer exists.");
-  // Moving out of an archived owner cannot silently re-enable old chat work.
-  assertTaskActive(source);
-  if (target) assertTaskActive(target);
-  await assertTaskSessionsIdle(agentDir, [request.sessionId]);
+  // Ownership is metadata only: neither archive nor runtime activity gates it.
   const session = (await taskSessionCatalogue(agentDir)).find(s => s.id === request.sessionId);
   if (!session) throw new TaskOperationError("not-found", "Session no longer exists.");
   if (!sameTaskSessionProject(source.project, session) || target && !sameTaskSessionProject(target.project, session)) throw new TaskOperationError("invalid-input", "Source, target and session must have the same authoritative project scope.");
-  // Recheck after async authority reads; a concurrent work reservation must not slip through.
-  await assertTaskSessionsIdle(agentDir, [request.sessionId]);
   if ([source, ...(target ? [target] : [])].some(t => t.revision === Number.MAX_SAFE_INTEGER) || request.expectedGeneration === Number.MAX_SAFE_INTEGER) throw new TaskOperationError("storage-unavailable", "Revision limit reached; nothing was changed.");
   clearContextUpdate(source, request.sessionId, request.expectedUpdateRevision);
   if (target) clearContextUpdate(target, request.sessionId, updateState(target, request.sessionId).revision);

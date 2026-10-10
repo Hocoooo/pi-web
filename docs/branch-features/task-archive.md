@@ -1,4 +1,8 @@
-# 任务归档与恢复（12，主已语义集成并父验收resolved）
+# 任务归档与恢复
+
+## 当前契约：仅管理显示
+
+见[任务 session 管理契约](task-session-management.md)。归档/恢复保留独立 CAS、receipt、可发现列表与原资料/关系/历史；不要求关联 session 空闲，不阻止普通发送或复制，不自动 Stop/恢复/完成。归档任务仍可管理关联关系。以下 12 阶段的 active/fullbusy 发送、复制和关系守卫描述已被替代，只作历史记录。
 
 当前01–14全部父验收resolved，统一[当前schema/CAS/迁移权威表](task-dashboard.md#当前存储cas与迁移权威表)为v7。主12 `/tmp/m12-39pOIJ/REPORT.md` 与父独立archive/browser证据分层；[历史附录](task-dashboard-validation-history.md#12-原准入归档与09组合)保留原超时无exit/源dual-root/当时v5，不把旧未合09/10/14当当前事实。最终综合/平台核验另报。
 [12票据](../../.scratch/task-dashboard/issues/12-archive-and-restore.md)、[规格D6](../../.scratch/task-dashboard/spec.md)、

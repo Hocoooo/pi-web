@@ -176,6 +176,7 @@ export type TaskRequest =
   | { action: "prepare-session-copy"; operationId: string; sourceSessionId: string; fingerprint: string }
   | { action: "complete-session-copy"; operationId: string; sourceSessionId: string; fingerprint: string; newSessionId: string | null }
   | { action: "save-view"; id: string; operationId: string; expectedViewsRevision: number; name: string; filter: TaskFilter; sort: TaskSort }
+  | { action: "session-task"; sessionId: string }
   | { action: "sessions"; id: string }
   | { action: "link"; id: string; expectedRevision: number; sessionIds: string[] }
   | { action: "createFromSession"; id: string; title: string; description: string; completionCriteria: string; sourceSessionId: string }
@@ -203,6 +204,8 @@ export interface TaskSessionInfo {
   queued?: boolean;
 }
 export interface TaskSessionsResult { linked: TaskSessionInfo[]; candidates: TaskSessionInfo[] }
+/** Lightweight ownership metadata; deliberately excludes legacy context and native history. */
+export interface TaskSessionTaskResult { task: { id: string; title: string; archived: boolean } | null }
 export const TASK_SESSION_BATCH_LIMIT = 100;
 // Reuse native session ID syntax (SDK permits explicit non-UUID IDs), never a path.
 export function isTaskSessionId(value: unknown): value is string {

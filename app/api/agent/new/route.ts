@@ -4,11 +4,6 @@ import { existsSync } from "fs";
 import { randomUUID } from "crypto";
 import { allowFileRoot } from "@/lib/file-access";
 import { invalidateSessionListCache } from "@/lib/session-reader";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { parseStartRequest, taskStartCwd } from "@/lib/task-start";
-import { assertTaskActive } from "@/lib/task-archive";
-import { withTaskStore } from "@/lib/task-store";
-import { resolveSessionPath } from "@/lib/session-reader";
 import { startRpcSession } from "@/lib/rpc-manager";
 import { validateVideoCommand } from "@/lib/video-attachments";
 
@@ -30,27 +25,14 @@ export async function POST(req: Request) {
   let promptAccepted = false;
   try {
     const body = await req.json() as { cwd?: string; [key: string]: unknown };
-    const { cwd: requestedCwd, taskStart, ...command } = body;
+    const { cwd, ...command } = body;
     commandType = typeof command.type === "string" ? command.type : undefined;
+    if (Object.hasOwn(body, "taskStart")) {
+      throw new Error("Task-start and shared context are suspended. Remove taskStart and use ordinary chat; manage task links separately. Nothing was sent.");
+    }
     validateVideoCommand(command);
     if (Object.hasOwn(command, "video") && command.type !== "prompt") {
       throw new Error("A new session accepts video only with a question prompt, not a standalone queue command. Nothing was sent.");
-    }
-
-    let cwd = requestedCwd;
-    let taskSessionId: string | undefined;
-    if (taskStart !== undefined) {
-      const parsed = parseStartRequest({ action: "admit-start", id: (taskStart as { taskId?: string })?.taskId, selection: taskStart,
-        realSessionId: (taskStart as { operationId?: string })?.operationId });
-      if (parsed.action !== "admit-start" || parsed.selection.mode !== "new") throw new Error("New task session selection required.");
-      taskSessionId = parsed.selection.operationId;
-      cwd = await withTaskStore(getAgentDir(), async document => {
-        const task = document.tasks.find(t => t.id === parsed.id);
-        if (!task) throw new Error("Task not found");
-        assertTaskActive(task);
-        return { value: await taskStartCwd(task, getAgentDir()), changed: false };
-      });
-      if (requestedCwd !== cwd) throw new Error("Task directory changed. Preview again.");
     }
     if (!cwd || typeof cwd !== "string") {
       return NextResponse.json({
@@ -82,10 +64,8 @@ export async function POST(req: Request) {
     // Must be unique per request: startRpcSession coalesces concurrent callers
     // that share a key onto one session. Date.now() (ms resolution) collides for
     // requests in the same millisecond, merging two new sessions into one.
-    const tempKey = taskSessionId ?? `__new__${randomUUID()}`;
-    const persistedFile = taskSessionId ? await resolveSessionPath(taskSessionId) : null;
-    const { session, realSessionId } = await startRpcSession(tempKey, persistedFile ?? "", cwd, {
-      ...(taskSessionId ? { newSessionId: taskSessionId } : {}),
+    const tempKey = `__new__${randomUUID()}`;
+    const { session, realSessionId } = await startRpcSession(tempKey, "", cwd, {
       headless,
       ...(toolNames ? { toolNames } : {}),
       ...(provider && modelId ? { initialModel: { provider, modelId } } : {}),
@@ -117,7 +97,7 @@ export async function POST(req: Request) {
       });
     }
 
-    const result = await session.send({ ...promptCommand, ...(taskStart !== undefined ? { taskStart } : {}) });
+    const result = await session.send(promptCommand);
     promptAccepted = promptCommand.type === "prompt";
 
     return NextResponse.json({

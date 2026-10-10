@@ -16,7 +16,7 @@ export function TaskRelation({ source, session, tasks, disabled, newOperationId,
   const request = useRef<TaskRelationRequest | null>(null);
   const select = useRef<HTMLSelectElement>(null);
   useEffect(() => { select.current?.focus(); }, []);
-  const targets = tasks.filter(task => task.id !== source.id && !task.archived && (task.project?.projectKey ?? null) === (source.project?.projectKey ?? null));
+  const targets = tasks.filter(task => task.id !== source.id && (task.project?.projectKey ?? null) === (source.project?.projectKey ?? null));
   const target = targets.find(task => task.id === targetId);
   async function save() {
     request.current ??= { action: "change-session-relation", sessionId: session.id, sourceTaskId: source.id,
@@ -37,9 +37,7 @@ export function TaskRelation({ source, session, tasks, disabled, newOperationId,
       </select>
     </label>
     <p>{t("tasks.relation.target")}: {target ? `${target.title} — ${target.id}` : t("tasks.relation.unlink")}</p>
-    {target && <p>{t("tasks.relation.version")}: {target.sharedContext.currentVersionId ?? t("tasks.context.empty")}</p>}
     <p>{t("tasks.relation.warning")}</p>
-    <p>{t("tasks.relation.idle")}</p>
     {error && <p role="alert" className={styles.error}>{error}</p>}
     <div className={styles.actions}>
       <button type="button" disabled={disabled || !!targetId && !target} onClick={() => void save()}>{t(error ? "tasks.relation.retry" : "tasks.relation.confirm")}</button>

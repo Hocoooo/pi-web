@@ -96,7 +96,7 @@ test("actual departure cleanup parks only for /tasks, never during mount or ordi
   assert.equal(parked, 1, "dashboard departure parks before passive draft cleanup");
 });
 
-test("task panel navigation selects the live shell and preserves prepared tokens without sending", async () => {
+test("task panel navigation only opens existing sessions and rejects suspended preparation without sending", async () => {
   const calls = [];
   const context = vm.createContext({
     URL, window: { location: { origin: "http://localhost" } },
@@ -112,15 +112,16 @@ test("task panel navigation selects the live shell and preserves prepared tokens
     parkedNewSessionDraftKey: cwd => `parked:${cwd}`,
   });
   vm.runInContext(stripTypeScriptTypes(`${callbackBody("navigateTaskChat", "handleNewChat")} globalThis.navigate = navigateTaskChat;`), context);
-  await context.navigate("/?session=linked&taskStart=prepared");
+  await context.navigate("/?session=linked");
   assert.equal(calls[0][0], "select");
   assert.equal(calls[0][1].id, "linked");
-  assert.equal(calls[0].at(-1), "prepared");
+  assert.equal(calls[0].length, 2, "navigation supplies no task execution metadata");
   assert.deepEqual(calls[1], ["close"]);
   calls.length = 0;
-  await context.navigate("/?cwd=%2Fchat&taskStart=new-preview");
-  assert.deepEqual(calls, [["park", "draft", "new:new-preview:/chat"], ["new", "new-preview", "/chat", false, true, "new-preview"], ["close"]]);
-  calls.length = 0;
+  for (const href of ["/?cwd=%2Fchat&taskStart=new-preview", "/?session=linked&taskStart=prepared", "/?session=linked&taskStart=", "/?cwd=%2Fchat"]) {
+    await assert.rejects(context.navigate(href), /only opens existing conversations/);
+    assert.deepEqual(calls, [], "old preparation does not create, select, park drafts or close panel");
+  }
   context.fetch = async () => ({ ok: false, json: async () => ({ error: "Missing session" }) });
   await assert.rejects(context.navigate("/?session=missing"), /Missing session/);
   assert.deepEqual(calls, [], "failure keeps panel and current chat intact");

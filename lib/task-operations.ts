@@ -1,8 +1,8 @@
 import { relationGeneration, assertRelationGeneration, associateRelation, parseRelationRequest, changeSessionRelation } from "./task-relations";
-import { assertTaskActive, assertTaskSessionsIdle, parseArchiveRequest, setTaskArchive } from "./task-archive";
+import { assertTaskActive, parseArchiveRequest, setTaskArchive } from "./task-archive";
 import { parseStartRequest, prepareTaskStart, admitTaskStart } from "./task-start";
 import { parseContextUpdateRequest, validateUpdateSession, updateState, selectContextUpdate, clearContextUpdate, completeContextUpdate, updateMaterial, readContextUpdateState } from "./task-context-updates";
-import type { TaskContextUpdateState, TaskUpdateChoice, TaskStartSnapshot } from "./task-types";
+import type { TaskContextUpdateState, TaskUpdateChoice, TaskStartSnapshot, TaskSessionTaskResult } from "./task-types";
 export type PendingContextUpdate = { taskId: string; relationGeneration: number; choice: TaskUpdateChoice; snapshot: TaskStartSnapshot } | null;
 import type { TaskStartPreview, TaskSessionContext } from "./task-types";
 import { createHash } from "node:crypto";
@@ -10,7 +10,7 @@ import type { SessionCopyReceipt } from "./task-session-copy";
 type CopyOperationResult = { receipt: SessionCopyReceipt; fresh: boolean };
 import { parseSaveView, publicTaskView, saveTaskView } from "./task-saved-views";
 import { parseContextRequest, publishContext } from "./task-context";
-import { parseSummaryRequest, summaryOperation, generatedSummarySource, type SummaryDependencies } from "./task-summary";
+import { generatedSummarySource, type SummaryDependencies } from "./task-summary";
 import type { TaskSummaryResponse } from "./task-summary-types";
 import { normalizeCwd, validatedCwd } from "./validated-cwd";
 import { resolveProjectAuthoritatively } from "./worktree";
@@ -31,6 +31,10 @@ function parseRequest(input: unknown, sessionCopy = false): TaskRequest {
       || typeof value.fingerprint !== "string" || !/^[a-f0-9]{64}$/.test(value.fingerprint)
       || value.action === "complete-session-copy" && value.newSessionId !== null && !isTaskSessionId(value.newSessionId)) return invalid("Invalid internal session copy request.");
     return value as Extract<TaskRequest, { action: "prepare-session-copy" | "complete-session-copy" }>;
+  }
+  if (value.action === "session-task") {
+    if (Object.keys(value).some(key => !["action", "sessionId"].includes(key)) || !isTaskSessionId(value.sessionId)) return invalid("A valid session ID is required.");
+    return { action: "session-task", sessionId: value.sessionId };
   }
   if (value.action === "change-session-relation") return parseRelationRequest(value);
   if (value.action === "remove-column") {
@@ -131,13 +135,19 @@ async function selectedProject(cwd: string | null, agentDir: string): Promise<Ta
   return { cwd: normalized, projectRoot: project.projectRoot, projectKey: projectIdentityKey(project.projectRoot) };
 }
 
-/** Single task boundary. Summary inference is independent and never prompts a source session. */
-export async function taskOperation(input: unknown, options: { agentDir: string; signal?: AbortSignal; summaryDeps?: SummaryDependencies; sessionCopy?: boolean }): Promise<TaskBoard | TaskMutationResult | TaskSessionsResult | TaskSummaryResponse | CopyOperationResult | TaskStartPreview | TaskContextUpdateState | PendingContextUpdate | { context: TaskSessionContext | null }> {
-  if (typeof input === "object" && input !== null && "action" in input && typeof input.action === "string" && input.action.startsWith("summary-")) {
-    return summaryOperation(parseSummaryRequest(input as Record<string, unknown>), options);
+/** Single task boundary. Legacy context data remains readable, but new context work is suspended. */
+export async function taskOperation(input: unknown, options: { agentDir: string; signal?: AbortSignal; summaryDeps?: SummaryDependencies; sessionCopy?: boolean }): Promise<TaskBoard | TaskMutationResult | TaskSessionsResult | TaskSessionTaskResult | TaskSummaryResponse | CopyOperationResult | TaskStartPreview | TaskContextUpdateState | PendingContextUpdate | { context: TaskSessionContext | null }> {
+  // Refuse before opening (or migrating) storage, loading histories or invoking providers.
+  if (typeof input === "object" && input !== null && "action" in input && typeof input.action === "string"
+    && (input.action.startsWith("summary-") || ["publish-context", "restore-context", "prepare-start", "admit-start",
+      "context-update-state", "accept-context-update", "clear-context-update", "pending-context-update", "complete-context-update"].includes(input.action))) {
+    throw new TaskOperationError("invalid-input", "Task shared context and task-start are suspended. Use ordinary chat and manage task links separately. Nothing was changed or sent.");
   }
   const request = parseRequest(input, options.sessionCopy);
-  return withTaskStore<TaskBoard | TaskMutationResult | TaskSessionsResult | CopyOperationResult | TaskStartPreview | TaskContextUpdateState | PendingContextUpdate | { context: TaskSessionContext | null }>(options.agentDir, async (document) => {
+  // Compatibility for older in-process callers: task visibility never gates session work.
+  // In particular, ordinary chat must not depend on task-store availability or migration.
+  if (request.action === "admit-session-work") return { context: null };
+  return withTaskStore<TaskBoard | TaskMutationResult | TaskSessionsResult | TaskSessionTaskResult | CopyOperationResult | TaskStartPreview | TaskContextUpdateState | PendingContextUpdate | { context: TaskSessionContext | null }>(options.agentDir, async (document) => {
     const board = (): TaskBoard => ({ columnRemovalDigests: Object.fromEntries(document.columns.map(column => [column.id, taskColumnRemovalDigest(document.tasks, column.id)])), viewsRevision: document.viewsRevision, savedViews: document.savedViews.map(publicTaskView), orderRevision: document.orderRevision, columnsRevision: document.columnsRevision,
       columns: document.columns.map((column) => ({ ...column, isCompletion: isCompletionColumn(column.id) })), tasks: document.tasks.map(publicTask) });
     const result = (task: StoredTaskRecord, changed: boolean) => ({ value: { task: publicTask(task), board: board() }, changed });
@@ -145,19 +155,13 @@ export async function taskOperation(input: unknown, options: { agentDir: string;
       if (document.orderRevision === Number.MAX_SAFE_INTEGER) throw new TaskOperationError("storage-unavailable", "Task order revision limit reached; no changes were saved.");
       document.orderRevision++;
     };
+    if (request.action === "session-task") {
+      const owner = document.tasks.find(task => task.sessionIds.includes(request.sessionId));
+      return { value: { task: owner ? { id: owner.id, title: owner.title, archived: owner.archived } : null }, changed: false };
+    }
     if (request.action === "change-session-relation") {
       const changed = await changeSessionRelation(document, request, options.agentDir);
       return { value: board(), changed };
-    }
-    if (request.action === "admit-session-work") {
-      const owner = document.tasks.find(task => task.sessionIds.includes(request.sessionId));
-      if (owner) assertTaskActive(owner);
-      if (request.taskId) {
-        const target = document.tasks.find(task => task.id === request.taskId);
-        if (!target) throw new TaskOperationError("not-found", "Task not found. Nothing was sent.");
-        assertTaskActive(target);
-      }
-      return { value: { context: null }, changed: false };
     }
     if (request.action === "prepare-session-copy" || request.action === "complete-session-copy") {
       const receipt = document.sessionCopies.find((r) => r.operationId === request.operationId);
@@ -191,7 +195,6 @@ export async function taskOperation(input: unknown, options: { agentDir: string;
           if (!source || !child) throw new TaskOperationError("not-found", "Source or copied session no longer exists. No relationship was inherited.");
           if (!sameTaskSessionProject(owner.project, source) || !sameTaskSessionProject(owner.project, child)) return invalid("Copied session is outside the task's current project scope. No relationship was inherited.");
           if (owner.revision === Number.MAX_SAFE_INTEGER) throw new TaskOperationError("storage-unavailable", "Task revision limit reached; no relationship was inherited.");
-          if (owner.archived) await assertTaskSessionsIdle(options.agentDir, [child.id]);
           associateRelation(document, child.id);
           owner.sessionIds.push(child.id);
           owner.revision++;
@@ -312,7 +315,7 @@ export async function taskOperation(input: unknown, options: { agentDir: string;
         : completeContextUpdate(existing, request.sessionId, request.delivery);
       return result(existing, changed);
     }
-    if (request.action === "set-archive") return result(existing, await setTaskArchive(existing, request, options.agentDir));
+    if (request.action === "set-archive") return result(existing, await setTaskArchive(existing, request));
     if (request.action === "prepare-start") { assertTaskActive(existing); return { value: await prepareTaskStart(existing, request.operationId, request.sessionId, options.agentDir, relationGeneration(document, request.sessionId ?? request.operationId)), changed: false }; }
     if (request.action === "admit-start") {
       assertTaskActive(existing);
@@ -339,7 +342,6 @@ export async function taskOperation(input: unknown, options: { agentDir: string;
       if (additions.length === 0) return result(existing, false);
       if (existing.revision !== request.expectedRevision) throw new TaskOperationError("conflict", "This task changed. Refresh before linking; no sessions were linked.");
       if (existing.revision === Number.MAX_SAFE_INTEGER) throw new TaskOperationError("storage-unavailable", "Task revision limit reached; no changes were saved.");
-      if (existing.archived) await assertTaskSessionsIdle(options.agentDir, request.sessionIds);
       for (const sessionId of additions) associateRelation(document, sessionId);
       existing.sessionIds.push(...additions);
       existing.revision++;

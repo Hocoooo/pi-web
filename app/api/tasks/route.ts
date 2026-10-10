@@ -9,10 +9,10 @@ const headers = { "Cache-Control": "no-store" };
 const MAX_REQUEST_BYTES = 256 * 1024;
 // Public actions only. Internal admission/delivery/copy actions must never be
 // reachable by posting a plausible receipt; parsers still reject extra fields.
-const PUBLIC_ACTIONS = new Set(["list", "create", "createFromSession", "edit", "move", "set-columns", "remove-column", "sessions", "link", "change-session-relation",
-  "save-view", "set-archive", "publish-context", "restore-context", "prepare-start",
-  "summary-options", "summary-source", "summary-generate", "summary-cancel",
-  "context-update-state", "accept-context-update", "clear-context-update"]);
+const PUBLIC_ACTIONS = new Set(["list", "create", "createFromSession", "edit", "move", "set-columns", "remove-column", "sessions", "session-task", "link", "change-session-relation",
+  "save-view", "set-archive"]);
+const SUSPENDED_ACTIONS = new Set(["publish-context", "restore-context", "prepare-start", "admit-start",
+  "context-update-state", "accept-context-update", "clear-context-update", "pending-context-update", "complete-context-update"]);
 function failure(error: unknown) {
   if (error instanceof TaskOperationError) {
     const status = error.code === "invalid-input" ? 400 : error.code === "not-found" ? 404 : error.code === "conflict" ? 409 : 503;
@@ -33,9 +33,13 @@ export async function POST(request: Request) {
   } catch {
     return NextResponse.json({ error: "A JSON task operation is required.", code: "invalid-input" }, { status: 400, headers });
   }
+  const action = input && typeof input === "object" && !Array.isArray(input) ? (input as { action?: unknown }).action : undefined;
+  if (typeof action === "string" && (action.startsWith("summary-") || SUSPENDED_ACTIONS.has(action))) {
+    return failure(new TaskOperationError("invalid-input", "Task shared context and task-start are suspended. Use ordinary chat and manage task links separately. Nothing was changed or sent."));
+  }
   if (!input || typeof input !== "object" || Array.isArray(input)
     || !PUBLIC_ACTIONS.has((input as { action?: string }).action ?? "")) {
-    return failure(new TaskOperationError("invalid-input", "Unknown or internal task action. Task admission requires the agent prompt path."));
+    return failure(new TaskOperationError("invalid-input", "Unknown or internal task action."));
   }
   try { return NextResponse.json(await taskOperation(input, { agentDir: getAgentDir(), signal: request.signal }), { headers }); }
   catch (error) { return failure(error); }
