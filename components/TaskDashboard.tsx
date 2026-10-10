@@ -448,7 +448,6 @@ export function TaskDashboard({ active = true, onClose, currentSessionId = null,
           onDraftChange={draft => setEditDrafts(current => {
             const next = { ...current }; if (draft) next[selectedTask.id] = draft; else delete next[selectedTask.id]; return next;
           })} />
-        <p className={styles.metadata} data-task-activity>{t("tasks.sessions")}: {selectedTask.sessionIds.length} — {taskActivity(selectedTask, runningIds, activityError) === "unknown" ? t("tasks.activityUnknown") : taskActivity(selectedTask, runningIds, activityError) === "working" ? t("tasks.aiWorking") : t("tasks.aiIdle")}</p>
       </TaskInspector>;
       })}
       <footer className={styles.footer}>{t("tasks.policy")}</footer>

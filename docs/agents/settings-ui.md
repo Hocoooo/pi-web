@@ -9,6 +9,8 @@
 
 The sidebar Task dashboard button opens a persistent Settings-style floating panel. Filters are collapsed by default; inside, search/project/sort are primary and multi-select status/priority/labels/activity live under More filters, with removable active chips. Compact cards open `TaskInspector`, outside the filtered/draggable projection so moving, filtering or archiving cannot remove an open review. Errors/retries are visible inside it and its close header stays visible while scrolling. `e2e/task-dashboard-ui.mjs` and `docs/testing/task-dashboard-ui.md` cover the wider UI/render matrix. Closing hides rather than unmounts drafts; hidden panels remove modal markers and stop dashboard polling. The legacy `/tasks` route redirects to the same panel. See `TaskPanel.tsx` and `e2e/task-dashboard-panel.mjs`.
 
+Task session management uses compact divider rows rather than nested session cards. The session heading owns Link and icon Refresh; per-row relation controls keep accessible names and tooltips. Show linking policy only with the expanded candidate selector; avoid repeating session count/activity below details, and omit empty optional-detail placeholders. The chat `/task` picker uses `TaskSelection.module.css` with the model-picker tokens and a shared `TaskMembership` row; recovery buttons are conditional on errors, never remove the errors themselves. See [task picker](../branch-features/task-picker.md) for keyboard/focus and built-in-vs-custom status labels.
+
 Task dashboard › Column settings reuses `SettingsUi` detail header/stack, global scope tag, buttons
 and footer/status in `TaskColumnSettings.tsx`. This is a fixed global setting for all projects
 and no-project tasks, not a global/project save choice, so it shows one scope tag rather

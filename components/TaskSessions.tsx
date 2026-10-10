@@ -57,28 +57,40 @@ export function TaskSessions({ task, active = true, currentSessionId, disabled, 
       : activity?.queued ? t("tasks.queued") : t("tasks.aiWorking");
   };
   return <section aria-label={t("tasks.sessions")}>
-    <h3>{t("tasks.sessions")} ({task.sessionIds.length})</h3>
+    <div className={styles.sectionHeader}>
+      <h3>{t("tasks.sessions")} ({task.sessionIds.length})</h3>
+      <div className={styles.actions}>
+        <button type="button" className={styles.quietButton} disabled={!data || disabled || loading} aria-expanded={linking} onClick={() => setLinking(!linking)}>{t("tasks.linkSessions")}</button>
+        <button type="button" className={styles.smallIconButton} aria-label={t("tasks.refreshSessions")} title={t("tasks.refreshSessions")} disabled={disabled || loading} onClick={() => void load()}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5" /><path d="M6 7a7 7 0 0 1 12-1l2 2M4 16l2 2a7 7 0 0 0 12-1" /></svg>
+        </button>
+      </div>
+    </div>
     <>
-      <p className={styles.hint}>{t("tasks.linkPolicy")}</p>
-      <button type="button" disabled={disabled || loading} onClick={() => void load()}>{t("tasks.refreshSessions")}</button>
       {loading && <p role="status">{t("tasks.loading")}</p>}
       {error && <div role="alert" className={styles.error}>{error}</div>}
       {data && <>
         {data.linked.length === 0 && <p className={styles.hint}>{t("tasks.noLinkedSessions")}</p>}
         <ul className={styles.sessionList} aria-label={t("tasks.linkedSessions")}>
           {data.linked.map((session) => <li key={session.id}>
+            <div className={styles.sessionInfo}>
+            <div className={styles.sessionTitleRow}>
             {session.missing ? <span>{session.id}</span> : <Link prefetch={false} href={`/?session=${encodeURIComponent(session.id)}`} onClick={event => {
               if (!navigate || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
               event.preventDefault();
               void navigate(`/?session=${encodeURIComponent(session.id)}`).catch(cause => setError((cause as Error).message));
             }}>{session.name || session.id}</Link>}
-            {session.id === currentSessionId && <strong> · {t("tasks.panel.currentChat")}</strong>}
-            {" — "}{hint(session)}{session.cwd && <p className={styles.project}>{session.cwd}</p>}
-            <button type="button" disabled={disabled || loading || !!session.missing} onClick={() => onChangeRelation(session)}>{t("tasks.relation.title")}</button>
+            {session.id === currentSessionId && <span className={styles.currentChat}>{t("tasks.panel.currentChat")}</span>}
+            </div>
+            <span className={styles.sessionState} data-working={runningIds?.has(session.id) || undefined}>{hint(session)}</span>
+            {task.project && session.cwd && session.cwd !== task.project.cwd && <p className={styles.sessionPath} title={session.cwd}>{session.cwd}</p>}
+            </div>
+            <button type="button" className={styles.smallIconButton} aria-label={t("tasks.relation.title")} title={t("tasks.relation.title")} disabled={disabled || loading || !!session.missing} onClick={() => onChangeRelation(session)}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.7" /><circle cx="12" cy="12" r="1.7" /><circle cx="19" cy="12" r="1.7" /></svg>
+            </button>
           </li>)}
         </ul>
-        <button type="button" disabled={disabled || loading} aria-expanded={linking} onClick={() => setLinking(!linking)}>{t("tasks.linkSessions")}</button>
-        {linking && <><fieldset disabled={disabled || loading}>
+        {linking && <><p className={styles.hint}>{t("tasks.linkPolicy")}</p><fieldset disabled={disabled || loading}>
           <legend>{t("tasks.linkSessions")}</legend>
           {data.candidates.length === 0 && <p>{t("tasks.noCandidates")}</p>}
           {data.candidates.map((session) => <label key={session.id} className={styles.sessionChoice}>

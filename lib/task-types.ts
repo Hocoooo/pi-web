@@ -176,6 +176,8 @@ export type TaskRequest =
   | { action: "prepare-session-copy"; operationId: string; sourceSessionId: string; fingerprint: string }
   | { action: "complete-session-copy"; operationId: string; sourceSessionId: string; fingerprint: string; newSessionId: string | null }
   | { action: "save-view"; id: string; operationId: string; expectedViewsRevision: number; name: string; filter: TaskFilter; sort: TaskSort }
+  | { action: "task-picker"; cwd: string | null; sessionId?: never }
+  | { action: "task-picker"; sessionId: string; cwd?: never }
   | { action: "session-task"; sessionId: string }
   | { action: "sessions"; id: string }
   | { action: "link"; id: string; expectedRevision: number; sessionIds: string[] }
@@ -206,6 +208,11 @@ export interface TaskSessionInfo {
 export interface TaskSessionsResult { linked: TaskSessionInfo[]; candidates: TaskSessionInfo[] }
 /** Lightweight ownership metadata; deliberately excludes legacy context and native history. */
 export interface TaskSessionTaskResult { task: { id: string; title: string; archived: boolean } | null }
+/** Picker metadata only; status is the saved column label, or its built-in ID. */
+export interface TaskPickerResult {
+  tasks: { id: string; title: string; archived: boolean; revision: number; status: string; statusKey?: string }[];
+  relation: { sessionId: string; sourceTaskId: string | null; generation: number; updateRevision: number } | null;
+}
 export const TASK_SESSION_BATCH_LIMIT = 100;
 // Reuse native session ID syntax (SDK permits explicit non-UUID IDs), never a path.
 export function isTaskSessionId(value: unknown): value is string {

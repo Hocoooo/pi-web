@@ -1,5 +1,9 @@
 # 解除或改绑对话
 
+## 聊天快捷入口
+
+[F32 `/task`](task-picker.md)与聊天归属按钮共用选择弹窗，直接复用本功能的改绑/解除请求；运行中的 session 和归档目标仍可管理。候选与 owner/generation/updateRevision 通过窄 `task-picker` 查询在同锁读取。相同选择的失败保留原 operationId 重试；换目标后先回读可能已提交的结果，不能执行上次选择的旧请求。无归属的初次关联继续使用 `link` 的目标 revision CAS/状态幂等，不将其描述为 generation receipt 型首次绑定。
+
 ## 当前契约：管理归属而非执行准入
 
 见[任务 session 管理契约](task-session-management.md)。仍保留唯一 owner、同项目权威校验、generation、CAS/精确重试、旧 receipt 与历史；不再要求任务 active 或 session 空闲，归档目标可选。UI 不显示共享版本或“先恢复任务”提示，变更不修改 cwd/模型/工具/聊天历史。以下涉及共享功能新执行或 active/fullbusy 限制的部分仅为历史说明。

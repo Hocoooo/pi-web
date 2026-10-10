@@ -3,9 +3,10 @@
 import { useEffect, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import type { TaskSessionTaskResult } from "@/lib/task-types";
+import { TaskMembership } from "./TaskMembership";
 
 /** Metadata only: no session hydration, context polling or Agent command. */
-export function SessionTaskLink({ sessionId, onOpen }: { sessionId: string; onOpen: (taskId?: string) => void }) {
+export function SessionTaskLink({ sessionId, onOpen, onChoose }: { sessionId: string; onOpen: (taskId?: string) => void; onChoose?: () => void }) {
   const { t } = useI18n();
   const [task, setTask] = useState<TaskSessionTaskResult["task"]>(null);
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
@@ -42,10 +43,9 @@ export function SessionTaskLink({ sessionId, onOpen }: { sessionId: string; onOp
       document.removeEventListener("visibilitychange", wake);
     };
   }, [sessionId]);
-  return <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-1 text-sm" data-session-task>
-    <button type="button" className="min-w-0 break-words text-left text-text-muted hover:text-text" onClick={() => onOpen(state === "ready" ? task?.id : undefined)}>
-      {state === "loading" ? t("tasks.loading") : state === "error" ? t("tasks.membershipUnavailable")
-        : task ? `${t("tasks.sessionTask")}: ${task.title}${task.archived ? ` · ${t("tasks.archive.archived")}` : ""}` : t("tasks.linkToTask")}
-    </button>
-  </div>;
+  const label = state === "loading" ? t("tasks.loading") : state === "error" ? t("tasks.membershipUnavailable")
+    : task ? `${t("tasks.sessionTask")}: ${task.title}${task.archived ? ` · ${t("tasks.archive.archived")}` : ""}` : t("tasks.linkToTask");
+  return <TaskMembership label={label}
+    onChoose={() => onChoose ? onChoose() : onOpen(state === "ready" ? task?.id : undefined)}
+    onDetails={onChoose && state === "ready" && task ? () => onOpen(task.id) : undefined} />;
 }

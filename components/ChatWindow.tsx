@@ -1,6 +1,8 @@
 "use client";
 import { useSearchParams } from "next/navigation";
 import { SessionTaskLink } from "./SessionTaskLink";
+import { TaskSelectionDialog } from "./TaskSelectionDialog";
+import { TaskMembership } from "./TaskMembership";
 import { NewSessionProjectPicker } from "./NewSessionProjectPicker";
 import { registerAbortHandler } from "@/hooks/useKeyboardShortcuts";
 import Image from "next/image";
@@ -297,7 +299,7 @@ export function ChatWindow({ preparedTaskToken, onOpenTasks, session, searchTarg
     handleRecallQueue,
     handleBuiltinSlashCommand,
     handleToolPresetChange, handleThinkingLevelChange, handleSetDefaultModel, handleSetDefaultThinkingLevel, loadSlashCommands, scrollUserMsgToTop,
-    loadContext, activeLeafId, scrollToBottom, scrollToMessage,
+    loadContext, activeLeafId, scrollToBottom, scrollToMessage, taskSelection,
   } = useAgentSession({
     taskStartRequired: !!taskStartToken,
     session, sessionRunning, newSessionCwd, independentChat, newSessionDraftKey, onAgentEnd: wrappedOnAgentEnd, onSessionTitleChange, onAttentionNeeded, onSessionCreated, onSessionForked,
@@ -964,6 +966,7 @@ export function ChatWindow({ preparedTaskToken, onOpenTasks, session, searchTarg
       onRestoreUnconfirmedSubmission={restoreUnconfirmedSubmission}
       restoringSubmission={restoringSubmission}
       onNewSession={onNewSession}
+      onOpenTaskPicker={() => { void taskSelection.open(); }}
       nextCue={nextCue}
       onNextCueAccepted={() => setNextCue(null)}
       draftCompletionContext={!loading && !extensionDialog && !extensionCustomUi
@@ -1046,7 +1049,14 @@ export function ChatWindow({ preparedTaskToken, onOpenTasks, session, searchTarg
         <NewSessionProjectPicker cwd={newSessionCwd} isChat={independentChat} onChange={onNewSessionProjectChange} />
       )}
       {taskStartToken && <p role="alert">{t("tasks.startExpired")}</p>}
-      {session?.id && onOpenTasks && <SessionTaskLink key={session.id} sessionId={session.id} onOpen={onOpenTasks} />}
+      {sessionIdRef.current && onOpenTasks
+        ? <SessionTaskLink key={sessionIdRef.current} sessionId={sessionIdRef.current} onOpen={onOpenTasks} onChoose={() => { void taskSelection.open(); }} />
+        : newSessionCwd && <TaskMembership onChoose={() => { void taskSelection.open(); }}
+          label={taskSelection.pendingTask ? `${t("tasks.picker.preselected")}: ${taskSelection.pendingTask.title}` : t("tasks.picker.title")} />}
+      <TaskSelectionDialog selection={taskSelection} onClose={() => {
+        taskSelection.close();
+        requestAnimationFrame(() => composerRef.current?.focusComposer());
+      }} />
       {isDragOver && (
         <div className="pointer-events-none absolute inset-0 z-50 flex animate-[drop-zone-in_0.15s_ease_both] items-center justify-center bg-[rgba(37,99,235,0.06)] backdrop-blur-[1px]">
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">

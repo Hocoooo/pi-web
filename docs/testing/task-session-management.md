@@ -15,7 +15,25 @@
 - `components/AppShell*.test.mjs`、`components/ChatWindow*.test.mjs`、`components/TaskDashboard.navigation.test.mjs`、`lib/i18n/*.test.mjs`：导航、草稿、删除后新 composer、三语言及其既有回归；任务直达只消费最新读取的结果，失败可重试、缺失目标明确提示、普通 mutation 失败不被自动刷新抹掉。当前合计 79 项通过。
 - `e2e/task-dashboard-panel.mjs`：真实浏览器/隔离 task store，session 目录与关系为合成响应；默认多对话列表、任务归属直达（含关闭期间在另一标签页新增的任务）、解除/改绑/归档、关联失败提示保留、读取失败为未知、旧 URL 拒绝与重新打开保留草稿、Escape/IME/焦点、关闭停止加载、三语言×浅深色390px、零共享请求/零 Agent 写请求。任务编辑/移动/归档使用真实临时 store；不替代服务端 scope/CAS/SDK 测试。
 
-## 本轮验证结果
+## F32 `/task` 回归入口
+
+- `app/api/tasks/picker.test.mjs`：真实 HTTP handler/store 的窄候选查询与现有关联/改绑/解除协议；cwd/session 权威范围、归档、无历史泄漏、严格字段、缺失 session 和 CAS/重试。
+- `e2e/task-picker.mjs`：真实 composer/选择器，HTTP 边界外的键盘、IME/Escape、归档、失败重试及运行中不发送消息。
+- `e2e/task-session-selection.mjs`：真实 useAgentSession/composer + HTTP/SSE fixture，预选、提前创建、失败草稿恢复和 ID 复用、普通聊天零任务读取、在途初始关联期间改选、失败后换目标（含丢失响应）、bash 重试落实归属。
+- `e2e/task-picker-page.mjs`：复用 checkout dev 的完整页面，所有 API 截获，桌面/390px 上 `/task` 与归属按钮、不继承预选的 `/new`、已有 session 改绑、草稿/焦点保留，零任务面板/Agent 写请求。
+- `e2e/task-dashboard-panel.mjs`：原详情直达测试改走独立“任务详情”按钮；原面板关联、三语言/两主题与草稿等回归保留。
+
+新增测试遵循用户确认的 UI、HTTP API、生命周期三类公开边界，未添加源码字符串断言。此次 F32 验证：相关 ChatInput/ChatWindow/AppShell/hooks/tasks API/relations/management/i18n 合并 **258/258 通过**；任务生命周期 **11 场景通过**；选择器组件、全页面桌面/390px、原任务面板三语言/两主题、settings-commands/model-flow/model-first-prompt 浏览器脚本通过；`tsc --noEmit`、改动 TS/TSX/MJS 的 ESLint、`git diff --check` 通过。独立复核发现的失败后换目标重放旧请求与 bash 重试绕过关联已 red→green 修复并复核关闭。不沿用下面 F31 历史绿色记录为 F32 证明，也不代表全仓测试或真实 provider/全平台验收。
+
+## F32 简洁 UI 复核
+
+选择器与现有模型选择器统一主题/字号/边框，正常状态移除恢复按钮；归属栏单行化，长预选说明移入弹窗；详情会话列表去掉嵌套卡片和重复摘要，关联政策按需展开，空资料不生成占位段。补充 built-in `statusKey` 的 HTTP/UI 验证，确保内置列可翻译、同名自定义列仍保持原文。
+
+本次相关 ChatInput/ChatWindow/AppShell/TaskDashboard 导航/hooks/tasks API/relations/management/i18n **263/263 通过**；生命周期 **11 场景通过**；选择器、全页面 1200px/390px（触屏模拟）×浅深色、长名称/缩小视口、三语言/两主题任务面板回归通过。独立复核的慢保存焦点逃逸已用“选中 → 点击标题 → Tab/Shift+Tab → Escape”失败测试复现并修复、复核关闭。设置命令/模型选择器回归、`tsc --noEmit`、全部改动 TS/TSX/MJS 的 ESLint、`git diff --check` 通过。页面截图可用 `TASK_UI_ARTIFACT_DIR=/tmp/task-ui node e2e/task-picker-page.mjs` 生成；组件脚本显式加载 CSS module。
+
+未执行生产 build/install、真实 provider 调用、Windows/Safari/iOS 真机或全仓测试；触屏/缩小视口模拟不等于真实软件键盘验收。
+
+## F31 历史验证结果
 
 - 活动任务/API/RPC：**206/206 通过，0 失败、0 取消、0 跳过**。隔离 HOME/TMPDIR/agent，阻断外部网络，`--test-concurrency=4 --test-timeout=60000`；运行 `lib/task*.test.mjs app/api/tasks/*.test.mjs app/api/agent/task-management.test.mjs lib/rpc-manager.test.mjs`。覆盖保留的 50,000-task 有界删列 HTTP 检查，但不宣称 UI 极端容量性能。
 - AppShell/ChatWindow/TaskDashboard 导航/i18n：**79/79 通过**。

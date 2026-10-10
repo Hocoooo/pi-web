@@ -60,6 +60,7 @@ interface Props {
   restoringSubmission?: boolean;
   onAbort: () => void;
   onNewSession?: (cwd: string) => void;
+  onOpenTaskPicker?: () => void;
   onSteer?: (message: string, images?: AttachedImage[], video?: VideoReference) => void | Promise<void>;
   onFollowUp?: (message: string, images?: AttachedImage[], video?: VideoReference) => void | Promise<void>;
   /** Optional next-prompt hint. Only shown while the composer is empty. */
@@ -264,6 +265,7 @@ type SlashCommandSource = SlashCommandPaletteItem["source"];
 
 const BUILTIN_SLASH_COMMANDS: BuiltinSlashCommand[] = [
   { name: "new", description: "chat.commandNew", source: "builtin", availableWhileStreaming: true },
+  { name: "task", description: "tasks.picker.title", source: "builtin", availableWhileStreaming: true },
   { name: "model", description: "chat.commandModel", source: "builtin" },
   { name: "thinking", description: "chat.commandThinking", source: "builtin" },
   { name: "compact", description: "chat.commandCompact", source: "builtin" },
@@ -283,7 +285,7 @@ function getBuiltinSlashCommand(message: string): BuiltinSlashCommand | undefine
 
 export function canRunBuiltinSlashCommandWhileStreaming(message: string): boolean {
   const command = getBuiltinSlashCommand(message);
-  if (command?.name === "new") return message.trim() === "/new";
+  if (command?.name === "new" || command?.name === "task") return message.trim() === `/${command.name}`;
   return command?.availableWhileStreaming === true;
 }
 
@@ -628,7 +630,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   savedDefaultThinkingLevel, onSetDefaultThinkingLevel,
   retryInfo, queuedMessages, inputHistory = [], onRecallQueue,
   slashCommands, slashCommandsLoading, onLoadSlashCommands,
-  onBuiltinCommand, onNewSession,
+  onBuiltinCommand, onNewSession, onOpenTaskPicker,
   soundEnabled, onSoundToggle, onAudioUnlock,
   nextCue, onNextCueAccepted, draftCompletionContext,
   unconfirmedSubmission, unconfirmedSubmissionError, unconfirmedRecall, onRestoreUnconfirmedSubmission, restoringSubmission,
@@ -1091,6 +1093,12 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
 
   const runBuiltinCommand = useCallback(async (msg: string): Promise<boolean> => {
     if ((video || videoBlocked) && msg.startsWith("/")) { setVideoError(t("chat.videoQuestionOnly")); return true; }
+    if (msg === "/task" && onOpenTaskPicker) {
+      // Navigation only; retain attachments for the next actual prompt.
+      setValue("");
+      onOpenTaskPicker();
+      return true;
+    }
     if (msg === "/new" && cwd && onNewSession) {
       // Clear the source draft before navigation; never send or carry its attachments.
       clearInput();
@@ -1122,7 +1130,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       builtinCommandPendingRef.current = false;
       setBuiltinCommandPending(false);
     }
-  }, [attachedImages.length, clearInput, cwd, onBuiltinCommand, onNewSession, t, video, videoBlocked]);
+  }, [attachedImages.length, clearInput, cwd, onBuiltinCommand, onNewSession, onOpenTaskPicker, t, video, videoBlocked]);
 
   const handleSend = useCallback(async () => {
     if (restoringSubmission) return;
@@ -1399,7 +1407,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     };
     sendPendingRef.current = true;
     try {
-      if ((msg === "/new" && cwd && onNewSession)
+      if ((msg === "/task" && onOpenTaskPicker)
+        || (msg === "/new" && cwd && onNewSession)
         || (onBuiltinCommand && (isSettingsSlashCommand(msg) || (!attachedImages.length && canRunBuiltinSlashCommandWhileStreaming(msg))))) {
         void runBuiltinCommand(msg);
         return;
@@ -1412,7 +1421,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       }
       await queue();
     } finally { sendPendingRef.current = false; }
-  }, [value, attachedImages, cwd, onNewSession, onBuiltinCommand, onPromptWithStreamingBehavior, onSteer, onFollowUp, clearInput, onAudioUnlock, runBuiltinCommand, video, videoSendError, restoringSubmission]);
+  }, [value, attachedImages, cwd, onNewSession, onOpenTaskPicker, onBuiltinCommand, onPromptWithStreamingBehavior, onSteer, onFollowUp, clearInput, onAudioUnlock, runBuiltinCommand, video, videoSendError, restoringSubmission]);
 
   const getNextSlashIndex = useCallback((direction: "up" | "down" | "left" | "right") => {
     const lastIndex = displayedSlashCommands.length - 1;
@@ -1705,13 +1714,17 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     }
     setSlashMenuOpen(true);
     setSlashActiveIndex(0);
+    // Built-in navigation/selection needs no command discovery. In particular,
+    // /task and /new must not initialize an Agent merely while being typed.
+    // Discover extensions once the query no longer matches a built-in prefix.
+    if (onOpenTaskPicker && BUILTIN_SLASH_COMMANDS.some(command => command.name.startsWith(slashQuery))) return;
     if (!slashCommandsRequestedRef.current && onLoadSlashCommands) {
       slashCommandsRequestedRef.current = true;
       Promise.resolve(onLoadSlashCommands()).catch(() => {
         slashCommandsRequestedRef.current = false;
       });
     }
-  }, [slashQuery, onLoadSlashCommands]);
+  }, [slashQuery, onLoadSlashCommands, onOpenTaskPicker]);
 
   // Lazy-load skill dormancy (disable-model-invocation) each time the slash
   // palette opens, so toggles made in the skills panel are reflected on the

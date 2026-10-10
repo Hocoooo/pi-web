@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo, useReducer } from "react";
+import { useTaskSelection } from "./useTaskSelection";
 import type {
   AgentMessage,
   BlockingExtensionUiRequest,
@@ -423,6 +424,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const treeNavigationVersionRef = useRef(0);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const ensuringNewSessionRef = useRef<Promise<string | null> | null>(null);
+  const taskSelection = useTaskSelection(sessionIdRef, session?.cwd ?? newSessionCwd);
+  const { syncPending: syncPendingTask } = taskSelection;
   // The command list as last loaded, and the get_commands request under way, if
   // any. A bare /mcp reads them to tell whose /mcp it is (handleBuiltinSlashCommand).
   // The generation moves on with every request and every clear, and only a request
@@ -981,6 +984,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           setNewSessionDefaultThinkingLevel(asConcreteThinkingLevel(result.thinkingLevel));
         }
       }
+      await syncPendingTask(realId);
       return realId;
     })();
 
@@ -990,7 +994,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } finally {
       ensuringNewSessionRef.current = null;
     }
-  }, [isNew, newSessionCwd, toolPreset, opts.taskStart, opts.taskPreview]);
+  }, [isNew, newSessionCwd, toolPreset, opts.taskStart, opts.taskPreview, syncPendingTask]);
 
   // Opening the System or Tools panel may initialize an otherwise dormant
   // session. This is deliberately a non-prompt command: it creates no message
@@ -1930,6 +1934,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
         if (!sid) throw new Error("Unable to create a session for the prompt");
         sentSessionId = sid;
+        await syncPendingTask(sid);
         if (selectedModel) {
           setPendingModel(selectedModel);
           if (existingSid) {
@@ -1959,6 +1964,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         promoteNewSession(1, message);
       } else if (session) {
         sentSessionId = session.id;
+        await syncPendingTask(session.id);
         await ensureEventsConnected(session.id);
         promptRequestStarted = true;
         await sendAgentCommand(session.id, {
@@ -2017,7 +2023,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setAgentPhase(null);
       dispatch({ type: "end" });
     }
-  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, cancelEventStreamGrace, clearSubmittedDraft, closeEvents, composerDraftKey, reconcileAgentState, restoreSubmission, editEntryId, setEdit, opts.taskStart, opts.taskStartRequired]);
+  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, cancelEventStreamGrace, clearSubmittedDraft, closeEvents, composerDraftKey, reconcileAgentState, restoreSubmission, editEntryId, setEdit, opts.taskStart, opts.taskStartRequired, syncPendingTask]);
 
   const executeBash = useCallback(async (command: string, excludeFromContext: boolean) => {
     if (agentRunningRef.current || bashRunningRef.current) return;
@@ -2029,6 +2035,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     try {
       const sid = sessionIdRef.current ?? session?.id ?? await ensureNewSession();
       if (!sid) throw new Error("Unable to create a session for the shell command");
+      await syncPendingTask(sid);
       await sendAgentCommand(sid, {
         type: "bash",
         command,
@@ -2045,7 +2052,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setPendingBash(null);
       setBashRunning(false);
     }
-  }, [addNotice, composerDraftKey, ensureNewSession, loadSession, promoteNewSession, restoreSubmission, session]);
+  }, [addNotice, composerDraftKey, ensureNewSession, loadSession, promoteNewSession, restoreSubmission, session, syncPendingTask]);
   executeBashRef.current = executeBash;
 
   const handleAbort = useCallback(async () => {
@@ -2425,6 +2432,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         return complete({ handled: true, message: result.level ? `Thinking level: ${result.level}` : "Kept current thinking level" });
       }
       const sid = sessionIdRef.current ?? await ensureNewSession();
+      // Only commands that promote/copy a provisional session need its
+      // pending ownership first; settings, inspection and extension dispatch
+      // must not acquire an unrelated task-store dependency.
+      if (sid && ["compact", "name", "clone"].includes(commandName)) await syncPendingTask(sid);
       switch (commandName) {
         case "compact": {
           if (!sid || isCompacting) return complete({ handled: true, error: "No active session to compact" });
@@ -2537,7 +2548,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } finally {
       if (commandName === "compact") setIsCompacting(false);
     }
-  }, [activeLeafId, addNotice, ensureNewSession, handleThinkingLevelChange, isCompacting, loadModels, loadSession, loadSlashCommands, loadTools, promoteNewSession, onOpenSettings, onSessionForked, onSessionStatsPanelOpen, slashCommandsForMcp]);
+  }, [activeLeafId, addNotice, ensureNewSession, handleThinkingLevelChange, isCompacting, loadModels, loadSession, loadSlashCommands, loadTools, promoteNewSession, onOpenSettings, onSessionForked, onSessionStatsPanelOpen, slashCommandsForMcp, syncPendingTask]);
 
   // Let AgentSession.prompt decide atomically whether to queue against the
   // current run or start a new turn if it settled while the request was in
@@ -3111,6 +3122,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   return {
     // State
+    taskSelection,
     data, loading, error, activeLeafId, messages, activeToolResults, entryIds, historyCursor, hasEarlierMessages, streamState,
     agentRunning, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, toolPreset, thinkingLevel,
     retryInfo, contextUsage, systemPrompt, forkingEntryId,

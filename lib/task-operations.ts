@@ -2,7 +2,7 @@ import { relationGeneration, assertRelationGeneration, associateRelation, parseR
 import { assertTaskActive, parseArchiveRequest, setTaskArchive } from "./task-archive";
 import { parseStartRequest, prepareTaskStart, admitTaskStart } from "./task-start";
 import { parseContextUpdateRequest, validateUpdateSession, updateState, selectContextUpdate, clearContextUpdate, completeContextUpdate, updateMaterial, readContextUpdateState } from "./task-context-updates";
-import type { TaskContextUpdateState, TaskUpdateChoice, TaskStartSnapshot, TaskSessionTaskResult } from "./task-types";
+import type { TaskContextUpdateState, TaskUpdateChoice, TaskStartSnapshot, TaskSessionTaskResult, TaskPickerResult } from "./task-types";
 export type PendingContextUpdate = { taskId: string; relationGeneration: number; choice: TaskUpdateChoice; snapshot: TaskStartSnapshot } | null;
 import type { TaskStartPreview, TaskSessionContext } from "./task-types";
 import { createHash } from "node:crypto";
@@ -31,6 +31,15 @@ function parseRequest(input: unknown, sessionCopy = false): TaskRequest {
       || typeof value.fingerprint !== "string" || !/^[a-f0-9]{64}$/.test(value.fingerprint)
       || value.action === "complete-session-copy" && value.newSessionId !== null && !isTaskSessionId(value.newSessionId)) return invalid("Invalid internal session copy request.");
     return value as Extract<TaskRequest, { action: "prepare-session-copy" | "complete-session-copy" }>;
+  }
+  if (value.action === "task-picker") {
+    if (Object.hasOwn(value, "sessionId")) {
+      if (Object.keys(value).some(key => !["action", "sessionId"].includes(key)) || !isTaskSessionId(value.sessionId)) return invalid("A valid session ID is required, without a project directory.");
+      return { action: "task-picker", sessionId: value.sessionId };
+    }
+    if (Object.keys(value).some(key => !["action", "cwd"].includes(key))
+      || value.cwd !== null && (typeof value.cwd !== "string" || !value.cwd.trim() || value.cwd.length > 4096)) return invalid("Select one project directory or no project.");
+    return { action: "task-picker", cwd: value.cwd as string | null };
   }
   if (value.action === "session-task") {
     if (Object.keys(value).some(key => !["action", "sessionId"].includes(key)) || !isTaskSessionId(value.sessionId)) return invalid("A valid session ID is required.");
@@ -136,7 +145,7 @@ async function selectedProject(cwd: string | null, agentDir: string): Promise<Ta
 }
 
 /** Single task boundary. Legacy context data remains readable, but new context work is suspended. */
-export async function taskOperation(input: unknown, options: { agentDir: string; signal?: AbortSignal; summaryDeps?: SummaryDependencies; sessionCopy?: boolean }): Promise<TaskBoard | TaskMutationResult | TaskSessionsResult | TaskSessionTaskResult | TaskSummaryResponse | CopyOperationResult | TaskStartPreview | TaskContextUpdateState | PendingContextUpdate | { context: TaskSessionContext | null }> {
+export async function taskOperation(input: unknown, options: { agentDir: string; signal?: AbortSignal; summaryDeps?: SummaryDependencies; sessionCopy?: boolean }): Promise<TaskBoard | TaskMutationResult | TaskSessionsResult | TaskSessionTaskResult | TaskPickerResult | TaskSummaryResponse | CopyOperationResult | TaskStartPreview | TaskContextUpdateState | PendingContextUpdate | { context: TaskSessionContext | null }> {
   // Refuse before opening (or migrating) storage, loading histories or invoking providers.
   if (typeof input === "object" && input !== null && "action" in input && typeof input.action === "string"
     && (input.action.startsWith("summary-") || ["publish-context", "restore-context", "prepare-start", "admit-start",
@@ -147,7 +156,7 @@ export async function taskOperation(input: unknown, options: { agentDir: string;
   // Compatibility for older in-process callers: task visibility never gates session work.
   // In particular, ordinary chat must not depend on task-store availability or migration.
   if (request.action === "admit-session-work") return { context: null };
-  return withTaskStore<TaskBoard | TaskMutationResult | TaskSessionsResult | TaskSessionTaskResult | CopyOperationResult | TaskStartPreview | TaskContextUpdateState | PendingContextUpdate | { context: TaskSessionContext | null }>(options.agentDir, async (document) => {
+  return withTaskStore<TaskBoard | TaskMutationResult | TaskSessionsResult | TaskSessionTaskResult | TaskPickerResult | CopyOperationResult | TaskStartPreview | TaskContextUpdateState | PendingContextUpdate | { context: TaskSessionContext | null }>(options.agentDir, async (document) => {
     const board = (): TaskBoard => ({ columnRemovalDigests: Object.fromEntries(document.columns.map(column => [column.id, taskColumnRemovalDigest(document.tasks, column.id)])), viewsRevision: document.viewsRevision, savedViews: document.savedViews.map(publicTaskView), orderRevision: document.orderRevision, columnsRevision: document.columnsRevision,
       columns: document.columns.map((column) => ({ ...column, isCompletion: isCompletionColumn(column.id) })), tasks: document.tasks.map(publicTask) });
     const result = (task: StoredTaskRecord, changed: boolean) => ({ value: { task: publicTask(task), board: board() }, changed });
@@ -155,6 +164,25 @@ export async function taskOperation(input: unknown, options: { agentDir: string;
       if (document.orderRevision === Number.MAX_SAFE_INTEGER) throw new TaskOperationError("storage-unavailable", "Task order revision limit reached; no changes were saved.");
       document.orderRevision++;
     };
+    if (request.action === "task-picker") {
+      let project: TaskProject | null;
+      let relation: TaskPickerResult["relation"] = null;
+      if (request.sessionId !== undefined) {
+        const session = (await taskSessionCatalogue(options.agentDir)).find(session => session.id === request.sessionId);
+        if (!session) throw new TaskOperationError("not-found", "Session no longer exists.");
+        project = session.project;
+        const owner = document.tasks.find(task => task.sessionIds.includes(request.sessionId!));
+        relation = { sessionId: request.sessionId, sourceTaskId: owner?.id ?? null,
+          generation: relationGeneration(document, request.sessionId), updateRevision: owner ? updateState(owner, request.sessionId).revision : 0 };
+      } else project = await selectedProject(request.cwd, options.agentDir);
+      const tasks = document.tasks.filter(task => (task.project?.projectKey ?? null) === (project?.projectKey ?? null))
+        .map(task => {
+          const column = document.columns.find(column => column.id === task.columnId)!;
+          return { id: task.id, title: task.title, archived: task.archived, revision: task.revision,
+            status: column.label ?? task.columnId, ...(column.label === null ? {statusKey: column.id} : {}) };
+        });
+      return { value: { tasks, relation }, changed: false };
+    }
     if (request.action === "session-task") {
       const owner = document.tasks.find(task => task.sessionIds.includes(request.sessionId));
       return { value: { task: owner ? { id: owner.id, title: owner.title, archived: owner.archived } : null }, changed: false };

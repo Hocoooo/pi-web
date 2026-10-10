@@ -1,5 +1,9 @@
 # 空白新会话的项目选择
 
+## 任务预选交点
+
+[F32 `/task`](task-picker.md)提供独立于项目 picker 的任务选择器，只展示当前权威项目的任务（无项目聊天对应无项目任务）。预选保存在当前 ChatWindow/composer 内存，不为选择创建 Agent。切换目录或另开新会话沿用 draft/remount 路径并清除该预选，界面事先提示；聊天草稿仍按本文件迁移规则处理。真实 session 创建后依据其权威项目再次验证，不能由任务选择器暗中改 cwd。
+
 ## 独立聊天交点
 
 [独立聊天](independent-chat.md)与项目会话共用此 picker：进入聊天后 picker 仍挂载，以“无项目”为当前项（`isChat`），切回项目即恢复正常路径。picker 的“无项目”哨兵选项请求 `/api/default-cwd`，以服务端返回的保留 cwd 与 `pi-web:chat` 身份切换；它是普通会话，只是 cwd 固定，权限与项目会话一致。侧栏把它显示为“对话”，picker 不列出内部聊天路径。无指定目标的首页仍直接进入聊天；项目 flow 的浏览器 fixture 以显式 `?cwd=…` 进入验收。

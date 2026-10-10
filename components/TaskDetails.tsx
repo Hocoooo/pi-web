@@ -66,8 +66,8 @@ export function TaskDetails({ task, disabled, active = true, currentSessionId, e
         <button type="button" disabled={disabled} onClick={() => onDraftChange(null)}>{t("sidebar.cancel")}</button>
       </div>
     </form> : <>
-      <h3>{t("tasks.description")}</h3><p className={styles.text}>{task.description || t("tasks.notSet")}</p>
-      <h3>{t("tasks.criteria")}</h3><p className={styles.text}>{task.completionCriteria || t("tasks.notSet")}</p>
+      {task.description && <><h3>{t("tasks.description")}</h3><p className={styles.text}>{task.description}</p></>}
+      {task.completionCriteria && <><h3>{t("tasks.criteria")}</h3><p className={styles.text}>{task.completionCriteria}</p></>}
       {task.project && <><h3>{t("tasks.projectDirectory")}</h3><p className={styles.text}>{task.project.cwd}</p></>}
       <button type="button" disabled={disabled} onClick={beginEdit}>{t("tasks.edit")}</button>
     </>}

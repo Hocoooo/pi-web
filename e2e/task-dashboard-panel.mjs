@@ -151,6 +151,8 @@ try {
   assert.equal(await inspector.getByRole("button", { name: "Start task", exact: true }).count(), 0);
   assert.equal(await inspector.getByRole("region", { name: "Shared context", exact: true }).count(), 0);
   await inspector.getByRole("heading", { name: "Chats (2)", exact: true }).waitFor();
+  assert.equal(await inspector.getByText("Only unassigned chats in this project can be linked. The entire selection is saved together. Linking never starts AI or changes history.", {exact: true}).count(), 0, "linking policy belongs to the expanded link action");
+  assert.equal(await inspector.locator("[data-task-activity]").count(), 0, "chat count/activity should not be repeated below task details");
   await inspector.getByRole("link", { name: otherSession.name, exact: true }).waitFor();
   await page.setViewportSize({ width: 1440, height: 960 });
   await inspector.getByRole("link", { name: linkedSession.name, exact: true }).click();
@@ -158,7 +160,8 @@ try {
   await page.waitForURL(`**/?session=${linkedSession.id}`);
   assert.equal(await page.locator("textarea").first().inputValue(), "", "linked chat is selected, not the previous composer");
   const membership = page.locator("[data-session-task]");
-  await membership.getByRole("button", { name: "Task: Unsaved task edit", exact: true }).click();
+  await membership.getByRole("button", { name: "Task: Unsaved task edit", exact: true }).waitFor();
+  await membership.getByRole("button", { name: "Task details", exact: true }).click();
   await inspector.getByRole("heading", { name: "Unsaved task edit", exact: true }).waitFor();
   const linkedRow = inspector.getByRole("list", { name: "Linked chats", exact: true }).locator("li").filter({ has: page.getByRole("link", { name: linkedSession.name, exact: true }) });
   assert.match(await linkedRow.innerText(), /Current chat/);
@@ -166,7 +169,8 @@ try {
   await dialog.getByRole("button", { name: "Confirm relationship change", exact: true }).click();
   await page.keyboard.press("Escape");
   await dialog.waitFor({ state: "hidden" });
-  await membership.getByRole("button", { name: "Link to task", exact: true }).click();
+  await membership.getByRole("button", { name: "Link to task", exact: true }).waitFor();
+  await opener.click();
   await dialog.locator("summary").filter({ hasText: "Current chat" }).click();
   await dialog.getByRole("combobox", { name: "Link to task", exact: true }).selectOption(initialBoard.tasks[1].id);
   failNextLink = true;
@@ -193,8 +197,11 @@ try {
   const externalTask = (await taskOperation({ action: "create", id: randomUUID(), title: "Created in another tab", description: "", completionCriteria: "", cwd: null }, { agentDir })).task;
   memberships.set(linkedSession.id, externalTask.id);
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-  await membership.getByRole("button", { name: `Task: ${externalTask.title}`, exact: true }).click();
+  await membership.getByRole("button", { name: `Task: ${externalTask.title}`, exact: true }).waitFor();
+  await membership.getByRole("button", { name: "Task details", exact: true }).click();
   await inspector.getByRole("heading", { name: externalTask.title, exact: true }).waitFor();
+  assert.equal(await inspector.getByRole("heading", {name: "Description", exact: true}).count(), 0, "empty optional details should not create placeholder sections");
+  assert.equal(await inspector.getByRole("heading", {name: "Completion requirements", exact: true}).count(), 0);
   await dialog.getByRole("button", { name: "Close task details", exact: true }).click();
   await dialog.getByRole("button", { name: "Close task dashboard", exact: true }).click();
   memberships.set(linkedSession.id, initialBoard.tasks[1].id);
@@ -208,19 +215,21 @@ try {
   const retiredNotice = page.getByText("Task execution preparation is disabled. Reopen a normal conversation or start a new chat before sending. Your draft will not be sent automatically.", { exact: true });
   await retiredNotice.waitFor();
   await page.locator("textarea").first().fill("Keep the stale URL draft");
-  await membership.getByRole("button", { name: `Task: ${initialBoard.tasks[1].title} · Archived`, exact: true }).click();
+  await membership.getByRole("button", { name: `Task: ${initialBoard.tasks[1].title} · Archived`, exact: true }).waitFor();
+  await membership.getByRole("button", { name: "Task details", exact: true }).click();
   await inspector.getByRole("link", { name: linkedSession.name, exact: true }).click();
   await dialog.waitFor({ state: "hidden" });
   await retiredNotice.waitFor({ state: "hidden" });
   await page.waitForURL(url => !url.searchParams.has("taskStart"));
   assert.equal(new URL(page.url()).searchParams.has("taskStart"), false);
   assert.equal(await page.locator("textarea").first().inputValue(), "Keep the stale URL draft");
-  for (const [locale, dashboardName, taskLabel, archivedLabel] of [["en", "Task dashboard", "Task", "Archived"], ["zh-CN", "任务看板", "所属任务", "已归档"], ["zh-TW", "任務看板", "所屬任務", "已封存"]]) {
+  for (const [locale, dashboardName, taskLabel, archivedLabel, detailsLabel] of [["en", "Task dashboard", "Task", "Archived", "Task details"], ["zh-CN", "任务看板", "所属任务", "已归档", "任务详情"], ["zh-TW", "任務看板", "所屬任務", "已封存", "任務詳情"]]) {
     for (const theme of ["light", "dark"]) {
       await page.evaluate(({ locale, theme }) => { localStorage.setItem("pi-locale", locale); localStorage.setItem("pi-theme", theme); }, { locale, theme });
       await page.setViewportSize({ width: 390, height: 844 });
       await page.goto(`${base}/?session=${linkedSession.id}`);
-      await membership.getByRole("button", { name: `${taskLabel}: ${initialBoard.tasks[1].title} · ${archivedLabel}`, exact: true }).click();
+      await membership.getByRole("button", { name: `${taskLabel}: ${initialBoard.tasks[1].title} · ${archivedLabel}`, exact: true }).waitFor();
+      await membership.getByRole("button", { name: detailsLabel, exact: true }).click();
       const localizedDialog = page.getByRole("dialog", { name: dashboardName, exact: true });
       await localizedDialog.locator("[data-task-inspector]:visible").getByRole("link", { name: linkedSession.name, exact: true }).waitFor();
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
