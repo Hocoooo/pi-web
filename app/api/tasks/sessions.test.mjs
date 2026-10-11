@@ -38,6 +38,48 @@ test("API source creates, metadata, atomic link/no-op/conflict/deletion and fiel
   const missing = await (await post({ action: "sessions", id: create.id })).json(); assert.equal(missing.linked[1].missing, true);
   assert.equal((await post({ action: "sessions", id: randomUUID() })).status, 404);
 });
+test("HTTP unlink of a deleted conversation keeps relation CAS and exact retries without recreating native history", async () => {
+  const native = SessionManager.create(cwd, sessionDir);
+  native.appendMessage({ role: "user", content: "Deleted conversation fixture", timestamp: Date.now() });
+  const sessionId = native.getSessionId();
+  const create = { action: "createFromSession", id: randomUUID(), title: "Missing conversation owner", description: "", completionCriteria: "", sourceSessionId: sessionId };
+  const task = await (await post(create)).json();
+  const target = await (await post({ action: "create", id: randomUUID(), title: "Other owner", description: "", completionCriteria: "", cwd: null })).json();
+  const relation = (sourceTaskId, targetTaskId, expectedGeneration) => ({ action: "change-session-relation", sessionId, sourceTaskId,
+    targetTaskId, expectedGeneration, expectedUpdateRevision: 0, operationId: randomUUID() });
+  assert.equal((await post(relation(task.task.id, target.task.id, 0))).status, 200);
+  assert.equal((await post(relation(target.task.id, task.task.id, 1))).status, 200);
+  const live = await (await post({ action: "sessions", id: task.task.id })).json();
+  const request = relation(task.task.id, null, live.linked[0].relationGeneration);
+  const before = await (await GET()).json();
+  await unlink(native.getSessionFile());
+  const missing = await (await post({ action: "sessions", id: task.task.id })).json();
+  assert.deepEqual(missing.linked, [{ id: sessionId, missing: true, running: false, relationGeneration: 2, updateRevision: 0 }]);
+  request.expectedGeneration = missing.linked[0].relationGeneration;
+  request.expectedUpdateRevision = missing.linked[0].updateRevision;
+  // Missing sessions may be detached, but cannot be linked/reassigned or bypass CAS.
+  for (const [input, status] of [
+    [{ ...request, targetTaskId: target.task.id }, 404],
+    [{ ...request, expectedGeneration: 1 }, 409],
+    [{ ...request, expectedUpdateRevision: 1 }, 409],
+    [{ ...request, sourceTaskId: target.task.id }, 409],
+  ]) {
+    assert.equal((await post(input)).status, status);
+    assert.deepEqual(await (await GET()).json(), before);
+  }
+  const response = await post(request);
+  assert.equal(response.status, 200, await response.clone().text());
+  const saved = await response.json();
+  const owner = saved.tasks.find(item => item.id === task.task.id);
+  assert.deepEqual(owner.sessionIds, []);
+  assert.equal(owner.revision, before.tasks.find(item => item.id === task.task.id).revision + 1);
+  const detail = await (await post({ action: "sessions", id: task.task.id })).json();
+  assert.deepEqual(detail.linked, []);
+  assert.deepEqual(await (await post({ action: "session-task", sessionId })).json(), { task: null });
+  assert.deepEqual(await (await post(request)).json(), saved, "a lost response is confirmed without a second unlink");
+  assert.equal((await post({ ...request, targetTaskId: target.task.id })).status, 409, "an operation ID cannot be repurposed");
+  await assert.rejects(readFile(native.getSessionFile()), { code: "ENOENT" });
+});
 test("session-task is minimal read-only ownership metadata, including archived/missing native sessions", async () => {
   const board = await (await GET()).json(), task = board.tasks[0];
   assert.equal((await post({ action: "set-archive", id: task.id, archived: true, expectedArchiveRevision: task.archiveRevision, operationId: randomUUID() })).status, 200);

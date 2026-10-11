@@ -409,7 +409,10 @@ export async function taskOperation(input: unknown, options: { agentDir: string;
       const byId = new Map(catalogue.map((session) => [session.id, session]));
       const owners = new Map(document.tasks.flatMap((task) => task.sessionIds.map((id) => [id, task.id] as const)));
       if (request.action === "sessions") return { value: {
-        linked: existing.sessionIds.map((id) => byId.has(id) ? { ...publicTaskSession(byId.get(id)!), relationGeneration: relationGeneration(document, id), updateRevision: updateState(existing, id).revision } : { id, missing: true, running: false }),
+        linked: existing.sessionIds.map((id) => ({
+          ...(byId.has(id) ? publicTaskSession(byId.get(id)!) : { id, missing: true, running: false }),
+          relationGeneration: relationGeneration(document, id), updateRevision: updateState(existing, id).revision,
+        })),
         candidates: catalogue.filter((session) => !owners.has(session.id) && sameTaskSessionProject(existing.project, session)).map(publicTaskSession),
       }, changed: false };
       // Validate the ENTIRE batch before mutation (including already-linked IDs).

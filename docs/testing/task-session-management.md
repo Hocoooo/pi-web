@@ -15,6 +15,16 @@
 - `components/AppShell*.test.mjs`、`components/ChatWindow*.test.mjs`、`components/TaskDashboard.navigation.test.mjs`、`lib/i18n/*.test.mjs`：导航、草稿、删除后新 composer、三语言及其既有回归；任务直达只消费最新读取的结果，失败可重试、缺失目标明确提示、普通 mutation 失败不被自动刷新抹掉。当前合计 79 项通过。
 - `e2e/task-dashboard-panel.mjs`：真实浏览器/隔离 task store，session 目录与关系为合成响应；默认多对话列表、任务归属直达（含关闭期间在另一标签页新增的任务）、详情仅“移除”菜单（键盘/IME/Escape/Tab/点外部/隐藏后关闭/失败与丢响应精确重试/窄屏主题）、解除/归档、关联失败提示保留、读取失败为未知、旧 URL 拒绝与重新打开保留草稿、Escape/IME/焦点、关闭停止加载、三语言×浅深色390px、零共享请求/零 Agent 写请求。任务编辑/移动/归档使用真实临时 store；不替代服务端 scope/CAS/SDK 测试。
 
+## 缺失对话移除回归
+
+删除原生 session 后，任务仍保留关系并显示缺失；详情菜单现在允许显式移除，不自动清理或重建 session。缺失行返回真实 generation/updateRevision，只有解除到 null 放宽存在性要求，改绑仍拒绝；owner/CAS/operationId 精确重试和历史保留不变。
+
+- `app/api/tasks/sessions.test.mjs`：真实 HTTP route/store 与隔离 SDK session，非零 generation、缺失行版本、错误 owner/过期版本拒绝、禁止改绑、成功解除、丢响应重试及不重建 JSONL。
+- `lib/task-relations.test.mjs`：含旧共享记录的缺失会话，非零 updateRevision 的过期请求拒绝、清理 pending 但保留 choices/deliveries/sessionContexts/sharedContext，fresh-process 精确重试。
+- `e2e/task-dashboard-panel.mjs`：缺失行无打开链接、移除菜单可用、nonzero generation/updateRevision 写入与丢响应精确重试；保留原键盘/IME/焦点/草稿/三语言/两主题回归。
+
+本次实际验证：任务/API/客户端 **196/196 通过**（隔离 HOME/TMPDIR/agent）；上述 panel 浏览器回归通过，task-card **8 场景通过**；`tsc --noEmit --incremental false`、7 个改动 TS/TSX/MJS 文件的 ESLint 和 `git diff --check` 通过。HTTP 与菜单均先复现失败再修复；缺失行版本亦先红后绿。浏览器复用健康 checkout 30142 开发服务，全 API fixture/临时 task store，零 Agent 写请求。未执行全仓测试、生产 build/install、真实 provider 或 Windows/Safari/iOS 真机验证；未修改用户 session 数据。
+
 ## 详情关联对话菜单回归
 
 当前 `...` 只打开“移除”菜单，直接解除关联，改绑入口留在聊天任务选择器。此次菜单改动验证：`e2e/task-dashboard-panel.mjs` 通过（仅一个选项、取消零写入、键盘/IME/Tab/外部点击/隐藏后关闭、移除保留详情、失败与丢响应精确重试、显式刷新建立新请求、三语言×浅深色390px）；`e2e/task-dashboard-card.mjs` 8 场景通过；关系/迁移/列交点/任务导航/i18n 定向单测 43/43 通过；`tsc --noEmit --incremental false`、改动 TS/TSX/MJS 的 ESLint 与 `git diff --check` 通过。浏览器沿用既有 30142 开发服务、API fixture 和隔离临时 store，零 Agent 写请求，不改用户 session。

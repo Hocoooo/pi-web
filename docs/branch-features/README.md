@@ -4,7 +4,7 @@
 
 **任务面板现阶段仅管理 session 归属。** [F31：任务 session 管理](task-session-management.md)覆盖 F21–F30 中共享重点、AI 整理、任务启动、共享更新及归档执行限制的旧行为：F22/F24/F26/F28 暂停新执行并移除 UI；F27 归档不再限制聊天，F30 关系更新不要求 active/idle。下面旧阶段的 resolved/验收记录不代表这些功能仍启用；v7 存储及历史兼容继续保留。
 
-F31 详情关联对话行的 `...` 仅打开“移除”菜单，选择后只解除任务关联、不删除/停止 session；改绑保留在 F32 聊天归属选择器。菜单/键盘/IME/失败精确重试回归见 `e2e/task-dashboard-panel.mjs`。
+F31 详情关联对话行的 `...` 仅打开“移除”菜单，选择后只解除任务关联、不删除/停止 session；改绑保留在 F32 聊天归属选择器。缺失对话同样允许显式移除，使用实际 generation/updateRevision 和原 owner/CAS/精确重试，不重建或改绑缺失 session。菜单/键盘/IME/失败精确重试回归见 `e2e/task-dashboard-panel.mjs`。
 
 [F32：聊天任务选择器](task-picker.md)扩展 F31 的入口：`/task` 与归属按钮共用键盘弹窗，支持新会话预选和已有会话关联/改绑/解除，不打开任务面板、不恢复共享或任务执行。详情保留独立按钮。
 

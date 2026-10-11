@@ -61,7 +61,7 @@
 ### 来源创建、批量关联与运行提示（04）
 
 - 已选session时浮层工具栏“当前对话”菜单提供从对话创建/整理；空白composer无来源入口。来源表单不替cwd，按服务端来源创建并关联；成功原地清来源状态、不跳转、不丢其他任务草稿，普通New不复用。旧 sourceSession URL 仍兼容。任务详情显式展开对话区才读metadata catalogue，checkbox多选同范围未归属session，Link `/?session=<id>`经当前 shell 选择聊天。
-- 整批存在/唯一owner/当前scope与task CAS在同锁检验；越界/缺失/他owner整批拒绝，无部分写入。合法重复集合不重复关系。删除session保留关系并明确missing，不暗中unlink/rebind。
+- 整批存在/唯一owner/当前scope与task CAS在同锁检验；越界/缺失/他owner整批拒绝，无部分写入。合法重复集合不重复关系。删除session保留关系并明确missing，不暗中unlink/rebind；missing行返回实际generation/updateRevision并允许详情菜单显式解除，仍受owner/CAS/精确重试保护，不允许改绑缺失session。
 - await `resolveProjectAuthoritatively` 的uncached Git/path规则；worktree顶层共享root/key，子目录/移除路径/Windows沿既有规则。sidebar TTL/SWR仅展示，不能授权。无项目只接受保留chat-workspace身份。
 - metadata只bounded header/stat及匹配cache标题；warm registry仅header/name，不getEntries/get_state/ensure。board list/count不扫JSONL，观察到持久文件删除不旧cache复活，未flush真实warm ID可关联。
 - `GET /api/agent/running`的sessionActivity布尔快照保留原IDs/listVersion/completion suppression；pendingPrompt/queue/UI/压缩/shell/closing仍busy，首agent_end不等于整轮idle。可见页2.5秒poll，online/focus/visibility/reopen校准；失败linked卡片/筛选unknown、不匹配idle，详情留最近hint标stale；无关系任务可确定idle。不唤醒Agent/MCP或写任务状态。

@@ -19,7 +19,7 @@ export function TaskSessionMenu({ session, taskId, active, disabled, newOperatio
   const item = useRef<HTMLButtonElement>(null);
   const request = useRef<TaskRelationRequest | null>(null);
   const saving = useRef(false);
-  const unavailable = disabled || pending || !!session.missing;
+  const unavailable = disabled || pending;
   const visible = open && active && !unavailable;
 
   useEffect(() => {

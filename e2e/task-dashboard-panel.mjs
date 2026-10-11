@@ -223,8 +223,14 @@ try {
   assert.equal(await menu.count(), 0, "hidden panels do not retain an open menu");
   await linkedRow.getByRole("link", { name: linkedSession.name, exact: true }).waitFor();
 
+  // A deleted chat remains removable using its real (nonzero) relation snapshot.
+  otherSession.missing = true;
+  await inspector.getByRole("button", { name: "Refresh chats", exact: true }).click();
+  const otherRow = inspector.getByRole("list", { name: "Linked chats", exact: true }).locator("li").filter({ hasText: otherSession.id });
+  await otherRow.waitFor();
+  assert.equal(await otherRow.getByRole("link").count(), 0, "a missing chat cannot be opened");
+  assert.equal(await otherRow.getByRole("button", { name: "Chat actions", exact: true }).isEnabled(), true, "a missing chat can be removed");
   // A committed removal with a lost response must retry the identical operation, not silently rebase.
-  const otherRow = inspector.getByRole("list", { name: "Linked chats", exact: true }).locator("li").filter({ has: page.getByRole("link", { name: otherSession.name, exact: true }) });
   loseNextRemovalResponse = true;
   await otherRow.getByRole("button", { name: "Chat actions", exact: true }).click();
   await menu.getByRole("menuitem", { name: "Remove", exact: true }).click();
@@ -233,6 +239,9 @@ try {
   await menu.getByRole("menuitem", { name: "Remove", exact: true }).click();
   await otherRow.waitFor({ state: "hidden" });
   assert.deepEqual(relationRequests[1], relationRequests[0], "lost-response retry preserves UUID and CAS");
+  assert.equal(relationRequests[0].sessionId, otherSession.id);
+  assert.equal(relationRequests[0].expectedGeneration, 2);
+  assert.equal(relationRequests[0].expectedUpdateRevision, 4);
 
   failNextRemoval = true;
   await trigger.click();
