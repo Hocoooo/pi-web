@@ -96,6 +96,17 @@ export function TaskDashboard({ active = true, onClose, currentSessionId = null,
   const [retryMove, setRetryMove] = useState<Extract<TaskRequest, { action: "move" }> | null>(null);
   const sensors = useSensors(useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 5 } }));
+  useEffect(() => {
+    if (!dragTask) return;
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.isComposing || event.keyCode === 229) return;
+      // Claim the key before the panel's document bubble listener closes it.
+      // Keep propagation so dnd-kit's document listener still cancels the drag.
+      event.preventDefault();
+    };
+    document.addEventListener("keydown", handleEscape, true);
+    return () => document.removeEventListener("keydown", handleEscape, true);
+  }, [dragTask]);
   const [creating, setCreating] = useState(false);
   const [sourceSessionId, setSourceSessionId] = useState<string | null>(null);
   const [linkTargetId, setLinkTargetId] = useState("");
@@ -411,8 +422,9 @@ export function TaskDashboard({ active = true, onClose, currentSessionId = null,
           const tasks = visibleTasks.filter((task) => task.columnId === column.id);
           return <TaskDropColumn key={column.id} id={column.id} label={`${taskColumnName(column, t)} (${tasks.length})`}>
             {tasks.length === 0 && <p className={styles.hint}>{t("tasks.empty")}</p>}
-            {tasks.map((task) => <TaskDragCard key={task.id} task={task} disabled={pending || loading} handleLabel={`${t("tasks.dragHandle")}: ${task.title}`}>
-              <button type="button" className={styles.cardTitle} aria-expanded={selectedTaskId === task.id} onClick={() => setSelectedTaskId(task.id)}>{task.title}</button>
+            {tasks.map((task) => <TaskDragCard key={task.id} task={task} disabled={pending || loading}
+              expanded={selectedTaskId === task.id} onOpen={() => setSelectedTaskId(task.id)}>
+              <span className={styles.cardTitle}>{task.title}</span>
               <p className={styles.cardProject} title={task.project?.projectRoot}>{task.project?.projectRoot.split(/[\\/]/).filter(Boolean).at(-1) ?? t("tasks.noProject")}</p>
               <div className={styles.cardMeta}>
                 <span data-priority={task.priority}>{t(`tasks.priority.${task.priority}`)}</span>
@@ -430,7 +442,7 @@ export function TaskDashboard({ active = true, onClose, currentSessionId = null,
       {inspectedTaskIds.map(id => {
         const selectedTask = board?.tasks.find(task => task.id === id);
         if (!selectedTask || !board) return null;
-        return <TaskInspector hidden={id !== selectedTaskId} key={selectedTask.id} task={selectedTask} board={board} visibleTasks={visibleTasks} sort={sort} disabled={disabled} panelRef={id === selectedTaskId ? inspector : undefined}
+        return <TaskInspector hidden={id !== selectedTaskId} key={selectedTask.id} task={selectedTask} visibleTasks={visibleTasks} sort={sort} disabled={disabled} panelRef={id === selectedTaskId ? inspector : undefined}
         onClose={() => { setSelectedTaskId(null); dashboard.current?.focus({ preventScroll: true }); }} onMove={moveTask} feedback={id === selectedTaskId ? feedback : null}
         onArchive={() => void submitArchive({ action: "set-archive", id: selectedTask.id, archived: !selectedTask.archived, expectedArchiveRevision: selectedTask.archiveRevision, operationId: newTaskId() })}>
         <TaskDetails task={selectedTask} active={active && id === selectedTaskId} currentSessionId={currentSessionId} disabled={disabled || !!relation}

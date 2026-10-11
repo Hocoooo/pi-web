@@ -206,7 +206,7 @@ export const zhTWLocale: LocalePlugin = {
     "tasks.created": "任務已儲存。",
     "tasks.moved": "任務狀態和位置已儲存。",
     "tasks.dragHandle": "拖動任務",
-    "tasks.dragHelp": "拖動把手移動任務；觸控時先短暫按住。其他區域可正常捲動。鍵盤可用移到、上移或下移。Escape 取消拖動。",
+    "tasks.dragHelp": "點擊任務卡片開啟詳情，在卡片任意位置拖動即可移動任務。觸控時短暫按住後拖動，快速滑動可捲動。鍵盤 Enter 或空白鍵開啟詳情，再使用上移或下移調整同狀態內的順序。Escape 取消拖動。",
     "tasks.dragStarted": "正在拖動任務，Escape 取消，放開後儲存。",
     "tasks.dragReleased": "已放開拖動，請查看儲存結果。",
     "tasks.dragCancelled": "拖動已取消，未儲存移動。",

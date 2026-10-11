@@ -2,13 +2,12 @@
 
 import type { ReactNode, RefObject } from "react";
 import { useI18n } from "@/hooks/useI18n";
-import type { TaskBoard, TaskColumnId, TaskMovePosition, TaskRecord, TaskSort } from "@/lib/task-types";
-import { taskColumnName } from "./TaskColumnSettings";
+import type { TaskColumnId, TaskMovePosition, TaskRecord, TaskSort } from "@/lib/task-types";
 import styles from "./TaskDashboard.module.css";
 
 /** Outside the board projection: filtering, moving and archiving cannot remove an open review. */
-export function TaskInspector({ hidden = false, task, board, visibleTasks, sort, disabled, panelRef, onClose, onMove, onArchive, feedback, children }: {
-  task: TaskRecord; board: TaskBoard; visibleTasks: TaskRecord[]; sort: TaskSort; disabled: boolean;
+export function TaskInspector({ hidden = false, task, visibleTasks, sort, disabled, panelRef, onClose, onMove, onArchive, feedback, children }: {
+  task: TaskRecord; visibleTasks: TaskRecord[]; sort: TaskSort; disabled: boolean;
   hidden?: boolean; panelRef?: RefObject<HTMLDivElement | null>; onClose: () => void;
   onMove: (task: TaskRecord, columnId: TaskColumnId, position?: TaskMovePosition) => void;
   onArchive: () => void; feedback: ReactNode; children: ReactNode;
@@ -30,11 +29,6 @@ export function TaskInspector({ hidden = false, task, board, visibleTasks, sort,
       <p className={styles.metadata}>{t("tasks.updated")}: <time dateTime={task.updatedAt}>{new Date(task.updatedAt).toLocaleString()}</time></p>
     </div>
     {feedback}
-    <label className={styles.move}>{t("tasks.moveTo")}
-      <select value={task.columnId} aria-label={`${t("tasks.moveTo")}: ${task.title}`} disabled={disabled} onChange={event => onMove(task, event.target.value as TaskColumnId)}>
-        {board.columns.map(target => <option key={target.id} value={target.id}>{taskColumnName(target, t)}</option>)}
-      </select>
-    </label>
     {sort !== "manual" && <p className={styles.hint}>{t("tasks.view.autoHelp")}</p>}
     <div className={styles.actions}>
       {task.archived && <span>{t("tasks.archive.archived")}</span>}

@@ -205,7 +205,7 @@ export const zhCNLocale: LocalePlugin = {
     "tasks.created": "任务已保存。",
     "tasks.moved": "任务状态和位置已保存。",
     "tasks.dragHandle": "拖动任务",
-    "tasks.dragHelp": "拖动把手移动任务；触摸时先短暂按住。其他区域可正常滚动。键盘可用移到、上移或下移。Escape 取消拖动。",
+    "tasks.dragHelp": "点击任务卡片打开详情，在卡片任意位置拖动即可移动任务。触摸时短暂按住后拖动，快速滑动可滚动。键盘 Enter 或空格打开详情，再使用上移或下移调整同状态内的顺序。Escape 取消拖动。",
     "tasks.dragStarted": "正在拖动任务，Escape 取消，松开后保存。",
     "tasks.dragReleased": "已松开拖动，请查看保存结果。",
     "tasks.dragCancelled": "拖动已取消，未保存移动。",

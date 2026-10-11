@@ -117,9 +117,16 @@ try {
   await inspector.getByRole("button", { name: "Save details", exact: true }).click();
   await inspector.getByRole("heading", { name: "Unsaved task edit", exact: true }).waitFor();
   await page.screenshot({ path: path.join(root, "details.png") });
-  await inspector.getByLabel("Move to: Unsaved task edit", { exact: true }).selectOption("in-progress");
-  await dialog.locator('[data-task-column="in-progress"]').getByRole("button", { name: "Unsaved task edit", exact: true }).waitFor();
+  assert.equal(await inspector.getByRole("combobox", { name: /^Move to:/ }).count(), 0, "details no longer offer state changes");
   await dialog.getByRole("button", { name: "Close task details", exact: true }).click();
+  const movingCard = dialog.locator('[data-task-column="todo"]').getByRole("button", { name: "Unsaved task edit", exact: true });
+  const from = await movingCard.boundingBox();
+  const to = await dialog.locator('[data-task-column="in-progress"]').boundingBox();
+  await page.mouse.move(from.x + 8, from.y + 8); await page.mouse.down();
+  await page.mouse.move(from.x + 20, from.y + 8); await dialog.locator("[data-task-overlay]").waitFor();
+  await page.mouse.move(to.x + to.width / 2, to.y + to.height * .8, { steps: 12 }); await page.mouse.up();
+  await dialog.locator('[data-task-column="in-progress"]').getByRole("button", { name: "Unsaved task edit", exact: true }).waitFor();
+  assert.equal(await inspector.count(), 0, "cross-status dragging does not reopen details");
   await dialog.getByRole("button", { name: "New task", exact: true }).click();
   await dialog.getByLabel("Title", { exact: true }).fill("Draft survives close");
   await dialog.getByRole("button", { name: "Choose project…", exact: true }).click();
@@ -233,6 +240,7 @@ try {
       await membership.getByRole("button", { name: detailsLabel, exact: true }).click();
       const localizedDialog = page.getByRole("dialog", { name: dashboardName, exact: true });
       await localizedDialog.locator("[data-task-inspector]:visible").getByRole("link", { name: linkedSession.name, exact: true }).waitFor();
+      assert.equal(await localizedDialog.locator('[data-task-inspector]:visible select option[value="in-progress"]').count(), 0, "no state selector in any locale/theme");
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
       assert.equal(await page.locator("html").getAttribute("data-theme"), theme);
       await page.screenshot({ path: path.join(root, `${locale}-${theme}-membership.png`) });

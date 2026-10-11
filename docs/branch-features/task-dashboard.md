@@ -6,7 +6,7 @@
 
 ## 当前简洁 UI
 
-关联对话采用分隔列表，标题行提供关联与刷新；关联政策按需显示，不重复对话数量/运行摘要，不为未填写的描述/完成要求生成占位段。聊天归属使用[F32 紧凑任务选择器](task-picker.md)和共用单行入口，详情保持独立按钮。当前浏览器验证使用 `e2e/task-dashboard-panel.mjs` 与 `e2e/task-picker-page.mjs`；不以以下旧共享界面测试证明新行为。样式调整不改变存储、拖拽/排序、CAS、归档或会话关联规则。
+关联对话采用分隔列表，标题行提供关联与刷新；关联政策按需显示，不重复对话数量/运行摘要，不为未填写的描述/完成要求生成占位段。聊天归属使用[F32 紧凑任务选择器](task-picker.md)和共用单行入口，详情保持独立按钮。当前浏览器验证使用 `e2e/task-dashboard-panel.mjs` 与 `e2e/task-picker-page.mjs`；不以以下旧共享界面测试证明新行为。整卡交互见下文：单击详情、整卡拖动；不改变存储、排序意图、CAS、归档或会话关联规则。
 
 ## 筛选简化与全界面检查（2026-10-10）
 
@@ -44,7 +44,7 @@
 ### 创建、详情与资料（01/02）
 
 - 创建保存标题（必填、trim、200字符）、说明/完成要求（各20,000字符）、可选一个cwd；复用DirectoryPicker并可输入/清空。取消复用三语言有效 `sidebar.cancel`，只关闭、不写任务或Agent请求。
-- 默认卡片仅显示标题按钮、优先级、最多两个标签及余量、项目简称/明确无项目、对话数或工作提示和拖动把手。标题打开右侧详情抽屉；完整资料、全部标签/项目路径、更新时间（time完整ISO、本地显示）、状态 select、归档与键盘上/下调序进入详情，边界禁用不变。整理/改绑会先收起详情，避免小屏遮挡后续流程。
+- 默认卡片仅显示标题、优先级、最多两个标签及余量、项目简称/明确无项目、对话数或工作提示，不再提供独立拖动把手。整张卡片（包括标题、项目、标签、数量及空白）单击打开右侧详情抽屉；卡片是单一可聚焦按钮语义，Enter/空格同样打开详情，提供可访问名称、展开状态及焦点边框。完整资料、全部标签/项目路径、更新时间（time完整ISO、本地显示）、归档与键盘上/下调序进入详情，边界禁用不变。详情不显示当前状态选择器或“移入某状态”操作；状态变更通过看板跨列拖动，上/下按钮只调整同状态内的顺序。整理/改绑会先收起详情，避免小屏遮挡后续流程。
 - 普通资料编辑仅标题、说明、完成要求、优先级、标签，不隐式修改项目/状态。项目使用 [F33](task-projects.md) 独立选择/预览/确认入口；底部不重复项目路径。成功后卡片与详情同记录；说明/要求保留原文字。
 - 优先级整数0低、1普通默认、2高、3紧急；共用compareTaskPriority降序，同值createdAt升序、UUID code-point升序，全同键0。最近更新排序独立updatedAt降序/createdAt升序/UUID升序；05均纯投影，不写手动顺序。
 - 标签默认[]，最多20项、每项50 JS字符、非空单行；API trim、大小写敏感去重保首次顺序，限额在规范化前校验。公共JS入口逐槽检查稀疏数组，空槽拒绝而非写null。编辑器每行一个、逗号可作普通文字。
@@ -52,8 +52,8 @@
 
 ### 拖动、顺序与失败（03）
 
-- 只独立把手激活，表单/详情/菜单不是激活区；卡片上半before、下半after、列空白edge:end。鼠标6px激活；触摸长按250ms，之前移动超5px取消并交回滚动；已激活可边缘自动滚动。overlay纯文本，无第二编辑器。
-- Escape/touchCancel/目标外/自身放置取消，不写receipt/启动AI。拖动冻结任务/顺序快照并暂停重读/冲突写入，原草稿保留。键盘用菜单/上下载同样结果，不承诺Space/箭头拖动传感器。
+- 整张卡片激活拖动，不必命中特定按钮；表单/详情/菜单不在激活区。卡片上半before、下半after、列空白edge:end。鼠标移动超过6px激活，小幅移动仍为点击详情；触摸短按详情、长按250ms拖动，之前移动超5px取消并交回滚动；已激活可边缘自动滚动。拖动结束或取消不再触发详情点击，overlay纯文本，无第二编辑器。
+- Escape/touchCancel/目标外/自身放置取消，不写receipt/启动AI。激活拖动期间 Escape 只取消拖动、不关闭看板，事件继续交给 dnd-kit 取消传感器；无拖动时面板/详情 Escape 行为不变。拖动冻结任务/顺序快照并暂停重读/冲突写入，原草稿保留。键盘可用详情上/下按钮调整同状态内的顺序；详情不提供跨状态菜单，不承诺Space/箭头拖动传感器。
 - 只在成功响应后采用同锁完整权威board。失败留alert并重读，重读也失败保留旧板/两个错误；网络/存储/丢响应提供逐字段原UUID/revision/锚点的精确重试，不自动rebase。重读可展示已保存结果，不等于确认成功。
 - online/focus/手动刷新不清未确认移动错误/原请求；精确确认或明确新写意图后才结束旧处理。conflict/非法锚点/任务不存在不重演，须重读后另发新意图。读失败不假空板；初载/focus/online重读，无跨页实时推送承诺。
 - 原生Link/button/form/details/select键盘可用，小屏在面板内容区横向滚动列、详情覆盖面板宽度，16px输入/长路径不撑文档宽度。三语言，资料React纯文本，共享重点仅被动安全Markdown。筛选默认折叠，已启用条件有标记，列设置按需打开。
@@ -134,9 +134,13 @@
 ## 实现导航
 
 - [task-types](../../lib/task-types.ts)：共享类型/稳定列/限制/错误；[task-store](../../lib/task-store.ts)：版本分派、完整hydrated目标验证、锁/fsync/rename；[task-operations](../../lib/task-operations.ts)：统一操作/同锁board/派生digest。
-- [TaskDashboard](../../components/TaskDashboard.tsx)、[TaskInspector](../../components/TaskInspector.tsx)、[TaskDetails](../../components/TaskDetails.tsx)：权威响应/独立草稿/紧凑卡片/独立于投影的详情；[TaskDragTargets](../../components/TaskDragTargets.tsx)：把手/邻居意图；[TaskColumnSettings](../../components/TaskColumnSettings.tsx)：SettingsUi草稿/确认；[样式](../../components/TaskDashboard.module.css)、[/tasks](../../app/tasks/page.tsx)。
+- [TaskDashboard](../../components/TaskDashboard.tsx)、[TaskInspector](../../components/TaskInspector.tsx)、[TaskDetails](../../components/TaskDetails.tsx)：权威响应/独立草稿/紧凑卡片/独立于投影的详情；[TaskDragTargets](../../components/TaskDragTargets.tsx)：整卡点击/拖动/键盘激活与邻居意图；[TaskColumnSettings](../../components/TaskColumnSettings.tsx)：SettingsUi草稿/确认；[样式](../../components/TaskDashboard.module.css)、[/tasks](../../app/tasks/page.tsx)。
 - [TaskSessions](../../components/TaskSessions.tsx)、[task-sessions](../../lib/task-sessions.ts)、[scanner](../../lib/session-list-scanner.ts)、[worktree](../../lib/worktree.ts)：metadata/权威scope；[RPC](../../lib/rpc-manager.ts)：原活动投影/准入；[tasks API](../../app/api/tasks/route.ts)、[running API](../../app/api/agent/running/route.ts)。
 - [AppShell](../../components/AppShell.tsx)、[tab-session](../../lib/tab-session.ts)、[SessionSidebar](../../components/SessionSidebar.tsx)：[TaskPanel](../../components/TaskPanel.tsx) 持久浮层、[task-panel-navigation](../../components/task-panel-navigation.ts) 显式聊天选择与草稿恢复；[validated-cwd](../../lib/validated-cwd.ts)：与cwd路由共用校验。
+
+## 整卡交互回归入口
+
+`E2E_BASE_URL=<verified-dev> node e2e/task-dashboard-card.mjs` 使用真实面板、全 API 截获和临时 task store：标题/项目/数量/标签/空白单击、小幅移动、Enter/空格、同列/跨列拖动及刷新持久化、松手不打开详情、Escape/目标外/自身取消、详情无状态选择器且同列上下调序保留、390px 触屏短按/长按/touchCancel/快速滑动滚动；断言零 Agent 写请求。原 `e2e/task-dashboard-panel.mjs` 继续覆盖草稿/焦点/三语言/主题。实际运行结果另报，不代替 Safari/iOS 真机或全平台验证。
 
 ## 验证入口（命令不是执行通过声明）
 

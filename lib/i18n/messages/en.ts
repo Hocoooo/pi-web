@@ -204,7 +204,7 @@ export const enLocale: LocalePlugin = {
     "tasks.created": "Task saved.",
     "tasks.moved": "Task status and position saved.",
     "tasks.dragHandle": "Drag task",
-    "tasks.dragHelp": "Drag the handle to move; on touch, hold briefly. Scroll elsewhere normally. Keyboard: use Move to, Move up or Move down. Escape cancels dragging.",
+    "tasks.dragHelp": "Click a task card to open details, or drag anywhere on the card to move it. On touch, hold briefly to drag; swipe to scroll. Keyboard: Enter or Space opens details, then use Move up or Move down to reorder within the same status. Escape cancels dragging.",
     "tasks.dragStarted": "Dragging task. Escape cancels; release to save.",
     "tasks.dragReleased": "Drag released. Check the save result.",
     "tasks.dragCancelled": "Drag cancelled. No move saved.",
