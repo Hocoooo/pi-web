@@ -37,6 +37,7 @@ await context.route("**/api/**", async route => {
   if (url.pathname === "/api/tasks") {
     if (request.method() === "GET") boardReads++;
     const input = request.method() === "GET" ? { action: "list" } : request.postDataJSON();
+    if (input.action === "projects") return route.fulfill({ json: await taskOperation(input, { agentDir }) });
     if (input.action === "sessions") return route.fulfill({ json: {
       linked: sessionFixtures.filter(session => memberships.get(session.id) === input.id),
       candidates: sessionFixtures.filter(session => !memberships.has(session.id)),

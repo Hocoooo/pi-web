@@ -1,5 +1,6 @@
 "use client";
 
+import { TaskProjectEditor } from "./TaskProject";
 import { TaskSessions } from "./TaskSessions";
 import { type FormEvent } from "react";
 import { useI18n } from "@/hooks/useI18n";
@@ -14,8 +15,10 @@ export interface TaskEditDraft {
 }
 
 /** Drafts live above columns so a refreshed/moved card cannot discard or silently rebase input. */
-export function TaskDetails({ task, disabled, active = true, currentSessionId, editDraft, onDraftChange, onSave, onLink, onChangeRelation, runningIds, sessionActivity }: {
+export function TaskDetails({ task, disabled, active = true, currentSessionId, editDraft, onDraftChange, onSave, onProjectSave, newOperationId, onLink, onChangeRelation, runningIds, sessionActivity }: {
   active?: boolean;
+  onProjectSave: (request: Extract<TaskRequest, { action: "change-project" }>) => Promise<void>;
+  newOperationId: () => string;
   currentSessionId?: string | null;
   onChangeRelation: (session: TaskSessionInfo) => void;
   onLink: (request: Extract<TaskRequest, { action: "link" }>) => Promise<void>;
@@ -51,6 +54,7 @@ export function TaskDetails({ task, disabled, active = true, currentSessionId, e
   return <section aria-label={task.title}>
     <h2 className={styles.detailTitle}>{task.title}</h2>
     <TaskSessions task={task} active={active} currentSessionId={currentSessionId} disabled={disabled} onLink={onLink} onChangeRelation={onChangeRelation} runningIds={runningIds} sessionActivity={sessionActivity} />
+    <TaskProjectEditor task={task} active={active} disabled={disabled || !!draft} onSave={onProjectSave} newOperationId={newOperationId} />
     {draft ? <form onSubmit={save} className={styles.editForm} aria-label={t("tasks.edit")}>
       <label>{t("tasks.title")}<input aria-label={t("tasks.title")} autoFocus required maxLength={TASK_TEXT_LIMITS.title} disabled={disabled} value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} /></label>
       <label>{t("tasks.description")}<textarea aria-label={t("tasks.description")} rows={3} maxLength={TASK_TEXT_LIMITS.description} disabled={disabled} value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} /></label>
@@ -68,7 +72,6 @@ export function TaskDetails({ task, disabled, active = true, currentSessionId, e
     </form> : <>
       {task.description && <><h3>{t("tasks.description")}</h3><p className={styles.text}>{task.description}</p></>}
       {task.completionCriteria && <><h3>{t("tasks.criteria")}</h3><p className={styles.text}>{task.completionCriteria}</p></>}
-      {task.project && <><h3>{t("tasks.projectDirectory")}</h3><p className={styles.text}>{task.project.cwd}</p></>}
       <button type="button" disabled={disabled} onClick={beginEdit}>{t("tasks.edit")}</button>
     </>}
   </section>;

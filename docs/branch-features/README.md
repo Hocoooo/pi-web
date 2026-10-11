@@ -6,6 +6,8 @@
 
 [F32：聊天任务选择器](task-picker.md)扩展 F31 的入口：`/task` 与归属按钮共用键盘弹窗，支持新会话预选和已有会话关联/改绑/解除，不打开任务面板、不恢复共享或任务执行。详情保留独立按钮。
 
+[F33：任务项目选择与修改](task-projects.md)扩展创建与详情入口：可选 Pi 已有项目或新增目录；跨项目修改经预览确认后原子解除不兼容对话，不修改对话 cwd 或执行状态。
+
 ## 必须先读：Agent 工作规则
 
 **每次开发迭代开始前，必须先阅读本 README，再阅读本次涉及的功能文档及其关联功能文档。** 适用于新增、修改、修复、重构、测试调整，以及 merge/rebase 冲突处理；不能等修改完成后才补读。
@@ -65,8 +67,9 @@
 | F30 | [解除/改绑任务关系](task-session-relation.md) | F31 关系只管理归属，不要求任务 active 或 session idle；仍保留同锁权威 scope、唯一 owner、generation/CAS/精确 receipt、旧 pending 清理和复制 ABA 保护，不改 cwd/模型/工具/原生历史 | task-relations/operations/store、TaskRelation/TaskSessions/Dashboard、task-summary/start/context-update-send/session-copy |
 | F31 | [任务 session 管理](task-session-management.md) | 任务详情以关联对话为主体、当前会话归属与直达入口、卡片数量/运行提示；管理与执行解耦，停用共享/启动/更新路径，旧数据与历史兼容保留 | TaskDashboard/Details/Sessions/Relation、SessionTaskLink/ChatWindow/AppShell、task-operations/relations/archive/session-copy、rpc-manager |
 | F32 | [聊天任务选择器 `/task`](task-picker.md) | 紧凑主题选择器、单行归属栏、全键盘/慢保存焦点约束与状态本地化；新会话预选不启动 Agent，正常创建后关联；已有会话关联/改绑/解除；同项目/归档/CAS、失败草稿与 ID 保留、详情独立入口 | TaskPicker/TaskSelectionDialog/SessionTaskLink/ChatInput/ChatWindow、useTaskSelection/useAgentSession、tasks API/task-types/task-operations |
+| F33 | [任务项目选择与修改](task-projects.md) | 合并 Pi 对话与任务项目、复用目录新增/选择、同项目保留关联、跨项目预览确认后原子解除；项目 CAS/精确重试、不改聊天执行；真实隔离服务浏览器验收 | TaskProject/Dashboard/Details/Inspector、tasks API、task-operations/store/types |
 
-## 任务功能历史快照（2026-10-09 文档收尾；当前范围见 F31/F32）
+## 任务功能历史快照（2026-10-09 文档收尾；当前范围见 F31/F32/F33）
 
 - **01–14 全部已由父代理按各票范围验收 resolved**；10 最终独立主复审见 `/tmp/t10mr-mus4_2wp/REPORT.md`，修复证据见 `/tmp/t10fix-l8beyj3o/REPORT.md`。最终独立综合核验及父review已完成，见[最终接受记录](../../.scratch/task-dashboard/FINAL-ACCEPTANCE.md)；仅已执行范围通过，不代表全平台/真实provider验收。
 - 当前存储为 **v7**；唯一的[当前 schema、独立 CAS 与迁移表](task-dashboard.md#当前存储cas与迁移权威表)由 F21 维护，其余任务合同引用它。14 `columnRemovalDigests` 同锁派生、不持久；09 选择 ≠ native append ≠ 成功 SDK input/response ≠ provider wire/read。

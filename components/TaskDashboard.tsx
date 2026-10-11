@@ -8,7 +8,7 @@ import { TaskDragCard, TaskDropColumn } from "./TaskDragTargets";
 import { TaskViewControls } from "./TaskViewControls";
 import { emptyTaskFilter, projectTaskView, taskActivity } from "@/lib/task-view";
 import { TaskColumnSettings, taskColumnName } from "./TaskColumnSettings";
-import { DirectoryPicker } from "./DirectoryPicker";
+import { TaskProjectField } from "./TaskProject";
 import { TaskDetails, type TaskEditDraft } from "./TaskDetails";
 import { TaskInspector } from "./TaskInspector";
 import { TaskRelation } from "./TaskRelation";
@@ -20,7 +20,7 @@ import styles from "./TaskDashboard.module.css";
 async function requestTask(input: { action: "list" }): Promise<TaskBoard>;
 async function requestTask(input: Extract<TaskRequest, { action: "set-columns" | "remove-column" | "save-view" | "change-session-relation" }>): Promise<TaskBoard>;
 async function requestTask(input: { action: "sessions"; id: string }): Promise<TaskSessionsResult>;
-async function requestTask(input: Extract<TaskRequest, { action: "create" | "createFromSession" | "edit" | "link" | "move" | "set-archive" }>): Promise<TaskMutationResult>;
+async function requestTask(input: Extract<TaskRequest, { action: "create" | "createFromSession" | "edit" | "link" | "move" | "set-archive" | "change-project" }>): Promise<TaskMutationResult>;
 async function requestTask(input: TaskRequest): Promise<TaskBoard | TaskMutationResult | TaskSessionsResult> {
   const response = await fetch("/api/tasks", input.action === "list" ? { cache: "no-store" } : {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input),
@@ -137,7 +137,6 @@ export function TaskDashboard({ active = true, onClose, currentSessionId = null,
   const [description, setDescription] = useState("");
   const [completionCriteria, setCompletionCriteria] = useState("");
   const [cwd, setCwd] = useState("");
-  const [pickingDirectory, setPickingDirectory] = useState(false);
   // Keep the same creation ID across a failed/lost response. Editing content starts a new attempt.
   const createAttempt = useRef<{ payload: string; id: string } | null>(null);
   const disabled = pending || loading || !!dragTask;
@@ -272,7 +271,7 @@ export function TaskDashboard({ active = true, onClose, currentSessionId = null,
     moveTask(task, columnId, position, snapshot);
   }
 
-  async function editTask(request: Extract<TaskRequest, { action: "edit" | "link" }>) {
+  async function editTask(request: Extract<TaskRequest, { action: "edit" | "link" | "change-project" }>) {
     if (pendingRef.current) throw new Error(t("tasks.saving"));
     startMutation();
     try {
@@ -390,19 +389,12 @@ export function TaskDashboard({ active = true, onClose, currentSessionId = null,
         <label>{t("tasks.title")}<input autoFocus required maxLength={TASK_TEXT_LIMITS.title} value={title} onChange={(event) => setTitle(event.target.value)} disabled={pending} /></label>
         <label>{t("tasks.description")}<textarea rows={3} maxLength={TASK_TEXT_LIMITS.description} value={description} onChange={(event) => setDescription(event.target.value)} disabled={pending} /></label>
         <label>{t("tasks.criteria")}<textarea rows={3} maxLength={TASK_TEXT_LIMITS.completionCriteria} value={completionCriteria} onChange={(event) => setCompletionCriteria(event.target.value)} disabled={pending} /></label>
-        {sourceSessionId ? <p>{t("tasks.sourceSession")}: {sourceSessionId}</p> : <label>{t("tasks.projectDirectory")}<input maxLength={4096} placeholder={t("tasks.noProject")} value={cwd} onChange={(event) => setCwd(event.target.value)} disabled={pending} /></label>}
+        {sourceSessionId ? <p>{t("tasks.sourceSession")}: {sourceSessionId}</p> : <TaskProjectField cwd={cwd} onChange={setCwd} disabled={pending} active={active} />}
         <div className={styles.actions}>
-          {!sourceSessionId && <><button type="button" disabled={pending} onClick={() => setPickingDirectory(true)}>{t("tasks.chooseProject")}</button>
-          <button type="button" disabled={pending || !cwd} onClick={() => setCwd("")}>{t("tasks.noProject")}</button></>}
           <button type="submit" disabled={disabled}>{t("tasks.create")}</button>
           <button type="button" disabled={pending} onClick={() => setCreating(false)}>{t("sidebar.cancel")}</button>
         </div>
       </form>}
-      {active && pickingDirectory && <div onKeyDownCapture={event => {
-        if (event.key === "Escape" && (event.nativeEvent.isComposing || event.keyCode === 229)) event.stopPropagation();
-      }} onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); } }}>
-        <DirectoryPicker initialPath={cwd || undefined} onCancel={() => setPickingDirectory(false)} onSelect={(directory) => { setCwd(directory); setPickingDirectory(false); }} />
-      </div>}
       {board && <DndContext sensors={sensors} collisionDetection={(args) => { dropPointer.current = args.pointerCoordinates; return taskCollision(args); }}
         accessibility={{ screenReaderInstructions: { draggable: t("tasks.dragHelp") }, announcements: {
           onDragStart: () => t("tasks.dragStarted"), onDragOver: () => undefined,
@@ -444,7 +436,7 @@ export function TaskDashboard({ active = true, onClose, currentSessionId = null,
         <TaskDetails task={selectedTask} active={active && id === selectedTaskId} currentSessionId={currentSessionId} disabled={disabled || !!relation}
           onChangeRelation={session => { setSelectedTaskId(null); setRelation({ source: selectedTask, session }); }}
           onLink={editTask} runningIds={activityError ? null : runningIds} sessionActivity={sessionActivity}
-          editDraft={editDrafts[selectedTask.id] ?? null} onSave={editTask}
+          editDraft={editDrafts[selectedTask.id] ?? null} onSave={editTask} onProjectSave={editTask} newOperationId={newTaskId}
           onDraftChange={draft => setEditDrafts(current => {
             const next = { ...current }; if (draft) next[selectedTask.id] = draft; else delete next[selectedTask.id]; return next;
           })} />

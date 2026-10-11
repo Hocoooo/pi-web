@@ -171,6 +171,9 @@ export type TaskRequest =
   | TaskRelationRequest
   | TaskColumnRemovalRequest
   | { action: "list" }
+  | { action: "projects" }
+  | { action: "preview-project"; id: string; cwd: string | null }
+  | { action: "change-project"; id: string; cwd: string | null; expectedRevision: number; previewToken: string; operationId: string }
   | { action: "set-archive"; id: string; archived: boolean; expectedArchiveRevision: number; operationId: string }
   | { action: "admit-session-work"; sessionId: string; taskId?: string }
   | { action: "prepare-session-copy"; operationId: string; sourceSessionId: string; fingerprint: string }
@@ -189,6 +192,8 @@ export type TaskRequest =
   | TaskContextRequest
   | TaskStartRequest
   | TaskContextUpdateRequest;
+export interface TaskProjectsResult { projects: TaskProject[] }
+export interface TaskProjectPreview { project: TaskProject | null; revision: number; token: string; detachSessionIds: string[] }
 export interface TaskMutationResult { task: TaskRecord; board: TaskBoard }
 export interface TaskCopyResult { cancelled: boolean; newSessionId?: string }
 export type TaskSessionActivity = Pick<TaskSessionInfo, "running" | "waitingForInput" | "compacting" | "bashRunning" | "queued">;

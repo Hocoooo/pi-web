@@ -10,7 +10,7 @@ const MAX_REQUEST_BYTES = 256 * 1024;
 // Public actions only. Internal admission/delivery/copy actions must never be
 // reachable by posting a plausible receipt; parsers still reject extra fields.
 const PUBLIC_ACTIONS = new Set(["list", "create", "createFromSession", "edit", "move", "set-columns", "remove-column", "sessions", "session-task", "task-picker", "link", "change-session-relation",
-  "save-view", "set-archive"]);
+  "save-view", "set-archive", "preview-project", "change-project", "projects"]);
 const SUSPENDED_ACTIONS = new Set(["publish-context", "restore-context", "prepare-start", "admit-start",
   "context-update-state", "accept-context-update", "clear-context-update", "pending-context-update", "complete-context-update"]);
 function failure(error: unknown) {

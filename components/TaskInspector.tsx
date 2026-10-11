@@ -28,7 +28,6 @@ export function TaskInspector({ hidden = false, task, board, visibleTasks, sort,
       <p className={styles.metadata}>{t("tasks.priority")}: {t(`tasks.priority.${task.priority}`)}</p>
       {task.labels.length > 0 && <ul className={styles.labels} aria-label={t("tasks.labels")}>{task.labels.map(label => <li key={label}>{label}</li>)}</ul>}
       <p className={styles.metadata}>{t("tasks.updated")}: <time dateTime={task.updatedAt}>{new Date(task.updatedAt).toLocaleString()}</time></p>
-      <p className={styles.project}>{task.project?.projectRoot ?? t("tasks.noProject")}</p>
     </div>
     {feedback}
     <label className={styles.move}>{t("tasks.moveTo")}

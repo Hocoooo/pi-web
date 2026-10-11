@@ -1,5 +1,9 @@
 # 解除或改绑对话
 
+## 任务项目修改交点（F33）
+
+[修改任务项目](task-projects.md)不是移动 session：独立预览/确认操作在同一 store 锁内解除不兼容（含缺失）关系并修改项目；仍保持唯一 owner、generation 推进、旧 pending 清理及 native 历史保留。仅此明确确认的任务项目操作可以清理缺失 session 的关系；原 change-session-relation 的存在性与来源/目标 scope 检查不放宽。项目修改触发原任务元数据刷新，不发 Agent 请求。
+
 ## 聊天快捷入口
 
 [F32 `/task`](task-picker.md)与聊天归属按钮共用选择弹窗，直接复用本功能的改绑/解除请求；运行中的 session 和归档目标仍可管理。候选与 owner/generation/updateRevision 通过窄 `task-picker` 查询在同锁读取。相同选择的失败保留原 operationId 重试；换目标后先回读可能已提交的结果，不能执行上次选择的旧请求。无归属的初次关联继续使用 `link` 的目标 revision CAS/状态幂等，不将其描述为 generation receipt 型首次绑定。

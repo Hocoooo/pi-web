@@ -45,7 +45,7 @@
 
 - 创建保存标题（必填、trim、200字符）、说明/完成要求（各20,000字符）、可选一个cwd；复用DirectoryPicker并可输入/清空。取消复用三语言有效 `sidebar.cancel`，只关闭、不写任务或Agent请求。
 - 默认卡片仅显示标题按钮、优先级、最多两个标签及余量、项目简称/明确无项目、对话数或工作提示和拖动把手。标题打开右侧详情抽屉；完整资料、全部标签/项目路径、更新时间（time完整ISO、本地显示）、状态 select、归档与键盘上/下调序进入详情，边界禁用不变。整理/改绑会先收起详情，避免小屏遮挡后续流程。
-- 详情只编辑标题、说明、完成要求、优先级、标签，不编辑项目/状态。成功后卡片与详情同记录；说明/要求保留原文字。
+- 普通资料编辑仅标题、说明、完成要求、优先级、标签，不隐式修改项目/状态。项目使用 [F33](task-projects.md) 独立选择/预览/确认入口；底部不重复项目路径。成功后卡片与详情同记录；说明/要求保留原文字。
 - 优先级整数0低、1普通默认、2高、3紧急；共用compareTaskPriority降序，同值createdAt升序、UUID code-point升序，全同键0。最近更新排序独立updatedAt降序/createdAt升序/UUID升序；05均纯投影，不写手动顺序。
 - 标签默认[]，最多20项、每项50 JS字符、非空单行；API trim、大小写敏感去重保首次顺序，限额在规范化前校验。公共JS入口逐槽检查稀疏数组，空槽拒绝而非写null。编辑器每行一个、逗号可作普通文字。
 - 资料/知识/AI草稿按task ID分别停放，固定首次revision/current base。refresh/focus/online、过滤隐藏或移列重挂载不清输入/rebase；失败alert留输入，取消重开才采用新base；多任务草稿互相独立。
@@ -75,7 +75,7 @@
 | 位置 | 当前持久事实 | 对外/边界 |
 |---|---|---|
 | board | version:7、tasks、columns/columnsRevision、orderRevision、savedViews/viewsRevision、sessionCopies、sessionRelations；可选columnRemovalReceipt | public board剥离内部receipt/创建指纹，不含第二owner索引 |
-| task | UUID、五种资料、project或null、columnId、revision、createdAt/updatedAt、creationFingerprint、sessionIds、sharedContext、sessionContexts、sessionUpdates、archived/archiveRevision；可选moveReceipt/archiveReceipt | sessionIds唯一owner；tasks数组唯一手动顺序 |
+| task | UUID、五种资料、project或null、columnId、revision、createdAt/updatedAt、creationFingerprint、sessionIds、sharedContext、sessionContexts、sessionUpdates、archived/archiveRevision；可选moveReceipt/archiveReceipt/projectReceipt（F33，旧记录可缺省） | sessionIds唯一owner；tasks数组唯一手动顺序 |
 | knowledge | currentVersionId、不可变versions（manual/restore/AI真实来源与内部publish receipt） | restore形成新version；知识不是全聊天或自动采用 |
 | start/update/copy | 严格new-start tuple、每session choices/pending/deliveries、prepared/completed copy intent；各原epoch | 选择≠append≠SDK成功input/response≠provider wire/read；child不复制source tuple/pending/read |
 | relation | sessionRelations仅sessionId/generation/最近receipt，未列出身份epoch为0 | owner+generation防owned/null-owner ABA；旧合法receipt仅事实确认 |
@@ -87,6 +87,7 @@
 |---|---|---|
 | 创建 | UUID + 不可变creationFingerprint（原规范化cwd/原文字或source ID） | 已提交先确认身份再查目录/source；返回当前记录，不重复创建 |
 | 编辑/已有对话关联 | task.revision | 真实字段/关联变化推进task revision/time；不改order/columns/views/knowledge/archive |
+| 修改项目（F33） | task.revision + 服务端目标/待解除关系快照摘要 + operationId | 同锁修改项目与解除不兼容/缺失关系；task revision/time一次、解除项generation推进并清旧pending；最近projectReceipt精确确认，不改创建指纹/排序/archive/原生session |
 | 解除/改绑关系 | source owner + generation + session update revision（不以task.revision作为请求CAS） | 成功后推进来源/目标双方task revision/time，并同锁clear旧pending；不改order/columns/views/knowledge/archive |
 | 移动 | task.revision + orderRevision + 单UUID邻居/edge | 创建/真实移动推进order；最近moveReceipt同UUID/fingerprint仅确认，no-op写receipt不改revision/time；更晚move替换后旧请求conflict |
 | 列设置/删列 | columnsRevision；删列另orderRevision + 完整source digest + 独立done consent | 设置仅columns；非空删列order一次、受影响task revision/time一次；最近删除receipt仅确认，不重演/复活列 |

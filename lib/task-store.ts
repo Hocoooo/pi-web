@@ -19,6 +19,7 @@ export interface StoredTaskRecord extends TaskRecord {
   creationFingerprint: string;
   moveReceipt?: { operationId: string; fingerprint: string };
   archiveReceipt?: { operationId: string; fingerprint: string };
+  projectReceipt?: { operationId: string; fingerprint: string };
 }
 interface TaskDocument { version: 7; sessionRelations: SessionRelationRevision[]; columnRemovalReceipt?: { operationId: string; fingerprint: string }; sessionCopies: SessionCopyReceipt[]; viewsRevision: number; savedViews: StoredTaskView[]; orderRevision: number; columnsRevision: number; columns: TaskColumnConfig[]; tasks: StoredTaskRecord[] }
 function defaultColumns(): TaskColumnConfig[] { return TASK_COLUMNS.map(({ id, label }) => ({ id, label })); }
@@ -50,8 +51,8 @@ export function taskColumnRemovalDigest(tasks: readonly Pick<TaskRecord, "id" | 
 
 /** Internal retry metadata is not part of the public board/task record. */
 export function publicTask(task: StoredTaskRecord): TaskRecord {
-  const { creationFingerprint, moveReceipt, archiveReceipt, ...record } = task;
-  void creationFingerprint; void moveReceipt; void archiveReceipt;
+  const { creationFingerprint, moveReceipt, archiveReceipt, projectReceipt, ...record } = task;
+  void creationFingerprint; void moveReceipt; void archiveReceipt; void projectReceipt;
   return { ...record, sharedContext: publicSharedContext(task.sharedContext) };
 }
 const MAX_BYTES = 32 * 1024 * 1024;
@@ -70,6 +71,9 @@ function validTask(value: unknown, columns: readonly TaskColumnConfig[]): value 
   if (value.archiveReceipt !== undefined && (!record(value.archiveReceipt) || Object.keys(value.archiveReceipt).length !== 2
     || typeof value.archiveReceipt.operationId !== "string" || !TASK_ID_PATTERN.test(value.archiveReceipt.operationId)
     || typeof value.archiveReceipt.fingerprint !== "string" || !/^[0-9a-f]{64}$/.test(value.archiveReceipt.fingerprint))) return false;
+  if (value.projectReceipt !== undefined && (!record(value.projectReceipt) || Object.keys(value.projectReceipt).length !== 2
+    || typeof value.projectReceipt.operationId !== "string" || !TASK_ID_PATTERN.test(value.projectReceipt.operationId)
+    || typeof value.projectReceipt.fingerprint !== "string" || !/^[0-9a-f]{64}$/.test(value.projectReceipt.fingerprint))) return false;
   for (const key of ["title", "description", "completionCriteria"] as const) {
     if (typeof value[key] !== "string" || value[key].length > TASK_TEXT_LIMITS[key]) return false;
   }

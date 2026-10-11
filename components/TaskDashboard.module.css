@@ -1,3 +1,11 @@
+.projectSummary { display: flex; align-items: center; gap: 8px; margin: 14px 0; color: var(--text-muted); font-size: 12px; }
+.projectSummary span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.projectSummary button { flex-shrink: 0; }
+.projectEditor { display: flex; flex-direction: column; gap: 8px; margin: 14px 0; }
+.projectField { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.projectSelectRow { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.projectSelectRow select { flex: 1; min-width: 0; width: 0; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); padding: 7px 8px; font-size: 12px; }
+.projectSelectRow button { flex-shrink: 0; }
 .backdrop { position: fixed; inset: 0; z-index: 900; display: flex; align-items: center; justify-content: center; padding: 32px; background: #0007; backdrop-filter: blur(5px); }
 .backdrop[hidden], .dashboard [hidden] { display: none !important; }
 .panel { width: min(1320px, 100%); height: min(860px, calc(100dvh - 64px)); min-height: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 16px; background: var(--bg); box-shadow: 0 24px 100px #0006; outline: none; }
