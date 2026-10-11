@@ -10,7 +10,7 @@
 - [F33 项目选择与修改](task-projects.md)：创建可选 Pi 已有项目或新增目录；详情单行修改入口，跨项目先预览、确认后原子解除不兼容关联，不移动/删除/停止 session。底部不重复项目路径。
 - 保留任务资料、手动状态、筛选、排序、列管理、归档恢复、批量关联、解除/改绑、从当前对话创建任务，以及复制/fork 的任务归属继承。
 - 任务卡片始终显示关联对话数量，运行中额外显示运行数量；AI 运行不自动改变任务状态。整张卡片单击打开详情、任意区域可启动拖动，移除专用把手；鼠标6px阈值区分点击与拖动，触屏短按详情/长按250ms拖动/快速滑动滚动。拖动结束不误开详情，拖动时 Escape 只取消拖动；Enter/空格打开详情。详情不显示或操作“移入某状态”（待办/进行中等），只保留同状态内的上移/下移与归档；状态变更通过看板跨列拖动。
-- 详情默认展开关联对话，放在资料编辑之前；用紧凑分隔行展示名称、运行状态、当前对话标记，点击直接切换聊天。标题行提供关联按钮与刷新图标，行尾菜单管理改绑/解除（有可访问名称）；关联规则说明仅在候选选择展开时显示。仅路径不同的项目会话补充路径，无项目聊天不展示内部 cwd。只在当前打开的详情加载关联目录，关闭浮层不继续加载。
+- 详情默认展开关联对话，放在资料编辑之前；用紧凑分隔行展示名称、运行状态、当前对话标记，点击直接切换聊天。标题行提供关联按钮与刷新图标，行尾 `...` 打开与现有 UI 同主题的菜单（有可访问名称），只提供“移除”，点击直接解除任务关联，不删除/停止 session，也不打开改绑表单。键盘 Enter/方向键可打开，Escape 只关闭菜单并返回触发按钮，IME Escape 不关闭，Tab/点外部/隐藏详情或浮层关闭菜单。失败显示错误并保留原 operationId/generation/updateRevision 精确重试；显式点击刷新对话放弃旧移除请求、重读关系，下次选择使用新请求，自动刷新不静默重置 CAS；改绑继续走聊天归属选择器；关联规则说明仅在候选选择展开时显示。仅路径不同的项目会话补充路径，无项目聊天不展示内部 cwd。只在当前打开的详情加载关联目录，关闭浮层不继续加载。
 - 不在详情底部重复对话数量/AI 状态。描述和完成要求为空时不渲染“未设置”占位段，编辑入口仍保留。元数据弱化展示，任务卡片数量/运行提示保持不变。
 - 聊天上方以共用的单行、可截断归属栏显示任务；点击归属按钮或执行 `/task` 打开[F32 共用任务选择器](task-picker.md)，可关联、改绑和解除，不必打开面板。已关联任务的独立“任务详情”按钮直达面板；面板保留从当前对话创建任务的入口。读取失败显示未知，不把失败当作无归属。
 - 浮层不卸载聊天或发送消息，关闭保留草稿；焦点、Escape/IME、长文本和窄屏行为保持原合同。
@@ -33,14 +33,14 @@
 
 ## 实现入口
 
-- UI：[TaskDashboard](../../components/TaskDashboard.tsx)、[TaskDetails](../../components/TaskDetails.tsx)、[TaskSessions](../../components/TaskSessions.tsx)、[TaskRelation](../../components/TaskRelation.tsx)、[SessionTaskLink](../../components/SessionTaskLink.tsx)、[TaskPanel](../../components/TaskPanel.tsx)、[AppShell](../../components/AppShell.tsx)、[ChatWindow](../../components/ChatWindow.tsx)。
+- UI：[TaskDashboard](../../components/TaskDashboard.tsx)、[TaskDetails](../../components/TaskDetails.tsx)、[TaskSessions](../../components/TaskSessions.tsx)、[TaskSessionMenu](../../components/TaskSessionMenu.tsx)、[SessionTaskLink](../../components/SessionTaskLink.tsx)、[TaskPanel](../../components/TaskPanel.tsx)、[AppShell](../../components/AppShell.tsx)、[ChatWindow](../../components/ChatWindow.tsx)。
 - 执行/兼容：[task-operations](../../lib/task-operations.ts)、[task-archive](../../lib/task-archive.ts)、[task-relations](../../lib/task-relations.ts)、[task-session-copy](../../lib/task-session-copy.ts)、[rpc-manager](../../lib/rpc-manager.ts)、[tasks API](../../app/api/tasks/route.ts)。
 - 三语言文案同步 `lib/i18n/messages/{en,zh-CN,zh-TW}.ts`。
 
 ## 验收与限制
 
 1. 同任务至少两段 session 默认列出，当前 session 标记正确；切换会话不发 Agent 请求、不丢 composer 草稿。
-2. 未关联 session 可从面板关联已有任务或创建任务；解除/改绑后聊天归属刷新，跨项目和抢占已有 owner 仍拒绝。
+2. 未关联 session 可从面板关联已有任务或创建任务；详情菜单移除或聊天选择器解除/改绑后聊天归属刷新，跨项目和抢占已有 owner 仍拒绝。菜单打开/取消不 POST；检查失败/丢响应重试 UUID 与 CAS 不变、移除后详情保留、三语言×两主题390px菜单不越界（`e2e/task-dashboard-panel.mjs`）。
 3. 包含旧共享历史的任务正常读取；所有 UI 无共享入口；API 拒绝新共享行为且不写 store、不调用模型。
 4. 归档可在聊天运行时执行；归档后普通聊天/复制仍按普通策略运行，任务不自动恢复；旧 pending 不会注入，原历史不改写。
 5. 悬浮面板开关、草稿、键盘焦点、窄屏、三语言、类型检查与局部 lint 回归。整卡点击/拖动使用 `e2e/task-dashboard-card.mjs`（全 API fixture、临时真实 store）覆盖鼠标/键盘/390px CDP触屏，面板既有回归仍用 `e2e/task-dashboard-panel.mjs`。

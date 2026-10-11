@@ -4,6 +4,10 @@
 
 [修改任务项目](task-projects.md)不是移动 session：独立预览/确认操作在同一 store 锁内解除不兼容（含缺失）关系并修改项目；仍保持唯一 owner、generation 推进、旧 pending 清理及 native 历史保留。仅此明确确认的任务项目操作可以清理缺失 session 的关系；原 change-session-relation 的存在性与来源/目标 scope 检查不放宽。项目修改触发原任务元数据刷新，不发 Agent 请求。
 
+## 当前详情入口：仅移除菜单
+
+任务详情关联对话行的 `...` 打开菜单，仅提供“移除”；选择后直接用 `change-session-relation` 的 `targetTaskId:null` 解除关联，不再展示旧解除/改绑确认表单，也不删除/停止对话。菜单沿用项目主题变量、边框、圆角及悬停；支持键盘、点外部关闭、Escape 层级与 IME 保护。失败保持行和原 UUID/generation/updateRevision，重新选择“移除”精确重试；显式刷新对话才放弃旧请求并重读关系，随后移除用新 UUID/CAS，不在自动刷新时静默 rebase；成功保持详情打开并刷新关联数量与聊天归属。详情关闭或浮层隐藏后菜单不保留。改绑仍通过聊天归属选择器提供，服务端 CAS/唯一 owner/范围校验不变。以下旧独立确认 UI 的描述为历史，不代表当前详情入口。
+
 ## 聊天快捷入口
 
 [F32 `/task`](task-picker.md)与聊天归属按钮共用选择弹窗，直接复用本功能的改绑/解除请求；运行中的 session 和归档目标仍可管理。候选与 owner/generation/updateRevision 通过窄 `task-picker` 查询在同锁读取。相同选择的失败保留原 operationId 重试；换目标后先回读可能已提交的结果，不能执行上次选择的旧请求。无归属的初次关联继续使用 `link` 的目标 revision CAS/状态幂等，不将其描述为 generation receipt 型首次绑定。
@@ -55,14 +59,15 @@
 
 ## 实现和自动验收
 
-[task-relations](../../lib/task-relations.ts)提供generation metadata/CAS与同锁关系操作；[operations/store/types](../../lib/task-operations.ts)持久化迁移与唯一语义入口；[TaskRelation](../../components/TaskRelation.tsx)位于Dashboard独立区域，避免过滤/移列/已提交丢响应后卸载导致原确认消失；[TaskSessions](../../components/TaskSessions.tsx)复用既有关联入口。07/08/09/11分别在原实现接缝绑定epoch，不另建队列或owner服务。
+[task-relations](../../lib/task-relations.ts)提供generation metadata/CAS与同锁关系操作；[operations/store/types](../../lib/task-operations.ts)持久化迁移与唯一语义入口；[TaskSessionMenu](../../components/TaskSessionMenu.tsx)位于详情关联行，保留失败移除请求以精确重试；[TaskSessions](../../components/TaskSessions.tsx)复用既有关联入口并显示错误。当前详情浏览器回归使用 `e2e/task-dashboard-panel.mjs`，旧 `TaskRelation` 独立确认表单不再由 Dashboard 渲染；`e2e/task-session-relation.mjs` 描述旧共享/确认 UI，不作为当前详情验收入口。07/08/09/11分别在原实现接缝绑定epoch，不另建队列或owner服务。
 
 ```sh
 # 新短Git树外/tmp的HOME/TMPDIR/agent/log，预检非Git/无祖先node_modules。
 # env-i无真实key；仅测试清3SDK aliases；socketguard拒外部模型域。
 node --experimental-strip-types --test lib/task-relations.test.mjs lib/task-relation-boundaries.test.mjs lib/task-relation-migration-review.test.mjs lib/task-relation-column-removal.test.mjs
 node --experimental-strip-types --test lib/task-context-updates.test.mjs lib/task-context-update-conversion.test.mjs lib/task-context-update-review.test.mjs lib/task-context-update-archive.test.mjs lib/task-start*.test.mjs lib/task-session-copy*.test.mjs lib/task-summary*.test.mjs lib/task-archive.test.mjs
-E2E_BASE_URL=http://127.0.0.1:30142 node e2e/task-session-relation.mjs
+# 当前详情菜单；旧 task-session-relation.mjs 为历史共享/确认 UI。
+E2E_BASE_URL=http://127.0.0.1:30142 node e2e/task-dashboard-panel.mjs
 npm test
 node node_modules/typescript/bin/tsc --noEmit --tsBuildInfoFile <树外tmp>
 npm run lint

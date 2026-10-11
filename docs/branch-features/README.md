@@ -4,6 +4,8 @@
 
 **任务面板现阶段仅管理 session 归属。** [F31：任务 session 管理](task-session-management.md)覆盖 F21–F30 中共享重点、AI 整理、任务启动、共享更新及归档执行限制的旧行为：F22/F24/F26/F28 暂停新执行并移除 UI；F27 归档不再限制聊天，F30 关系更新不要求 active/idle。下面旧阶段的 resolved/验收记录不代表这些功能仍启用；v7 存储及历史兼容继续保留。
 
+F31 详情关联对话行的 `...` 仅打开“移除”菜单，选择后只解除任务关联、不删除/停止 session；改绑保留在 F32 聊天归属选择器。菜单/键盘/IME/失败精确重试回归见 `e2e/task-dashboard-panel.mjs`。
+
 [F32：聊天任务选择器](task-picker.md)扩展 F31 的入口：`/task` 与归属按钮共用键盘弹窗，支持新会话预选和已有会话关联/改绑/解除，不打开任务面板、不恢复共享或任务执行。详情保留独立按钮。
 
 [F33：任务项目选择与修改](task-projects.md)扩展创建与详情入口：可选 Pi 已有项目或新增目录；跨项目修改经预览确认后原子解除不兼容对话，不修改对话 cwd 或执行状态。
@@ -64,8 +66,8 @@
 | F27 | [任务归档与恢复](task-archive.md) | 可发现归档列表/恢复、独立 archive CAS/精确 receipt；F31 归档只改变管理显示，不要求 session 空闲、不阻止聊天/关联/复制，不 Stop/自动恢复/自动完成，保留全部历史 | task-archive/types/store/operations、rpc-manager、agent routes、TaskDashboard/Details |
 | F28 | [已有对话显式接收共享更新（暂停）](task-context-updates.md) | F31 移除版本/更新 UI 及其轮询；拒绝新选择/投递，普通 prompt 不消费旧 pending、不安装发送观察器；保留 choices/deliveries/native 历史，暂停不等于遗忘 | TaskContextUpdates/ChatWindow、task-context-updates/update-send、task-start/types/store/operations、RPC/tasks API |
 | F29 | [安全删除状态列](task-column-removal.md) | 14 resolved：done/lastunfinished保护、独立完成确认、完整ordered源摘要/有界请求、hidden/archive原子迁移、旧board receipt返回当前派生digest、删todo两create首unfinished；与10联合回归 | TaskColumnSettings、TaskDashboard、task-operations/store/types、tasks API |
-| F30 | [解除/改绑任务关系](task-session-relation.md) | F31 关系只管理归属，不要求任务 active 或 session idle；仍保留同锁权威 scope、唯一 owner、generation/CAS/精确 receipt、旧 pending 清理和复制 ABA 保护，不改 cwd/模型/工具/原生历史 | task-relations/operations/store、TaskRelation/TaskSessions/Dashboard、task-summary/start/context-update-send/session-copy |
-| F31 | [任务 session 管理](task-session-management.md) | 任务详情以关联对话为主体、当前会话归属与直达入口、卡片数量/运行提示；管理与执行解耦，停用共享/启动/更新路径，旧数据与历史兼容保留 | TaskDashboard/Details/Sessions/Relation、SessionTaskLink/ChatWindow/AppShell、task-operations/relations/archive/session-copy、rpc-manager |
+| F30 | [解除/改绑任务关系](task-session-relation.md) | F31 关系只管理归属，不要求任务 active 或 session idle；仍保留同锁权威 scope、唯一 owner、generation/CAS/精确 receipt、旧 pending 清理和复制 ABA 保护，不改 cwd/模型/工具/原生历史 | task-relations/operations/store、TaskSessionMenu/TaskSessions/Dashboard、task-summary/start/context-update-send/session-copy |
+| F31 | [任务 session 管理](task-session-management.md) | 任务详情以关联对话为主体、当前会话归属与直达入口、卡片数量/运行提示；管理与执行解耦，停用共享/启动/更新路径，旧数据与历史兼容保留 | TaskDashboard/Details/Sessions/SessionMenu、SessionTaskLink/ChatWindow/AppShell、task-operations/relations/archive/session-copy、rpc-manager |
 | F32 | [聊天任务选择器 `/task`](task-picker.md) | 紧凑主题选择器、单行归属栏、全键盘/慢保存焦点约束与状态本地化；新会话预选不启动 Agent，正常创建后关联；已有会话关联/改绑/解除；同项目/归档/CAS、失败草稿与 ID 保留、详情独立入口 | TaskPicker/TaskSelectionDialog/SessionTaskLink/ChatInput/ChatWindow、useTaskSelection/useAgentSession、tasks API/task-types/task-operations |
 | F33 | [任务项目选择与修改](task-projects.md) | 合并 Pi 对话与任务项目、复用目录新增/选择、同项目保留关联、跨项目预览确认后原子解除；项目 CAS/精确重试、不改聊天执行；真实隔离服务浏览器验收 | TaskProject/Dashboard/Details/Inspector、tasks API、task-operations/store/types |
 

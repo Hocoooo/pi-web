@@ -13,7 +13,13 @@
 - `app/api/tasks/{context,summary,sessions}.test.mjs`：共享入口关闭、归属读取与关联接口。
 - 其余 `lib/task*.test.mjs`：当前保留的资料、顺序、列、视图、关系、复制、迁移和历史损坏保护。包含旧上下文的 fixture 不代表重新开放共享功能。
 - `components/AppShell*.test.mjs`、`components/ChatWindow*.test.mjs`、`components/TaskDashboard.navigation.test.mjs`、`lib/i18n/*.test.mjs`：导航、草稿、删除后新 composer、三语言及其既有回归；任务直达只消费最新读取的结果，失败可重试、缺失目标明确提示、普通 mutation 失败不被自动刷新抹掉。当前合计 79 项通过。
-- `e2e/task-dashboard-panel.mjs`：真实浏览器/隔离 task store，session 目录与关系为合成响应；默认多对话列表、任务归属直达（含关闭期间在另一标签页新增的任务）、解除/改绑/归档、关联失败提示保留、读取失败为未知、旧 URL 拒绝与重新打开保留草稿、Escape/IME/焦点、关闭停止加载、三语言×浅深色390px、零共享请求/零 Agent 写请求。任务编辑/移动/归档使用真实临时 store；不替代服务端 scope/CAS/SDK 测试。
+- `e2e/task-dashboard-panel.mjs`：真实浏览器/隔离 task store，session 目录与关系为合成响应；默认多对话列表、任务归属直达（含关闭期间在另一标签页新增的任务）、详情仅“移除”菜单（键盘/IME/Escape/Tab/点外部/隐藏后关闭/失败与丢响应精确重试/窄屏主题）、解除/归档、关联失败提示保留、读取失败为未知、旧 URL 拒绝与重新打开保留草稿、Escape/IME/焦点、关闭停止加载、三语言×浅深色390px、零共享请求/零 Agent 写请求。任务编辑/移动/归档使用真实临时 store；不替代服务端 scope/CAS/SDK 测试。
+
+## 详情关联对话菜单回归
+
+当前 `...` 只打开“移除”菜单，直接解除关联，改绑入口留在聊天任务选择器。此次菜单改动验证：`e2e/task-dashboard-panel.mjs` 通过（仅一个选项、取消零写入、键盘/IME/Tab/外部点击/隐藏后关闭、移除保留详情、失败与丢响应精确重试、显式刷新建立新请求、三语言×浅深色390px）；`e2e/task-dashboard-card.mjs` 8 场景通过；关系/迁移/列交点/任务导航/i18n 定向单测 43/43 通过；`tsc --noEmit --incremental false`、改动 TS/TSX/MJS 的 ESLint 与 `git diff --check` 通过。浏览器沿用既有 30142 开发服务、API fixture 和隔离临时 store，零 Agent 写请求，不改用户 session。
+
+回归实现注意：Tab 关闭菜单前先把焦点还给触发按钮，否则移除聚焦的 menuitem 会让焦点掉到 body；合成关系响应必须像真实服务一样推进 task revision，才能验证关联目录重读。未执行全仓测试、生产 build/install、真实 provider 或 Safari/iOS/Windows 真机验收。
 
 ## F32 `/task` 回归入口
 

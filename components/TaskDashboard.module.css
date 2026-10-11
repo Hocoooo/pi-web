@@ -79,6 +79,11 @@
 .sessionList li { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 10px 0; border-bottom: 1px solid var(--border); }
 .sessionList li:last-child { border-bottom: 0; }
 .sessionInfo { flex: 1; min-width: 0; }
+.sessionMenuContainer { position: relative; flex: none; }
+.sessionMenu { position: absolute; top: calc(100% + 4px); right: 0; z-index: 3; min-width: 140px; padding: 6px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-panel); color: var(--text); box-shadow: 0 8px 24px #0004; font-size: 13px; }
+.dashboard .sessionMenu button { display: block; width: 100%; padding: 9px 10px; border: 0; border-radius: 4px; background: transparent; color: inherit; text-align: left; }
+.dashboard .sessionMenu button:is(:hover, :focus-visible) { background: var(--bg-hover); }
+.dashboard button.smallIconButton[aria-expanded="true"] { background: var(--bg-hover); color: var(--text); }
 .sessionTitleRow { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 7px; min-width: 0; }
 .sessionList a { min-width: 0; overflow-wrap: anywhere; color: var(--accent); font-weight: 500; line-height: 1.5; }
 .currentChat { flex: none; padding: 1px 5px; border-radius: 4px; background: var(--bg-selected); color: var(--text-muted); font-size: 10px; }

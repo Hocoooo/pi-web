@@ -2,15 +2,17 @@
 
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { TaskPanelNavigation } from "./task-panel-navigation";
+import { TaskSessionMenu } from "./TaskSessionMenu";
 import Link from "next/link";
 import { useI18n } from "@/hooks/useI18n";
-import { TASK_SESSION_BATCH_LIMIT, type TaskRecord, type TaskRequest, type TaskSessionInfo, type TaskSessionsResult, type TaskSessionActivity } from "@/lib/task-types";
+import { TASK_SESSION_BATCH_LIMIT, type TaskRecord, type TaskRequest, type TaskSessionInfo, type TaskSessionsResult, type TaskSessionActivity, type TaskRelationRequest } from "@/lib/task-types";
 import styles from "./TaskDashboard.module.css";
 
-export function TaskSessions({ task, active = true, currentSessionId, disabled, onLink, onChangeRelation, runningIds, sessionActivity }: {
+export function TaskSessions({ task, active = true, currentSessionId, disabled, onLink, onRemove, newOperationId, runningIds, sessionActivity }: {
   active?: boolean;
   currentSessionId?: string | null;
-  onChangeRelation: (session: TaskSessionInfo) => void;
+  onRemove: (request: TaskRelationRequest) => Promise<void>;
+  newOperationId: () => string;
   task: TaskRecord; disabled: boolean; runningIds: Set<string> | null;
   sessionActivity: Record<string, TaskSessionActivity>;
   onLink: (request: Extract<TaskRequest, { action: "link" }>) => Promise<void>;
@@ -22,6 +24,7 @@ export function TaskSessions({ task, active = true, currentSessionId, disabled, 
   const [selected, setSelected] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [removalIntent, setRemovalIntent] = useState(0);
   const version = useRef(0);
   const load = useCallback(async () => {
     const current = ++version.current;
@@ -61,7 +64,7 @@ export function TaskSessions({ task, active = true, currentSessionId, disabled, 
       <h3>{t("tasks.sessions")} ({task.sessionIds.length})</h3>
       <div className={styles.actions}>
         <button type="button" className={styles.quietButton} disabled={!data || disabled || loading} aria-expanded={linking} onClick={() => setLinking(!linking)}>{t("tasks.linkSessions")}</button>
-        <button type="button" className={styles.smallIconButton} aria-label={t("tasks.refreshSessions")} title={t("tasks.refreshSessions")} disabled={disabled || loading} onClick={() => void load()}>
+        <button type="button" className={styles.smallIconButton} aria-label={t("tasks.refreshSessions")} title={t("tasks.refreshSessions")} disabled={disabled || loading} onClick={() => { setRemovalIntent(value => value + 1); void load(); }}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5" /><path d="M6 7a7 7 0 0 1 12-1l2 2M4 16l2 2a7 7 0 0 0 12-1" /></svg>
         </button>
       </div>
@@ -85,9 +88,11 @@ export function TaskSessions({ task, active = true, currentSessionId, disabled, 
             <span className={styles.sessionState} data-working={runningIds?.has(session.id) || undefined}>{hint(session)}</span>
             {task.project && session.cwd && session.cwd !== task.project.cwd && <p className={styles.sessionPath} title={session.cwd}>{session.cwd}</p>}
             </div>
-            <button type="button" className={styles.smallIconButton} aria-label={t("tasks.relation.title")} title={t("tasks.relation.title")} disabled={disabled || loading || !!session.missing} onClick={() => onChangeRelation(session)}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.7" /><circle cx="12" cy="12" r="1.7" /><circle cx="19" cy="12" r="1.7" /></svg>
-            </button>
+            <TaskSessionMenu key={`${session.id}:${removalIntent}`} session={session} taskId={task.id} active={active} disabled={disabled || loading}
+              newOperationId={newOperationId} onRemove={async request => {
+                try { await onRemove(request); setError(null); }
+                catch (cause) { setError((cause as Error).message); throw cause; }
+              }} />
           </li>)}
         </ul>
         {linking && <><p className={styles.hint}>{t("tasks.linkPolicy")}</p><fieldset disabled={disabled || loading}>

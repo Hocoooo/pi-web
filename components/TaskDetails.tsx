@@ -4,7 +4,7 @@ import { TaskProjectEditor } from "./TaskProject";
 import { TaskSessions } from "./TaskSessions";
 import { type FormEvent } from "react";
 import { useI18n } from "@/hooks/useI18n";
-import { TASK_PRIORITIES, TASK_TEXT_LIMITS, type TaskRecord, type TaskRequest, type TaskSessionInfo, type TaskSessionActivity } from "@/lib/task-types";
+import { TASK_PRIORITIES, TASK_TEXT_LIMITS, type TaskRecord, type TaskRequest, type TaskRelationRequest, type TaskSessionActivity } from "@/lib/task-types";
 import styles from "./TaskDashboard.module.css";
 
 type EditRequest = Extract<TaskRequest, { action: "edit" }>;
@@ -15,12 +15,12 @@ export interface TaskEditDraft {
 }
 
 /** Drafts live above columns so a refreshed/moved card cannot discard or silently rebase input. */
-export function TaskDetails({ task, disabled, active = true, currentSessionId, editDraft, onDraftChange, onSave, onProjectSave, newOperationId, onLink, onChangeRelation, runningIds, sessionActivity }: {
+export function TaskDetails({ task, disabled, active = true, currentSessionId, editDraft, onDraftChange, onSave, onProjectSave, newOperationId, onLink, onRemove, runningIds, sessionActivity }: {
   active?: boolean;
   onProjectSave: (request: Extract<TaskRequest, { action: "change-project" }>) => Promise<void>;
   newOperationId: () => string;
   currentSessionId?: string | null;
-  onChangeRelation: (session: TaskSessionInfo) => void;
+  onRemove: (request: TaskRelationRequest) => Promise<void>;
   onLink: (request: Extract<TaskRequest, { action: "link" }>) => Promise<void>;
   runningIds: Set<string> | null;
   sessionActivity: Record<string, TaskSessionActivity>;
@@ -53,7 +53,7 @@ export function TaskDetails({ task, disabled, active = true, currentSessionId, e
   }
   return <section aria-label={task.title}>
     <h2 className={styles.detailTitle}>{task.title}</h2>
-    <TaskSessions task={task} active={active} currentSessionId={currentSessionId} disabled={disabled} onLink={onLink} onChangeRelation={onChangeRelation} runningIds={runningIds} sessionActivity={sessionActivity} />
+    <TaskSessions task={task} active={active} currentSessionId={currentSessionId} disabled={disabled} onLink={onLink} onRemove={onRemove} newOperationId={newOperationId} runningIds={runningIds} sessionActivity={sessionActivity} />
     <TaskProjectEditor task={task} active={active} disabled={disabled || !!draft} onSave={onProjectSave} newOperationId={newOperationId} />
     {draft ? <form onSubmit={save} className={styles.editForm} aria-label={t("tasks.edit")}>
       <label>{t("tasks.title")}<input aria-label={t("tasks.title")} autoFocus required maxLength={TASK_TEXT_LIMITS.title} disabled={disabled} value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} /></label>

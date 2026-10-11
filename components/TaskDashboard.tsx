@@ -11,10 +11,9 @@ import { TaskColumnSettings, taskColumnName } from "./TaskColumnSettings";
 import { TaskProjectField } from "./TaskProject";
 import { TaskDetails, type TaskEditDraft } from "./TaskDetails";
 import { TaskInspector } from "./TaskInspector";
-import { TaskRelation } from "./TaskRelation";
 import { useI18n } from "@/hooks/useI18n";
 import { useTheme } from "@/hooks/useTheme";
-import { TASK_TEXT_LIMITS, type TaskBoard, type TaskColumnId, type TaskRecord, type TaskRequest, type TaskMovePosition, type TaskMutationResult, type TaskSessionsResult, type TaskSessionInfo, type TaskRelationRequest, type TaskSessionActivity, type TaskSort } from "@/lib/task-types";
+import { TASK_TEXT_LIMITS, type TaskBoard, type TaskColumnId, type TaskRecord, type TaskRequest, type TaskMovePosition, type TaskMutationResult, type TaskSessionsResult, type TaskRelationRequest, type TaskSessionActivity, type TaskSort } from "@/lib/task-types";
 import styles from "./TaskDashboard.module.css";
 
 async function requestTask(input: { action: "list" }): Promise<TaskBoard>;
@@ -74,7 +73,6 @@ export function TaskDashboard({ active = true, onClose, currentSessionId = null,
   useLayoutEffect(() => {
     if (active) focusIfLost(document, inspector.current ?? dashboard.current);
   });
-  const [relation, setRelation] = useState<{ source: TaskRecord; session: TaskSessionInfo } | null>(null);
   const [filter, setFilter] = useState(emptyTaskFilter);
   const [sort, setSort] = useState<TaskSort>("manual");
   const boardScroll = useRef<HTMLDivElement>(null);
@@ -296,7 +294,6 @@ export function TaskDashboard({ active = true, onClose, currentSessionId = null,
     startMutation();
     try {
       setBoard(await requestTask(request));
-      setRelation(null);
       setNotice(t("tasks.relation.saved"));
     } finally { finishMutation(); }
   }
@@ -394,8 +391,6 @@ export function TaskDashboard({ active = true, onClose, currentSessionId = null,
       {board && !projection.invalid && visibleTasks.length === 0 && <p role="status">{t("tasks.view.empty")}</p>}
       {board && sort !== "manual" && <p className={styles.hint}>{t("tasks.view.autoHelp")}</p>}
       {configuringColumns && board && <TaskColumnSettings board={board} disabled={disabled} newId={newTaskId} onSave={saveColumns} onCancel={() => setConfiguringColumns(false)} />}
-      {relation && board && <TaskRelation source={relation.source} session={relation.session} tasks={board.tasks} disabled={disabled}
-        newOperationId={newTaskId} onSave={changeRelation} onCancel={() => setRelation(null)} />}
       {creating && <form onSubmit={createTask} className={styles.form}>
         <label>{t("tasks.title")}<input autoFocus required maxLength={TASK_TEXT_LIMITS.title} value={title} onChange={(event) => setTitle(event.target.value)} disabled={pending} /></label>
         <label>{t("tasks.description")}<textarea rows={3} maxLength={TASK_TEXT_LIMITS.description} value={description} onChange={(event) => setDescription(event.target.value)} disabled={pending} /></label>
@@ -445,8 +440,8 @@ export function TaskDashboard({ active = true, onClose, currentSessionId = null,
         return <TaskInspector hidden={id !== selectedTaskId} key={selectedTask.id} task={selectedTask} visibleTasks={visibleTasks} sort={sort} disabled={disabled} panelRef={id === selectedTaskId ? inspector : undefined}
         onClose={() => { setSelectedTaskId(null); dashboard.current?.focus({ preventScroll: true }); }} onMove={moveTask} feedback={id === selectedTaskId ? feedback : null}
         onArchive={() => void submitArchive({ action: "set-archive", id: selectedTask.id, archived: !selectedTask.archived, expectedArchiveRevision: selectedTask.archiveRevision, operationId: newTaskId() })}>
-        <TaskDetails task={selectedTask} active={active && id === selectedTaskId} currentSessionId={currentSessionId} disabled={disabled || !!relation}
-          onChangeRelation={session => { setSelectedTaskId(null); setRelation({ source: selectedTask, session }); }}
+        <TaskDetails task={selectedTask} active={active && id === selectedTaskId} currentSessionId={currentSessionId} disabled={disabled}
+          onRemove={changeRelation}
           onLink={editTask} runningIds={activityError ? null : runningIds} sessionActivity={sessionActivity}
           editDraft={editDrafts[selectedTask.id] ?? null} onSave={editTask} onProjectSave={editTask} newOperationId={newTaskId}
           onDraftChange={draft => setEditDrafts(current => {

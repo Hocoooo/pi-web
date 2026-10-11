@@ -21,15 +21,23 @@ const context = await browser.newContext({ viewport: { width: 1440, height: 960 
 await context.addInitScript(() => { if (!localStorage.getItem("pi-locale")) localStorage.setItem("pi-locale", "en"); });
 let agentWrites = 0, boardReads = 0, activityReads = 0;
 let failMembership = false, includeSessions = false, failNextLink = false;
+let failNextRemoval = false, loseNextRemovalResponse = false;
+const relationRequests = [];
 const sharedRequests = [];
 const initialBoard = await taskOperation({ action: "list" }, { agentDir });
 const chatCwd = path.join(root, "chat-workspace");
 const linkedSession = { id: randomUUID(), name: "Linked task conversation", cwd: chatCwd, sessionKind: "chat", projectKey: "pi-web:chat", created: new Date().toISOString(), modified: new Date().toISOString(), path: path.join(root, "fixture-session.jsonl"), firstMessage: "", messageCount: 0 };
 const otherSession = { ...linkedSession, id: randomUUID(), name: "Second task conversation" };
+linkedSession.relationGeneration = 3;
+linkedSession.updateRevision = 5;
+otherSession.relationGeneration = 2;
+otherSession.updateRevision = 4;
 // Synthetic session catalogue/membership; task edits/moves/archive use a real isolated store.
 const memberships = new Map([[linkedSession.id, initialBoard.tasks[0].id], [otherSession.id, initialBoard.tasks[0].id]]);
 const sessionFixtures = [linkedSession, otherSession];
-const withMembership = board => ({ ...board, tasks: board.tasks.map(task => ({ ...task, sessionIds: [...memberships].filter(([, owner]) => owner === task.id).map(([id]) => id) })) });
+const relationRevisions = new Map();
+const touchRelation = id => { if (id) relationRevisions.set(id, (relationRevisions.get(id) ?? 0) + 1); };
+const withMembership = board => ({ ...board, tasks: board.tasks.map(task => ({ ...task, revision: task.revision + (relationRevisions.get(task.id) ?? 0), sessionIds: [...memberships].filter(([, owner]) => owner === task.id).map(([id]) => id) })) });
 const errors = [];
 await context.route("**/api/**", async route => {
   const request = route.request();
@@ -53,8 +61,20 @@ await context.route("**/api/**", async route => {
     }
     if (input.action === "change-session-relation" || input.action === "link") {
       if (input.action === "change-session-relation") {
+        relationRequests.push(input);
+        assert.equal(input.targetTaskId, null, "inspector menu only removes membership");
+        if (failNextRemoval) {
+          failNextRemoval = false;
+          return route.fulfill({ status: 409, json: { error: "Fixture removal conflict" } });
+        }
+        const previousOwner = memberships.get(input.sessionId) ?? null;
         if (input.targetTaskId) memberships.set(input.sessionId, input.targetTaskId); else memberships.delete(input.sessionId);
-      } else for (const id of input.sessionIds) memberships.set(id, input.id);
+        if (previousOwner !== input.targetTaskId) { touchRelation(previousOwner); touchRelation(input.targetTaskId); }
+        if (loseNextRemovalResponse) {
+          loseNextRemovalResponse = false;
+          return route.fulfill({ status: 503, json: { error: "Fixture removal response lost" } });
+        }
+      } else for (const id of input.sessionIds) { memberships.set(id, input.id); touchRelation(input.id); }
       const board = withMembership(await taskOperation({ action: "list" }, { agentDir }));
       return route.fulfill({ json: input.action === "link" ? { board, task: board.tasks.find(task => task.id === input.id) } : board });
     }
@@ -173,8 +193,75 @@ try {
   await inspector.getByRole("heading", { name: "Unsaved task edit", exact: true }).waitFor();
   const linkedRow = inspector.getByRole("list", { name: "Linked chats", exact: true }).locator("li").filter({ has: page.getByRole("link", { name: linkedSession.name, exact: true }) });
   assert.match(await linkedRow.innerText(), /Current chat/);
-  await linkedRow.getByRole("button", { name: "Unlink or reassign chat", exact: true }).click();
-  await dialog.getByRole("button", { name: "Confirm relationship change", exact: true }).click();
+  const trigger = linkedRow.getByRole("button", { name: "Chat actions", exact: true });
+  const menu = inspector.getByRole("menu", { name: "Chat actions", exact: true });
+  await trigger.click();
+  assert.equal(await trigger.getAttribute("aria-expanded"), "true");
+  assert.deepEqual(await menu.getByRole("menuitem").allTextContents(), ["Remove"]);
+  assert.equal(relationRequests.length, 0, "opening the menu does not mutate membership");
+  await menu.getByRole("menuitem").dispatchEvent("keydown", { key: "Escape", isComposing: true });
+  await menu.getByRole("menuitem").dispatchEvent("keydown", { key: "Escape", keyCode: 229 });
+  assert.equal(await menu.isVisible(), true, "IME Escape leaves the menu open");
+  await page.keyboard.press("Escape");
+  await menu.waitFor({ state: "hidden" });
+  assert.equal(await inspector.isVisible(), true, "Escape dismisses only the menu");
+  assert.equal(await trigger.evaluate(node => node === document.activeElement), true);
+  await page.keyboard.press("ArrowDown");
+  await menu.waitFor();
+  assert.equal(await menu.getByRole("menuitem").evaluate(node => node === document.activeElement), true);
+  await inspector.getByRole("heading", { name: "Unsaved task edit", exact: true }).click();
+  await menu.waitFor({ state: "hidden" });
+  assert.equal(relationRequests.length, 0, "outside click does not remove a chat");
+  await trigger.click();
+  await page.keyboard.press("Tab");
+  await menu.waitFor({ state: "hidden" });
+  assert.equal(await inspector.evaluate(node => node.contains(document.activeElement)), true, "Tab stays in the inspector");
+  await trigger.click();
+  await page.mouse.click(3, 3); // Backdrop closes the entire panel, retaining the inspector.
+  await dialog.waitFor({ state: "hidden" });
+  await opener.click();
+  assert.equal(await menu.count(), 0, "hidden panels do not retain an open menu");
+  await linkedRow.getByRole("link", { name: linkedSession.name, exact: true }).waitFor();
+
+  // A committed removal with a lost response must retry the identical operation, not silently rebase.
+  const otherRow = inspector.getByRole("list", { name: "Linked chats", exact: true }).locator("li").filter({ has: page.getByRole("link", { name: otherSession.name, exact: true }) });
+  loseNextRemovalResponse = true;
+  await otherRow.getByRole("button", { name: "Chat actions", exact: true }).click();
+  await menu.getByRole("menuitem", { name: "Remove", exact: true }).click();
+  await inspector.getByRole("alert").filter({ hasText: "Fixture removal response lost" }).waitFor();
+  await otherRow.getByRole("button", { name: "Chat actions", exact: true }).click();
+  await menu.getByRole("menuitem", { name: "Remove", exact: true }).click();
+  await otherRow.waitFor({ state: "hidden" });
+  assert.deepEqual(relationRequests[1], relationRequests[0], "lost-response retry preserves UUID and CAS");
+
+  failNextRemoval = true;
+  await trigger.click();
+  await menu.getByRole("menuitem", { name: "Remove", exact: true }).click();
+  await inspector.getByRole("alert").filter({ hasText: "Fixture removal conflict" }).waitFor();
+  assert.equal(await linkedRow.isVisible(), true, "failed removal keeps the linked row");
+  failNextRemoval = true;
+  await trigger.click();
+  await menu.getByRole("menuitem", { name: "Remove", exact: true }).click();
+  await inspector.getByRole("alert").filter({ hasText: "Fixture removal conflict" }).waitFor();
+  assert.deepEqual(relationRequests[3], relationRequests[2], "failure retry preserves UUID and CAS");
+  assert.equal(relationRequests[2].expectedGeneration, 3);
+  assert.equal(relationRequests[2].expectedUpdateRevision, 5);
+  assert.equal(relationRequests[2].sourceTaskId, initialBoard.tasks[0].id);
+  // Explicit refresh abandons a stale retry, unlike passive board refresh/focus.
+  linkedSession.relationGeneration = 7;
+  linkedSession.updateRevision = 9;
+  await inspector.getByRole("button", { name: "Refresh chats", exact: true }).click();
+  await page.waitForFunction(() => !!document.querySelector('[data-task-inspector]:not([hidden]) button[aria-haspopup="menu"]:not(:disabled)'));
+  await trigger.focus();
+  await page.keyboard.press("Enter");
+  await menu.waitFor();
+  await page.keyboard.press("Enter");
+  await linkedRow.waitFor({ state: "hidden" });
+  assert.notEqual(relationRequests[4].operationId, relationRequests[2].operationId);
+  assert.equal(relationRequests[4].expectedGeneration, 7);
+  assert.equal(relationRequests[4].expectedUpdateRevision, 9);
+  await page.keyboard.press("Escape");
+  assert.equal(await dialog.isVisible(), true, "successful removal leaves details open");
   await page.keyboard.press("Escape");
   await dialog.waitFor({ state: "hidden" });
   await membership.getByRole("button", { name: "Link to task", exact: true }).waitFor();
@@ -243,13 +330,22 @@ try {
       assert.equal(await localizedDialog.locator('[data-task-inspector]:visible select option[value="in-progress"]').count(), 0, "no state selector in any locale/theme");
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
       assert.equal(await page.locator("html").getAttribute("data-theme"), theme);
+      const actionsLabel = locale === "en" ? "Chat actions" : locale === "zh-CN" ? "对话操作" : "對話操作";
+      await localizedDialog.locator("[data-task-inspector]:visible").getByRole("button", { name: actionsLabel, exact: true }).click();
+      const localizedMenu = localizedDialog.getByRole("menu", { name: actionsLabel, exact: true });
+      assert.deepEqual(await localizedMenu.getByRole("menuitem").allTextContents(), [locale === "en" ? "Remove" : "移除"]);
+      const menuBox = await localizedMenu.boundingBox();
+      assert.ok(menuBox.x >= 0 && menuBox.x + menuBox.width <= 390, "menu fits the mobile viewport");
       await page.screenshot({ path: path.join(root, `${locale}-${theme}-membership.png`) });
+      await page.keyboard.press("Escape");
+      await localizedMenu.waitFor({ state: "hidden" });
+      assert.equal(await localizedDialog.locator("[data-task-inspector]:visible").count(), 1);
     }
   }
   assert.deepEqual(sharedRequests, []);
   assert.equal(agentWrites, 0);
   assert.deepEqual(errors, []);
-  console.log(`PASS task management panel: default multi-session list, membership/unlink/relink/archive, unknown-read recovery, no shared/agent calls, drafts, Escape/IME/focus, hidden refresh, mobile, three locales/two themes, legacy route. Artifacts: ${root}; activity reads: ${activityReads}`);
+  console.log(`PASS task management panel: remove-only menu/keyboard/IME/outside/hidden/lost-response retry, default multi-session list, membership/unlink/relink/archive, unknown-read recovery, no shared/agent calls, drafts, Escape/IME/focus, hidden refresh, mobile, three locales/two themes, legacy route. Artifacts: ${root}; activity reads: ${activityReads}`);
 } catch (error) {
   await page.screenshot({ path: path.join(root, "failure.png") });
   console.error(`Artifacts: ${root}; page errors: ${JSON.stringify(errors)}`);
