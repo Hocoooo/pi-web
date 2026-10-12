@@ -356,6 +356,9 @@ export interface SessionTreeNode {
 }
 
 export interface SessionInfo {
+  /** Sidebar visibility only; inherited by subagents from an archived ancestor.
+   *  Never changes the session JSONL, task links or agent lifecycle. */
+  archived?: boolean;
   /** Independent chats use the application's reserved, stable cwd. */
   sessionKind?: "chat" | "project";
   path: string;

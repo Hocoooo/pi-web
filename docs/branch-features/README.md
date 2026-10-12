@@ -70,6 +70,7 @@ F31 详情关联对话行的 `...` 仅打开“移除”菜单，选择后只解
 | F31 | [任务 session 管理](task-session-management.md) | 任务详情以关联对话为主体、当前会话归属与直达入口、卡片数量/运行提示；管理与执行解耦，停用共享/启动/更新路径，旧数据与历史兼容保留 | TaskDashboard/Details/Sessions/SessionMenu、SessionTaskLink/ChatWindow/AppShell、task-operations/relations/archive/session-copy、rpc-manager |
 | F32 | [聊天任务选择器 `/task`](task-picker.md) | 紧凑主题选择器、单行归属栏、全键盘/慢保存焦点约束与状态本地化；新会话预选不启动 Agent，正常创建后关联；已有会话关联/改绑/解除；同项目/归档/CAS、失败草稿与 ID 保留、详情独立入口 | TaskPicker/TaskSelectionDialog/SessionTaskLink/ChatInput/ChatWindow、useTaskSelection/useAgentSession、tasks API/task-types/task-operations |
 | F33 | [任务项目选择与修改](task-projects.md) | 合并 Pi 对话与任务项目、复用目录新增/选择、同项目保留关联、跨项目预览确认后原子解除；项目 CAS/精确重试、不改聊天执行；真实隔离服务浏览器验收 | TaskProject/Dashboard/Details/Inspector、tasks API、task-operations/store/types |
+| F34 | [对话归档与恢复](session-archive.md) | 与改名/删除同区悬停显示的归档/恢复操作、独立持久化会话显示状态、日常侧栏隐藏/可发现归档列表、祖先会话族与范围搜索；不改 JSONL/完整历史、任务归属或 Agent 生命周期，确认后更新与显式幂等重试 | session-archive/view、sessions/archive/list/search API、SessionSidebar/SessionSearch |
 
 ## 任务功能历史快照（2026-10-09 文档收尾；当前范围见 F31/F32/F33）
 

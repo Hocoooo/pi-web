@@ -10,7 +10,7 @@
 
 ## 入口与当前默认值
 
-在主侧边栏的普通根会话行上触发 `contextmenu`（通常右键）。无监听器认领事件时，在鼠标附近显示 `role="menu"` 的单项菜单，菜单项为 **复制会话 ID**。菜单初始关闭、成功提示初始 false；不需要启用 all 模式。
+在主侧边栏的普通根会话行上触发 `contextmenu`（通常右键）。无监听器认领事件时，在鼠标附近显示 `role="menu"` 的菜单，第一项为 **复制会话 ID**，第二项为[F34 对话归档/恢复](session-archive.md)。复制行为本身保持只读，不因新增管理动作自动归档。菜单初始关闭、成功提示初始 false；不需要启用 all 模式。
 
 重命名和删除确认中的行没有该 `onContextMenu` handler。主列表展示会话族根，因此入口操作对象是根，不是当前聊天可能选中的子代理 ID。没有专门的复制快捷键或移动长按实现。
 
@@ -19,12 +19,12 @@
 1. **完整 ID。** 复制 `menu.id`，来自当前根行 `session.id`；不截成标题回退所用的 12 字符，不拼 URL、路径或额外前后缀。打开菜单与复制本身不调用会话选择、修改或删除 API。
 2. **扩展优先。** `handleContextMenu` 首先同步调用 `dispatchSessionRowContextMenu`，发出可取消的 `pi-web:session-row-contextmenu`。detail 含 id/path/cwd/name、clientX/clientY、refresh 回调。监听器在同步 dispatch 内 `preventDefault()` 才算认领；仅观察事件不阻止内置菜单，异步取消太晚。
 3. **原生菜单与 fallback。** handler 对原始 React contextmenu 总是 preventDefault/stopPropagation。若扩展已认领则不新开内置菜单，否则调用 `onOpenMenu`。这与上游“无人认领就保留原生菜单”的旧行为不同；不要只恢复事件 helper 而丢失 fallback。
-4. **位置与挂载。** 内置菜单 portal 到 `document.body`，fixed 定位、z-index 10000；坐标按估算宽 196/高 52 与视口留 8px 边距夹取，最大宽度 `calc(100vw - 16px)`。这是启发式定位，不是动态测量全部语言文本后保证永不溢出。
+4. **位置与挂载。** 内置菜单 portal 到 `document.body`，fixed 定位、z-index 10000；坐标按估算宽 196/高 100 与视口留 8px 边距夹取，最大宽度 `calc(100vw - 16px)`。这是启发式定位，不是动态测量全部语言文本后保证永不溢出。
 5. **焦点与关闭。** 挂载时聚焦第一个 button。Escape preventDefault 后关闭；菜单外 pointerdown、窗口 resize、菜单外 scroll（capture 监听）关闭。菜单内点击/滚动不因外部 dismiss 检查关闭。关闭没有显式恢复原行焦点，也没有完整菜单方向键/focus trap。
 6. **Clipboard API 分支。** 若 `navigator.clipboard?.writeText` 存在，直接返回其 Promise。resolve 才显示“已复制”，并在约 700ms 后关闭；reject 直接关闭，不显示失败原因、不重试、**不回退** execCommand。权限拒绝、非授权环境的实际失败必须靠粘贴/系统剪贴板核验，不能只看菜单消失。
 7. **旧式 fallback 分支。** 只有 writeText 不存在时才创建隐藏 textarea、select、调用 `document.execCommand("copy")`、移除 textarea。同步抛错会 reject 并关闭菜单；若 execCommand 返回 `false`，helper **忽略返回值并 resolve**，UI 仍可能显示“已复制”但剪贴板未改变。这是当前已知缺口，不是保证复制成功的契约。
 8. **瞬态与行状态。** transient 禁止磁盘重命名/删除，但没有复制 ID 的 transient guard；只要它实际出现在主列表且为普通行，就可复制其当时 ID。`deleting` 本身也未禁用右键 handler。重命名/确认状态退出后恢复普通入口。
-9. **生命周期与存储。** 菜单/成功提示仅是组件内存状态，不写 localStorage、不创建服务器状态；系统剪贴板的保留由系统决定。现有成功定时器未在卸载时清理，也未把每次换 menu.id 作为成功状态重置点，不应承诺快速连续右键/异步回包的竞争已完全处理。
+9. **生命周期与存储。** 菜单/成功提示仅是组件内存状态，不写 localStorage、不创建服务器状态；系统剪贴板的保留由系统决定。现有成功定时器未在卸载时清理；菜单按 menu.id 挂载，换 ID 会重置成功状态，不应承诺快速连续右键/异步回包的竞争已完全处理。
 
 ## 实现地图
 

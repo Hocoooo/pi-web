@@ -23,13 +23,13 @@
 
 1. **精确全局修饰键。** `getSessionPanelShortcut` 只接受 Alt+Left/Right；Ctrl、Meta、Shift 或 `isComposing` 任一存在即不接管。窗口 capture handler 在 composer/终端局部方向键前运行，若事件已被 preventDefault 或存在 `[aria-modal="true"]` / `dialog[open]` 则不切焦点。处理成功时 preventDefault/stopPropagation，防止浏览器后退/前进；仅当应用收到事件时成立。
 2. **面板可见性。** Alt+Left 在 AppShell 打开 sidebar；移动布局下同时关闭右面板/顶部面板。Alt+Right 在移动布局关闭侧边栏及上述覆盖面板，桌面不强制关闭侧边栏。焦点请求通过 requestAnimationFrame 等待布局提交。
-3. **目标揭示。** `pi:focus-session-sidebar` 关闭并清空会话搜索，关闭项目/worktree 下拉；将所选子代理映射到父族根。all 模式展开该项目；若根行尚不在行模型，开启该项目更多状态。current 模式只在当前项目过滤集里寻找。此动作不选中另一个 session，也不发送或清除聊天草稿。
+3. **目标揭示。** `pi:focus-session-sidebar` 关闭并清空会话搜索，关闭项目/worktree 下拉；将所选子代理映射到父族根，并显式切到该族的日常/已归档显示范围（见[对话归档](session-archive.md)，不写归档状态）。all 模式展开该项目；若根行尚不在行模型，开启该项目更多状态。current 模式只在当前项目过滤集里寻找。此动作不选中另一个 session，也不发送或清除聊天草稿。
 4. **逻辑行顺序。** 方向导航使用完整 `listRows`，不是 DOM 中已挂载的子集。Up/Down 到边界钳制而不循环，Home/End 到首/末逻辑行；all 模式中的标题和更多行也算可导航行。折叠隐藏的行不在模型里。
 5. **左右键语义。** Right 在折叠标题上展开，在已展开且有子行标题上进入下一行；空项目无动作。Left 在展开标题上折叠。普通会话 Right 无动作，Left 找最近的前置项目标题；current 模式没有标题则无动作。更多行 Right 展开，已展开的更多行 Left 收起，未展开更多行 Left 返回项目标题。
 6. **更多行身份。** 用 `more:<projectKey>` 而不是展开前的索引记住焦点，Enter/方向键展开或收起后仍请求该更多行；不要落到旧索引处刚插入的 session。其他 key 为 `project:<projectKey>`、`session:<rootId>`。
 7. **虚拟化与编辑安全。** 所有行 54px，overscan 为 8；未测量 viewport 使用 600px。除通常窗口外，保留当前 inline 控件所在族，以及 `keyboardRowKey`/`pendingFocusKey` 对应行。目标挂载后按逻辑 index 调整列表滚动，再 `focus({ preventScroll: true })`；不得为 End 键挂载整个长列表，也不得因滚动卸载正在重命名的输入。
 8. **焦点丢失恢复。** 删除/折叠/刷新移除曾聚焦行后，仅在原元素已断开且 `document.activeElement === document.body` 时，尝试原索引附近的现存行；空模型回退容器。若用户已转去其他控件，不主动抢回焦点。此保证针对移除，非承诺所有重排/重命名后都回到原行。
-9. **局部事件隔离。** 列表导航忽略任何修饰键、native composition、已处理事件；仅处理容器自身或直接带 `data-sidebar-row` 的主控件，不截获重命名 input、删除确认按钮等后代。Tab 使用原生顺序，Space 没有统一的自定义主行激活协议（项目/more 是原生 button，会话行是 `role="group"`）。
+9. **局部事件隔离。** 列表导航忽略任何修饰键、native composition、已处理事件；仅处理容器自身或直接带 `data-sidebar-row` 的主控件，不截获重命名 input、归档/恢复按钮、删除确认按钮等后代。Tab 使用原生顺序，Space 没有统一的自定义主行激活协议（项目/more 是原生 button，会话行是 `role="group"`）。
 10. **Delete 安全。** 仅普通、非 transient、非重命名/确认/删除中的会话根行处理无修饰 Delete。打开确认后不发 DELETE；Escape 取消并在键盘触发路径归还行焦点，确认才执行请求。鼠标 Shift+点击垃圾桶仍是既有跳过确认路径，不能映射成 Shift+Delete。
 11. **删除失败的现实边界。** `performDelete` 对网络异常恢复 `deleting=false`，没有可见错误；对 HTTP 非 2xx 没有检查 `res.ok`，仍会调用删除回调/刷新。这是已知缺口，不可把此文写成“所有删除失败可靠恢复”。只能在可丢弃数据上验收真实删除。
 12. **与聊天内部导航隔离。** 本功能只接管面板间的 Alt+Left/Right；Alt+Up/Down 的条件与验收以[聊天焦点契约](chat-focus-navigation.md)为准。Tab 继续遵循补全、next cue 和原生顺序，不由面板切换重新定义。

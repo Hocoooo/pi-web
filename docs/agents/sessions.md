@@ -44,6 +44,12 @@ All three existing `fork`/`clone`/`fork_branch` handlers wrap native creation in
 ## In-session branching waits for the run
 pi's `navigateTree()` refuses while streaming or compacting: the file has one leaf pointer that the run appends under, and navigating swaps the agent's context. So "Edit from here" is hidden while busy, the BranchNavigator renders read-only (`locked`) with a note, and `handleLeafChange` refuses (switching only the view would show the live run under another branch). To branch from a running session, fork it.
 
+## Native session archive (visibility only)
+
+- Read [F34 session archive](../branch-features/session-archive.md) before changing archive storage/API or sidebar/search projections. `<getAgentDir()>/session-archive.json` is a locked, versioned, atomic sidecar; archive/restore never rewrites JSONL, creates an AgentSession, stops work or changes task links. Task archive is independent.
+- `GET /api/sessions` (including summary) remains a complete catalog with ancestor-effective `archived` metadata. Filter only display/search scopes; URL restoration, task links and runtime tracking must retain archived IDs. Subagent descendants follow the root's scope, while forks remain independent. Public archive actions target persisted family roots.
+- The sidebar defaults to active sessions; archived list opens original history and offers restore. Archive/restore icons share the existing hovered, non-transient action group with rename/delete (not always-visible controls); context-menu actions remain available. Apply only confirmed writes and preserve the exact target boolean for explicit retries. Scope/membership changes invalidate search results without reintroducing ordinary version-driven search polling. Explicit Alt+Left reveals the selected family's scope without restoring it.
+
 ## Two kinds of branching — don't confuse them
 - **Fork** ("New session" on a user message): a new `.jsonl` file, shown as a child in the sidebar via the `parentSession` header field.
 - **In-session branch** ("Edit from here" / BranchNavigator): `navigate_tree` within one file; entries share a `parentId`. Switching calls `/api/sessions/[id]/context?leafId=`.

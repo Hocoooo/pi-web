@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import type { SessionInfo } from "@/lib/types";
 import { CHAT_WORKSPACE_KEY } from "@/lib/session-kind";
 import { listSessionFamilies } from "@/lib/session-family";
+import { sessionsInArchiveScope, withSessionArchiveState, type SessionArchiveScope } from "@/lib/session-archive-view";
 import { loadExplorerOpen, saveExplorerOpen } from "@/lib/file-explorer-state";
 import { copyText } from "@/lib/clipboard";
 import { dispatchSessionRowContextMenu } from "@/lib/session-row-context-menu";
@@ -56,9 +57,13 @@ interface SessionContextMenuState {
   id: string;
   x: number;
   y: number;
+  archived: boolean;
+  transient: boolean;
 }
 
-function SessionContextMenu({ menu, onClose }: { menu: SessionContextMenuState; onClose: () => void }) {
+function SessionContextMenu({ menu, onClose, onArchive, archiving }: {
+  menu: SessionContextMenuState; onClose: () => void; onArchive: () => void; archiving: boolean;
+}) {
   const { t } = useI18n();
   const menuRef = useRef<HTMLDivElement>(null);
   const [copied, setCopied] = useState(false);
@@ -129,6 +134,10 @@ function SessionContextMenu({ menu, onClose }: { menu: SessionContextMenuState; 
         }}
       >
         {copied ? t("session.copied") : t("session.copyId")}
+      </button>
+      <button type="button" role="menuitem" disabled={menu.transient || archiving} onClick={onArchive}
+        className="block w-full cursor-pointer rounded px-[10px] py-[9px] text-left hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-50">
+        {t(menu.archived ? "sidebar.restoreSession" : "sidebar.archiveSession")}
       </button>
     </div>,
     document.body,
@@ -494,6 +503,11 @@ export function SessionSidebar({ onOpenTasks, selectedSessionId, onSelectSession
   const { t } = useI18n();
   const [catalogSnapshot, setCatalogSnapshot] = useState<{ sessions: SessionInfo[]; sessionListVersion?: number }>({ sessions: [] });
   const allSessions = catalogSnapshot.sessions;
+  const [archiveScope, setArchiveScope] = useState<SessionArchiveScope>("active");
+  const [archivingSessionId, setArchivingSessionId] = useState<string | null>(null);
+  const archiveRequestRef = useRef(false);
+  const [archiveFailure, setArchiveFailure] = useState<{ session: SessionInfo; archived: boolean } | null>(null);
+  const archiveFingerprint = useMemo(() => allSessions.filter(session => session.archived).map(session => session.id).sort().join(","), [allSessions]);
   const sidebarView = useSidebarView();
   const showAllProjects = sidebarView.mode === "all";
   const [expandedProjects, setExpandedProjects] = useState<string[]>([]);
@@ -669,6 +683,36 @@ export function SessionSidebar({ onOpenTasks, selectedSessionId, onSelectSession
       if (loadId === sessionLoadIdRef.current) setLoading(false);
     }
   }, []);
+
+  const changeSessionArchive = useCallback(async (session: SessionInfo, archived = !session.archived) => {
+    if (session.transient || archiveRequestRef.current) return;
+    archiveRequestRef.current = true;
+    setArchivingSessionId(session.id);
+    setArchiveFailure(null);
+    try {
+      const response = await fetch(`/api/sessions/${encodeURIComponent(session.id)}/archive`, {
+        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ archived }),
+      });
+      const result = await response.json() as { ok?: boolean; sessionId?: string; archived?: boolean };
+      if (!response.ok || result.ok !== true || result.sessionId !== session.id || result.archived !== archived) {
+        throw new Error("Archive operation was not confirmed");
+      }
+      // Only apply confirmed writes; supersede any pre-write list request.
+      sessionLoadIdRef.current++;
+      setAllSessions(current => {
+        const ids = new Set(current.filter(item => item.archived && item.relation?.kind !== "subagent").map(item => item.id));
+        if (archived) ids.add(session.id); else ids.delete(session.id);
+        return withSessionArchiveState(current, ids);
+      });
+      await loadSessions(false, true);
+    } catch {
+      // Retain the exact desired boolean for an explicit, idempotent retry.
+      setArchiveFailure({ session, archived });
+    } finally {
+      archiveRequestRef.current = false;
+      setArchivingSessionId(null);
+    }
+  }, [loadSessions]);
 
   const initialLoadDone = useRef(false);
   useEffect(() => {
@@ -1254,15 +1298,19 @@ export function SessionSidebar({ onOpenTasks, selectedSessionId, onSelectSession
         }
       : null);
 
-  const sessionFamilies = useMemo(() => listSessionFamilies(filteredSessions), [filteredSessions]);
+  const scopedSessions = useMemo(() => sessionsInArchiveScope(allSessions, archiveScope), [allSessions, archiveScope]);
+  const sessionFamilies = useMemo(() => listSessionFamilies(filteredSessions)
+    .filter(family => Boolean(family.root.archived) === (archiveScope === "archived")), [filteredSessions, archiveScope]);
+  const archivedCount = useMemo(() => listSessionFamilies(showAllProjects ? allSessions : filteredSessions)
+    .filter(family => family.root.archived).length, [showAllProjects, allSessions, filteredSessions]);
   const activeProjectKey = selectedProject?.key;
   const activeProjectRoot = selectedProject?.root;
   const projectRows = useMemo(() => showAllProjects ? buildSidebarProjectRows(
-    allSessions,
+    scopedSessions,
     sidebarView.collapsedProjects,
     activeProjectKey && activeProjectRoot ? { key: activeProjectKey, root: activeProjectRoot } : null,
     expandedProjects,
-  ) : [], [showAllProjects, allSessions, sidebarView.collapsedProjects, activeProjectKey, activeProjectRoot, expandedProjects]);
+  ) : [], [showAllProjects, scopedSessions, sidebarView.collapsedProjects, activeProjectKey, activeProjectRoot, expandedProjects]);
   const listRows = useMemo<SidebarProjectRow[]>(() => showAllProjects
     ? projectRows
     : sessionFamilies.map((family) => ({ kind: "session", family })), [showAllProjects, projectRows, sessionFamilies]);
@@ -1278,7 +1326,8 @@ export function SessionSidebar({ onOpenTasks, selectedSessionId, onSelectSession
     setListScrollTop(0);
     setDropdownOpen(false);
     setWtDropdownOpen(false);
-  }, [showAllProjects]);
+    closeSessionMenu();
+  }, [showAllProjects, archiveScope, closeSessionMenu]);
 
   const rowKeys = useMemo(() => listRows.map(sidebarRowKey), [listRows]);
   const tabStopKey = rowKeys.includes(keyboardRowKey ?? "") ? keyboardRowKey : rowKeys[0];
@@ -1298,6 +1347,7 @@ export function SessionSidebar({ onOpenTasks, selectedSessionId, onSelectSession
       setWtDropdownOpen(false);
       const family = listSessionFamilies(showAllProjects ? allSessions : filteredSessions)
         .find(({ root, subagents }) => root.id === selectedSessionId || subagents.some((session) => session.id === selectedSessionId));
+      if (family) setArchiveScope(family.root.archived ? "archived" : "active");
       if (family && showAllProjects) {
         const projectKey = workspaceKeyOf(family.root);
         setSidebarProjectCollapsed(projectKey, false);
@@ -2085,7 +2135,21 @@ export function SessionSidebar({ onOpenTasks, selectedSessionId, onSelectSession
           overflow: "hidden",
         }}
       >
-        <SessionSearch open={sessionSearchOpen} query={sessionSearchQuery} selectedSessionId={selectedSessionId} onSelectSession={handleSelectSessionFromList}>
+        <div className="shrink-0 px-3 py-2">
+          <select aria-label={t("sidebar.sessionListScope")} value={archiveScope}
+            onChange={event => setArchiveScope(event.target.value as SessionArchiveScope)}
+            className="h-[30px] w-full min-w-0 cursor-pointer rounded-[7px] border border-border bg-bg-panel px-2 text-xs text-text focus:outline-2 focus:outline-accent">
+            <option value="active">{t("sidebar.activeSessions")}</option>
+            <option value="archived">{t("sidebar.archivedSessions", { count: archivedCount })}</option>
+          </select>
+          {archiveFailure && <div role="alert" className="mt-2 text-xs text-red-400">
+            {t("sidebar.sessionArchiveFailed")}
+            <button type="button" disabled={archivingSessionId !== null}
+              className="ml-2 cursor-pointer underline disabled:opacity-50"
+              onClick={() => void changeSessionArchive(archiveFailure.session, archiveFailure.archived)}>{t("sidebar.retryArchive")}</button>
+          </div>}
+        </div>
+        <SessionSearch open={sessionSearchOpen} query={sessionSearchQuery} archiveScope={archiveScope} archiveVersion={archiveFingerprint} selectedSessionId={selectedSessionId} onSelectSession={handleSelectSessionFromList}>
         <div
           ref={listScrollRef}
           tabIndex={listRows.length === 0 ? 0 : -1}
@@ -2123,7 +2187,7 @@ export function SessionSidebar({ onOpenTasks, selectedSessionId, onSelectSession
         )}
         {!loading && !error && listRows.length === 0 && (
           <div style={{ padding: "16px 14px", color: "var(--text-muted)", fontSize: 12 }}>
-            {t("sidebar.noSessions")}
+            {t(archiveScope === "archived" ? "sidebar.noArchivedSessions" : "sidebar.noSessions")}
           </div>
         )}
         {listRows.length > 0 && (
@@ -2211,6 +2275,8 @@ export function SessionSidebar({ onOpenTasks, selectedSessionId, onSelectSession
                     isUnread={familySessions.some((session) => unreadSessionIds.has(session.id))}
                     onClick={() => handleSelectSessionFromList(family.root)}
                     onRenamed={loadSessions}
+                    onArchive={session => { void changeSessionArchive(session); }}
+                    archiving={archivingSessionId !== null}
                     onDeleted={(id) => {
                       onSessionDeleted?.(id);
                       loadSessions();
@@ -2244,7 +2310,12 @@ export function SessionSidebar({ onOpenTasks, selectedSessionId, onSelectSession
           {...sessionPaneResizer.separatorProps}
         />
       )}
-      {sessionMenu && <SessionContextMenu menu={sessionMenu} onClose={closeSessionMenu} />}
+      {sessionMenu && <SessionContextMenu key={sessionMenu.id} menu={sessionMenu} onClose={closeSessionMenu} archiving={archivingSessionId !== null}
+        onArchive={() => {
+          const session = allSessions.find(item => item.id === sessionMenu.id);
+          closeSessionMenu();
+          if (session) void changeSessionArchive(session, !sessionMenu.archived);
+        }} />}
 
       {/* File Explorer section */}
       {(selectedCwdProp || selectedCwd) && (
@@ -2531,6 +2602,8 @@ function SessionItem({
   onClick,
   onRenamed,
   onDeleted,
+  onArchive,
+  archiving = false,
   onOpenMenu,
   depth = 0,
   hasChildren = false,
@@ -2546,6 +2619,8 @@ function SessionItem({
   onClick: () => void;
   onRenamed?: () => void;
   onDeleted?: (id: string) => void;
+  onArchive?: (session: SessionInfo) => void;
+  archiving?: boolean;
   onOpenMenu?: (menu: SessionContextMenuState) => void;
   depth?: number;
   hasChildren?: boolean;
@@ -2679,13 +2754,15 @@ function SessionItem({
     e.stopPropagation();
     if (handled || !onOpenMenu) return;
     const width = 196;
-    const height = 52;
+    const height = 100;
     onOpenMenu({
       id: session.id,
+      archived: Boolean(session.archived),
+      transient: Boolean(session.transient),
       x: Math.max(8, Math.min(e.clientX, window.innerWidth - width - 8)),
       y: Math.max(8, Math.min(e.clientY, window.innerHeight - height - 8)),
     });
-  }, [onOpenMenu, onRenamed, session.cwd, session.id, session.name, session.path]);
+  }, [onOpenMenu, onRenamed, session.cwd, session.id, session.name, session.path, session.archived, session.transient]);
 
   // Fixed-height outer wrapper — content swaps in place so the list never reflows
   return (
@@ -2892,6 +2969,15 @@ function SessionItem({
                   <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
                 </svg>
               </button>
+              {onArchive && <button type="button" disabled={archiving}
+                aria-label={`${t(session.archived ? "sidebar.restoreSession" : "sidebar.archiveSession")}: ${title}`}
+                title={t(session.archived ? "sidebar.restoreSession" : "sidebar.archiveSession")}
+                onClick={event => { event.stopPropagation(); onArchive(session); }}
+                className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-[7px] border border-border bg-bg-hover text-text-muted hover:border-accent/35 hover:bg-bg-selected hover:text-accent focus-visible:outline-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  {session.archived ? <><path d="M9 10H4V5M4 10a8 8 0 1 1 1 8" /></> : <><rect x="3" y="3" width="18" height="4" rx="1" /><path d="M5 7v13h14V7M9 11h6" /></>}
+                </svg>
+              </button>}
               <button
                 onClick={handleDeleteClick}
                 title={t("sidebar.deleteWithShiftClick")}
