@@ -54,6 +54,20 @@ const page = await context.newPage(), peer = await context.newPage();
 for (const p of [page, peer]) p.on("pageerror", e => errors.push(e.message));
 const row = p => p.locator(`[data-sidebar-row="session:${id}"]`);
 const scope = p => p.getByRole("combobox", {name:"Session list", exact:true});
+const assertActionSizes = async (p, archived, messages = getLocalePlugin("en").messages) => {
+  const names = [
+    messages["sidebar.rename"],
+    `${messages[archived ? "sidebar.restoreSession" : "sidebar.archiveSession"]}: Archive conversation`,
+    messages["sidebar.deleteWithShiftClick"],
+  ];
+  const sizes = await Promise.all(names.map(name => row(p).getByRole("button", {name, exact:true}).evaluate(button => {
+    const bounds = button.getBoundingClientRect();
+    const icon = button.querySelector("svg").getBoundingClientRect();
+    return { width:bounds.width, height:bounds.height, iconWidth:icon.width, iconHeight:icon.height };
+  })));
+  assert.deepEqual(sizes, names.map(() => ({ width:32, height:32, iconWidth:14, iconHeight:14 })),
+    "rename, archive/restore and delete must share 32px targets and 14px icons");
+};
 try {
   await page.goto(`${base}/?session=${id}`);
   await row(page).waitFor();
@@ -70,6 +84,10 @@ try {
   await archiveButton.waitFor();
   await row(page).getByRole("button", {name:"Rename", exact:true}).waitFor();
   await row(page).getByRole("button", {name:"Delete (Shift+click to delete without confirmation)", exact:true}).waitFor();
+  await assertActionSizes(page, false);
+  await page.evaluate(() => { document.documentElement.style.fontSize = "16px"; });
+  await assertActionSizes(page, false);
+  await page.evaluate(() => { document.documentElement.style.fontSize = ""; });
   await page.mouse.move(1100, 400);
   await archiveButton.waitFor({state:"detached"});
   assert.equal(await row(page).getByRole("button").count(), 0, "all three actions hide together on leave");
@@ -103,6 +121,7 @@ try {
   await row(page).waitFor();
   await row(page).hover();
   const restore = page.getByRole("button", {name:"Restore session: Archive conversation", exact:true});
+  await assertActionSizes(page, true);
   await restore.focus();
   await page.keyboard.press("Enter");
   await row(page).waitFor({state:"detached"});
@@ -151,6 +170,7 @@ try {
     await touchPage.mouse.move(385, 400);
     await row(touchPage).hover(); // Reveal with a pointer, then validate the touch target.
     const restoreButton = touchPage.getByRole("button", {name:`${messages["sidebar.restoreSession"]}: Archive conversation`, exact:true});
+    await assertActionSizes(touchPage, true, messages);
     const bounds = await restoreButton.boundingBox();
     assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= 390, `${locale}/${theme} touch action stays in viewport`);
     await restoreButton.tap();
@@ -160,6 +180,7 @@ try {
     await row(touchPage).waitFor();
     await touchPage.mouse.move(385, 400);
     await row(touchPage).hover();
+    await assertActionSizes(touchPage, false, messages);
     await touchPage.getByRole("button", {name:`${messages["sidebar.archiveSession"]}: Archive conversation`, exact:true}).tap();
     await row(touchPage).waitFor({state:"detached"});
     assert.equal(archivedIds.has(id), true);
@@ -167,7 +188,7 @@ try {
   }
   assert.deepEqual(errors, []);
   assert.ok(mutations.every(m => m.method === "PUT" && m.path.endsWith("/archive")));
-  console.log("PASS: shared hover-only rename/archive/delete actions, failure/retry, selected chat + draft/history preservation, archived opening/search/keyboard restore, cross-tab sync + stale menu intent, reload, explicit focus, 390px pointer-revealed touch targets in 3 languages × 2 themes; no delete/stop/prompt/task mutation");
+  console.log("PASS: shared hover-only rename/archive/delete actions with matching 32px targets and 14px icons at 14px/16px root font sizes, failure/retry, selected chat + draft/history preservation, archived opening/search/keyboard restore, cross-tab sync + stale menu intent, reload, explicit focus, 390px pointer-revealed touch targets in 3 languages × 2 themes; no delete/stop/prompt/task mutation");
 } catch (error) {
   console.error(JSON.stringify({ mutations, errors }));
   if (!page.isClosed()) await page.screenshot({ path: "/tmp/pi-web-session-archive-failure.png" });

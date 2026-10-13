@@ -2973,7 +2973,7 @@ function SessionItem({
                 aria-label={`${t(session.archived ? "sidebar.restoreSession" : "sidebar.archiveSession")}: ${title}`}
                 title={t(session.archived ? "sidebar.restoreSession" : "sidebar.archiveSession")}
                 onClick={event => { event.stopPropagation(); onArchive(session); }}
-                className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-[7px] border border-border bg-bg-hover text-text-muted hover:border-accent/35 hover:bg-bg-selected hover:text-accent focus-visible:outline-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50">
+                className="flex h-[32px] w-[32px] shrink-0 cursor-pointer items-center justify-center rounded-[7px] border border-border bg-bg-hover p-0 text-text-muted hover:border-accent/35 hover:bg-bg-selected hover:text-accent focus-visible:outline-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   {session.archived ? <><path d="M9 10H4V5M4 10a8 8 0 1 1 1 8" /></> : <><rect x="3" y="3" width="18" height="4" rx="1" /><path d="M5 7v13h14V7M9 11h6" /></>}
                 </svg>
