@@ -10,6 +10,23 @@ import type { SessionInfo } from "@/lib/types";
  * refreshed row explicitly. Locally applied fields such as an auto-generated
  * title still survive until the next listing carries them.
  */
+export interface SessionTitleSnapshot {
+  name: string;
+  autoTitleEnabled: boolean;
+  sessionListVersion?: number;
+}
+
+/** A list scan captured before a title update may still hydrate unrelated fields. */
+export function protectCatalogTitle(
+  row: SessionInfo,
+  sessionListVersion: number | undefined,
+  latest?: SessionTitleSnapshot,
+): SessionInfo {
+  if (!latest || latest.sessionListVersion === undefined
+    || (sessionListVersion !== undefined && sessionListVersion >= latest.sessionListVersion)) return row;
+  return { ...row, name: latest.name, autoTitleEnabled: latest.autoTitleEnabled };
+}
+
 export function mergeCatalogRow(current: SessionInfo, refreshed: SessionInfo): SessionInfo {
   return {
     ...current,

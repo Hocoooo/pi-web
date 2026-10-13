@@ -75,9 +75,10 @@ test("exposes the polled running-session set to the shell", () => {
   assert.match(source, /onRunningSessionIdsChange\?\.\(runningSessionIds\)/);
 });
 
-test("exposes the loaded session catalog to the shell", () => {
-  assert.match(source, /onSessionsChange\?: \(sessions: SessionInfo\[\]\) => void/);
-  assert.match(source, /onSessionsChange\?\.\(allSessions\)/);
+test("exposes the loaded session catalog and its matching version to the shell", () => {
+  assert.match(source, /onSessionsChange\?: \(sessions: SessionInfo\[\], sessionListVersion\?: number\) => void/);
+  assert.match(source, /onSessionsChange\?\.\(allSessions, catalogSnapshot\.sessionListVersion\)/);
+  assert.match(source, /setCatalogSnapshot\(\{ sessions: data\.sessions, sessionListVersion: data\.sessionListVersion \}\)/);
 });
 
 test("subagent completion stays silent and never becomes unread", () => {

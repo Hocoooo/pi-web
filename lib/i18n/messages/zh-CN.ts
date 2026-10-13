@@ -187,6 +187,8 @@ export const zhCNLocale: LocalePlugin = {
     "title.unsaved": "会话保存后才能生成标题",
     "title.noMessages": "请先发送消息，再为会话命名",
     "title.generateSession": "生成会话标题",
+  "title.autoUpdate": "每轮结束后自动更新标题",
+  "title.autoUpdateDescription": "每个正常完成的轮次会使用当前会话模型额外请求一次。手动改名会关闭自动更新，可在此重新开启；失败或停止的轮次保留原标题。",
     "system.prompt": "系统提示词",
     "system.empty": "系统提示词为空（工具已禁用）",
     "system.load": "系统提示词尚未加载",

@@ -235,7 +235,7 @@ interface Props {
    *  Lets the app play a cross-workspace completion tone. */
   onBackgroundTaskDone?: () => void;
   onRunningSessionIdsChange?: (ids: Set<string>) => void;
-  onSessionsChange?: (sessions: SessionInfo[]) => void;
+  onSessionsChange?: (sessions: SessionInfo[], sessionListVersion?: number) => void;
 }
 
 interface WorktreeEntry {
@@ -491,7 +491,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [sessionMenu, setSessionMenu] = useState<SessionContextMenuState | null>(null);
   const closeSessionMenu = useCallback(() => setSessionMenu(null), []);
   const { t } = useI18n();
-  const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
+  const [catalogSnapshot, setCatalogSnapshot] = useState<{ sessions: SessionInfo[]; sessionListVersion?: number }>({ sessions: [] });
+  const allSessions = catalogSnapshot.sessions;
   const sidebarView = useSidebarView();
   const showAllProjects = sidebarView.mode === "all";
   const [expandedProjects, setExpandedProjects] = useState<string[]>([]);
@@ -639,7 +640,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       };
       if (loadId !== sessionLoadIdRef.current) return;
       sessionListVersionRef.current = data.sessionListVersion;
-      setAllSessions(data.sessions);
+      setCatalogSnapshot({ sessions: data.sessions, sessionListVersion: data.sessionListVersion });
       // Treat the fetched running set as an initial fallback only. Once the
       // lightweight poll is live, a slow session-list fetch cannot overwrite it.
       if (!runningPollAuthoritativeRef.current) {
@@ -834,8 +835,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   }, [onRunningSessionIdsChange, runningSessionIds]);
 
   useEffect(() => {
-    onSessionsChange?.(allSessions);
-  }, [allSessions, onSessionsChange]);
+    onSessionsChange?.(allSessions, catalogSnapshot.sessionListVersion);
+  }, [allSessions, catalogSnapshot.sessionListVersion, onSessionsChange]);
 
   useEffect(() => {
     const previous = previousRunningSessionIdsRef.current;
@@ -1166,7 +1167,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   // works when the prop value won't change — e.g. re-clicking the already
   // open session after manually switching worktrees.
   const handleSelectSessionFromList = useCallback((s: SessionInfo, entryId?: string, blockIndex?: number) => {
-    setAllSessions((current) => current.some((session) => session.id === s.id) ? current : [s, ...current]);
+    setCatalogSnapshot((current) => current.sessions.some((session) => session.id === s.id)
+      ? current : { ...current, sessions: [s, ...current.sessions] });
     if (s.cwd) setSelectedCwd(s.cwd);
     if (showAllProjects) setSidebarProjectCollapsed(workspaceKeyOf(s), false);
     onSelectSession(s, false, entryId, blockIndex);

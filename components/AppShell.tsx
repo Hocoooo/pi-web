@@ -37,7 +37,7 @@ import {
 import { setupPushSubscription } from "@/lib/push-client";
 import { getInitialNavigation, withTabOpen } from "@/lib/initial-navigation";
 import { clearTabOpenSession, getTabOpen, setTabOpenNewSession, setTabOpenSession } from "@/lib/tab-session";
-import { mergeCatalogRow } from "./session-catalog-helpers";
+import { mergeCatalogRow, protectCatalogTitle, type SessionTitleSnapshot } from "./session-catalog-helpers";
 import { rekeyDraft } from "@/lib/draft-store";
 import {
   clearLastOpen,
@@ -128,14 +128,17 @@ export function AppShell() {
   const selectedSessionRef = useRef(selectedSession);
   selectedSessionRef.current = selectedSession;
   const [sessionCatalog, setSessionCatalog] = useState<SessionInfo[]>([]);
-  const handleSessionsChange = useCallback((sessions: SessionInfo[]) => {
-    setSessionCatalog(sessions);
+  const titleSnapshotsRef = useRef(new Map<string, SessionTitleSnapshot>());
+  const handleSessionsChange = useCallback((sessions: SessionInfo[], sessionListVersion?: number) => {
+    const protectedSessions = sessions.map((row) => protectCatalogTitle(row, sessionListVersion, titleSnapshotsRef.current.get(row.id)));
+    setSessionCatalog(protectedSessions);
     // The sidebar hydrates metadata after the selected session has already
     // mounted. Merge that update into the active session without changing the
     // ChatWindow key or restarting its history load.
     setSelectedSession((current) => {
       if (!current) return current;
-      const refreshed = sessions.find((session) => session.id === current.id);
+      const row = sessions.find((session) => session.id === current.id);
+      const refreshed = row && protectCatalogTitle(row, sessionListVersion, titleSnapshotsRef.current.get(current.id));
       return refreshed ? mergeCatalogRow(current, refreshed) : current;
     });
   }, []);
@@ -308,6 +311,19 @@ export function AppShell() {
   // Session stats (tokens + cost) — populated by ChatWindow, displayed in top bar
   const [sessionStats, setSessionStats] = useState<SessionStatsInfo | null>(null);
   const [autoNameStatus, setAutoNameStatus] = useState<AutoNameStatus>({ kind: "idle" });
+  const [autoTitleSaving, setAutoTitleSaving] = useState(false);
+  const [autoTitleError, setAutoTitleError] = useState<string | null>(null);
+  const titleUpdateVersionRef = useRef(0);
+  const handleSessionTitleChange = useCallback((sessionId: string, title: string, autoTitleEnabled: boolean, sessionListVersion?: number) => {
+    titleUpdateVersionRef.current++;
+    titleSnapshotsRef.current.set(sessionId, { name: title, autoTitleEnabled,
+      sessionListVersion: sessionListVersion ?? titleSnapshotsRef.current.get(sessionId)?.sessionListVersion });
+    setSelectedSession((current) => current?.id === sessionId
+      && (current.name !== title || current.autoTitleEnabled !== autoTitleEnabled)
+      ? { ...current, name: title, autoTitleEnabled } : current);
+    setSessionStats((current) => current?.sessionId === sessionId && current.sessionName !== title
+      ? { ...current, sessionName: title } : current);
+  }, []);
   const autoNameTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeSessionIdRef = useRef<string | null>(selectedSession?.id ?? null);
   activeSessionIdRef.current = selectedSession?.id ?? null;
@@ -921,15 +937,15 @@ export function AppShell() {
   // worktrees right after creating a session doesn't close the chat.
   const hydrateSelectedSession = useCallback((sessionId: string) => {
     void fetch("/api/sessions", { cache: "no-store" })
-      .then((r) => (r.ok ? (r.json() as Promise<{ sessions: SessionInfo[] }>) : null))
+      .then((r) => (r.ok ? (r.json() as Promise<{ sessions: SessionInfo[]; sessionListVersion?: number }>) : null))
       .then((d) => {
-        const full = d?.sessions.find((s) => s.id === sessionId);
-        if (!full) return;
-        setSelectedSession((prev) => (
-          prev?.id === sessionId
-            ? { ...prev, ...full, transient: full.transient ?? false }
-            : prev
-        ));
+        const row = d?.sessions.find((s) => s.id === sessionId);
+        if (!row) return;
+        setSelectedSession((prev) => {
+          if (prev?.id !== sessionId) return prev;
+          const full = protectCatalogTitle(row, d?.sessionListVersion, titleSnapshotsRef.current.get(sessionId));
+          return { ...prev, ...full, transient: full.transient ?? false };
+        });
       })
       .catch(() => {});
   }, []);
@@ -1035,11 +1051,37 @@ export function AppShell() {
     });
   }, [deliverSessionNotification, selectedSession, translate]);
 
+  const handleAutoTitleToggle = useCallback(async (enabled: boolean) => {
+    const sessionId = selectedSession?.id;
+    if (!sessionId || autoTitleSaving) return;
+    const titleVersion = titleUpdateVersionRef.current;
+    setAutoTitleSaving(true);
+    setAutoTitleError(null);
+    try {
+      const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ autoTitleEnabled: enabled }),
+      });
+      const body = await response.json() as { title?: string; autoTitleEnabled?: boolean; sessionListVersion?: number; error?: string };
+      if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
+      if (activeSessionIdRef.current !== sessionId) return;
+      if (titleVersion === titleUpdateVersionRef.current && typeof body.title === "string" && typeof body.autoTitleEnabled === "boolean") {
+        handleSessionTitleChange(sessionId, body.title, body.autoTitleEnabled, body.sessionListVersion);
+      }
+      setRefreshKey((key) => key + 1);
+    } catch (error) {
+      if (activeSessionIdRef.current === sessionId) setAutoTitleError(error instanceof Error ? error.message : String(error));
+    } finally {
+      if (activeSessionIdRef.current === sessionId) setAutoTitleSaving(false);
+    }
+  }, [autoTitleSaving, handleSessionTitleChange, selectedSession?.id]);
+
   const handleAutoName = useCallback(async () => {
     const sessionId = selectedSession?.id;
     if (!sessionId || autoNameStatus.kind === "naming") return;
     if (autoNameTimerRef.current) clearTimeout(autoNameTimerRef.current);
     setActiveTopPanel(null);
+    const titleVersion = titleUpdateVersionRef.current;
     setAutoNameStatus({ kind: "naming" });
 
     try {
@@ -1054,8 +1096,10 @@ export function AppShell() {
       const title = body.title.trim();
       setRefreshKey((key) => key + 1);
       if (activeSessionIdRef.current !== sessionId) return;
-      setSelectedSession((current) => current?.id === sessionId ? { ...current, name: title } : current);
-      setSessionStats((current) => current?.sessionId === sessionId ? { ...current, sessionName: title } : current);
+      if (titleVersion === titleUpdateVersionRef.current) {
+        setSelectedSession((current) => current?.id === sessionId ? { ...current, name: title } : current);
+        setSessionStats((current) => current?.sessionId === sessionId ? { ...current, sessionName: title } : current);
+      }
       setAutoNameStatus({ kind: "success" });
       autoNameTimerRef.current = setTimeout(() => setAutoNameStatus({ kind: "idle" }), 1800);
     } catch (error) {
@@ -1069,6 +1113,8 @@ export function AppShell() {
   useEffect(() => {
     if (autoNameTimerRef.current) clearTimeout(autoNameTimerRef.current);
     setAutoNameStatus({ kind: "idle" });
+    setAutoTitleSaving(false);
+    setAutoTitleError(null);
   }, [selectedSession?.id]);
 
   const handleExplorerRefresh = useCallback(() => {
@@ -2228,6 +2274,23 @@ export function AppShell() {
                   boxShadow: "0 10px 28px rgba(0,0,0,0.10)",
                   padding: "12px 16px",
                 }}>
+                  {selectedSession && selectedSession.relation?.kind !== "subagent" && (
+                    <div style={{ marginBottom: 12, paddingBottom: 12, borderBottom: "1px solid var(--border)" }}>
+                      <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "var(--text)" }}>
+                        <input
+                          type="checkbox"
+                          checked={selectedSession.autoTitleEnabled ?? !selectedSession.name}
+                          disabled={autoTitleSaving || selectedSession.transient}
+                          onChange={(event) => void handleAutoTitleToggle(event.target.checked)}
+                        />
+                        {translate("title.autoUpdate")}
+                      </label>
+                      <div style={{ marginTop: 6, fontSize: 11, color: "var(--text-muted)", lineHeight: 1.6 }}>
+                        {selectedSession.transient ? translate("title.unsaved") : translate("title.autoUpdateDescription")}
+                      </div>
+                      {autoTitleError && <div role="alert" style={{ marginTop: 6, fontSize: 11, color: "#dc2626" }}>{autoTitleError}</div>}
+                    </div>
+                  )}
                   {sessionStats ? (() => {
                     const formatDuration = (ms: number) => {
                       if (ms <= 0) return "0s";
@@ -2460,6 +2523,7 @@ export function AppShell() {
               onNewSessionProjectChange={handleNewSessionProjectChange}
               onNewSession={(cwd) => handleNewSession(`command-${Date.now()}`, cwd, false)}
               onAgentEnd={handleAgentEnd}
+                onSessionTitleChange={handleSessionTitleChange}
               onAttentionNeeded={handleAttentionNeeded}
               onSessionCreated={handleSessionCreated}
               onSessionForked={handleSessionForked}

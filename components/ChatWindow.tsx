@@ -52,6 +52,7 @@ interface Props {
   onNewSessionProjectChange?: (cwd: string, projectKey: string) => void;
   onNewSession?: (cwd: string) => void;
   onAgentEnd?: () => void;
+  onSessionTitleChange?: (sessionId: string, title: string, autoTitleEnabled: boolean, sessionListVersion?: number) => void;
   onAttentionNeeded?: (request: BlockingExtensionUiRequest) => void;
   onSessionCreated?: (session: SessionInfo, sourceDraftKey: string) => void;
   onSessionForked?: (newSessionId: string) => void;
@@ -236,7 +237,7 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, defaultExpanded = fa
   );
 }
 
-export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initialScrollPosition, onScrollPositionChange, sessionRunning, newSessionCwd, independentChat = false, newSessionDraftKey, onNewSessionProjectChange, onNewSession, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onOpenSettings, onContextUsageChange, onOpenFile, onFilesUploaded, onOpenSession, onAskInNewChat, quoteSelectionEnabled = false, initialPrompt, onInitialPromptConsumed, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio }: Props) {
+export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initialScrollPosition, onScrollPositionChange, sessionRunning, newSessionCwd, independentChat = false, newSessionDraftKey, onNewSessionProjectChange, onNewSession, onAgentEnd, onSessionTitleChange, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onOpenSettings, onContextUsageChange, onOpenFile, onFilesUploaded, onOpenSession, onAskInNewChat, quoteSelectionEnabled = false, initialPrompt, onInitialPromptConsumed, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio }: Props) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
   const fallbackChatInputRef = useRef<ChatInputHandle | null>(null);
@@ -290,7 +291,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     handleToolPresetChange, handleThinkingLevelChange, handleSetDefaultModel, handleSetDefaultThinkingLevel, loadSlashCommands, scrollUserMsgToTop,
     loadContext, activeLeafId, scrollToBottom, scrollToMessage,
   } = useAgentSession({
-    session, sessionRunning, newSessionCwd, independentChat, newSessionDraftKey, onAgentEnd: wrappedOnAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked,
+    session, sessionRunning, newSessionCwd, independentChat, newSessionDraftKey, onAgentEnd: wrappedOnAgentEnd, onSessionTitleChange, onAttentionNeeded, onSessionCreated, onSessionForked,
     modelsRefreshKey, chatInputRef: composerRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsPanelOpen,
     onOpenSettings,
     deferInitialScroll: Boolean(pendingScrollRestore),
@@ -319,7 +320,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
       void fetch(`/api/sessions/${encodeURIComponent(sid)}/next-cue`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: nextCueModel }),
+        body: JSON.stringify({ model: nextCueModel, leafId: activeLeafId }),
         signal: controller.signal,
       }).then(async (response) => {
         if (!response.ok || response.status === 204) return;

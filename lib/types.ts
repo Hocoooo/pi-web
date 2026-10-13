@@ -362,6 +362,8 @@ export interface SessionInfo {
   modified: string;
   messageCount: number;
   firstMessage: string;
+  /** Persisted automatic-title policy, included in the full session response. */
+  autoTitleEnabled?: boolean;
   /** True while the sidebar has only header/stat metadata for this session. */
   detailsPending?: boolean;
   parentSessionId?: string; // source session for a fork, or parent session for a subagent

@@ -10,12 +10,14 @@ import {
   resolveSessionIdByPath,
   invalidateSessionPathCache,
   invalidateSessionListCache,
+  getSessionListVersion,
   invalidateSessionManagerCache,
   buildSessionContext,
   readSessionHeader,
 } from "@/lib/session-reader";
 import { sessionPathKey } from "@/lib/session-path";
-import { abortSubagent, getRpcSession, getRpcSessionInfos } from "@/lib/rpc-manager";
+import { abortSubagent, getRpcSession, getRpcSessionInfos, updateSessionTitle } from "@/lib/rpc-manager";
+import { readSessionTitleState, isStaleSessionTitleError } from "@/lib/auto-session-title";
 import { projectTreeForResponse, toSummaryTree } from "@/lib/project-tree";
 import { computeSessionTotalActiveMs } from "@/lib/session-timing";
 import { computeSessionStats } from "@/lib/session-stats";
@@ -94,6 +96,7 @@ export async function GET(
       leafId: leafId ?? null,
     });
     const sessionName = sm.getSessionName();
+    const sessionListVersion = getSessionListVersion();
     const firstUserEntry = entries.find((entry) => entry.type === "message" && entry.message.role === "user");
     const firstUserMessage = firstUserEntry?.type === "message" ? firstUserEntry.message : undefined;
 
@@ -113,6 +116,7 @@ export async function GET(
       id: header.id,
       cwd: header.cwd ?? "",
       name: sessionName,
+      autoTitleEnabled: !subagent && readSessionTitleState(entries, sessionName).enabled,
       created: header.timestamp,
       modified,
       messageCount: stats.totalMessages,
@@ -146,6 +150,7 @@ export async function GET(
         totalActiveMs,
         ...(toolNames !== undefined ? { toolNames } : {}),
         ...(wrapperRebuilt ? { wrapperRebuilt: true } : {}),
+        sessionListVersion,
       },
     )) ?? jsonResponse(
       req,
@@ -162,6 +167,7 @@ export async function GET(
         totalActiveMs,
         ...(toolNames !== undefined ? { toolNames } : {}),
         ...(wrapperRebuilt ? { wrapperRebuilt: true } : {}),
+        sessionListVersion,
       },
     );
   } catch (error) {
@@ -169,30 +175,30 @@ export async function GET(
   }
 }
 
-// PATCH /api/sessions/[id]  body: { name: string }
+// PATCH /api/sessions/[id] body: { name: string } OR { autoTitleEnabled: boolean }
 export async function PATCH(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
   try {
-    const { name } = await req.json() as { name?: string };
-    if (typeof name !== "string") {
-      return NextResponse.json({ error: "name is required" }, { status: 400 });
+    const body = await req.json().catch(() => null) as { name?: unknown; autoTitleEnabled?: unknown } | null;
+    const renaming = typeof body?.name === "string" && body.autoTitleEnabled === undefined;
+    const configuring = typeof body?.autoTitleEnabled === "boolean" && body.name === undefined;
+    if (!renaming && !configuring) {
+      return NextResponse.json({ error: "Provide name OR autoTitleEnabled" }, { status: 400 });
     }
     const filePath = await resolveSessionPath(id);
     if (!filePath) {
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
 
-    // PATCH writes via appendSessionInfo — open fresh, bypassing the cache.
-    const sm = openSessionManager(filePath, { mutable: true });
-    sm.appendSessionInfo(name.trim());
-    invalidateSessionManagerCache(filePath);
-    invalidateSessionListCache();
-    return NextResponse.json({ ok: true });
+    const state = await updateSessionTitle(id, filePath, renaming
+      ? { name: (body!.name as string).trim() }
+      : { autoTitleEnabled: body!.autoTitleEnabled as boolean });
+    return NextResponse.json({ ok: true, title: state.title, autoTitleEnabled: state.enabled, sessionListVersion: getSessionListVersion() });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: String(error) }, { status: isStaleSessionTitleError(error) ? 409 : 500 });
   }
 }
 

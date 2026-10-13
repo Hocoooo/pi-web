@@ -187,6 +187,8 @@ export const enLocale: LocalePlugin = {
     "title.unsaved": "Title generation is available after the session is saved",
     "title.noMessages": "Send a message before naming this session",
     "title.generateSession": "Generate a session title",
+  "title.autoUpdate": "Update title after each completed turn",
+  "title.autoUpdateDescription": "Uses the current session model for one extra request per successful turn. Manual renaming turns this off; enable it again here. Failed or stopped turns keep the previous title.",
     "system.prompt": "System prompt",
     "system.empty": "System prompt is empty (tools are disabled)",
     "system.load": "System prompt has not loaded yet",

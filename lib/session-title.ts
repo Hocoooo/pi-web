@@ -58,6 +58,12 @@ export interface GeneratedSessionTitle {
   };
 }
 
+export interface TitleGenerationOptions {
+  signal?: AbortSignal;
+  previousTitle?: string;
+  timeoutMs?: number;
+}
+
 export interface TitleRequest {
   model: Model<Api>;
   context: Context;
@@ -85,7 +91,7 @@ export function resolveTitleThinkingLevel(model: Model<Api>): ThinkingLevel {
  * session id, and cacheRetention "none". The request is too small and too
  * unique to reuse the live session's prefix or write a cache nobody will read.
  */
-export function buildTitleRequest(source: Agent, transcript: string): TitleRequest {
+export function buildTitleRequest(source: Agent, transcript: string, previousTitle?: string): TitleRequest {
   const model = source.state.model;
   const thinkingLevel = resolveTitleThinkingLevel(model);
   return {
@@ -94,7 +100,9 @@ export function buildTitleRequest(source: Agent, transcript: string): TitleReque
       systemPrompt: TITLE_SYSTEM_PROMPT,
       messages: [{
         role: "user",
-        content: [{ type: "text", text: `${transcript}\n\n${TITLE_PROMPT}` }],
+        content: [{ type: "text", text: `${transcript}\n\n${previousTitle
+          ? `Current title: ${JSON.stringify(clip(previousTitle, MAX_TITLE_LENGTH))}. Keep it verbatim unless the session's concrete goal or outcome has materially changed.\n\n`
+          : ""}${TITLE_PROMPT}` }],
         timestamp: Date.now(),
       }],
     },
@@ -258,6 +266,9 @@ function titleFromAssistant(message: AssistantMessage): GeneratedSessionTitle {
   if (message.stopReason === "aborted") {
     throw new Error("Session title generation timed out");
   }
+  if (message.stopReason !== "stop") {
+    throw new Error("The title model did not complete normally");
+  }
   const text = message.content
     .filter((block) => block.type === "text")
     .map((block) => block.text)
@@ -278,7 +289,7 @@ function titleFromAssistant(message: AssistantMessage): GeneratedSessionTitle {
   };
 }
 
-export async function generateSessionTitle(source: AgentSession): Promise<GeneratedSessionTitle> {
+export async function generateSessionTitle(source: AgentSession, generation: TitleGenerationOptions = {}): Promise<GeneratedSessionTitle> {
   const sourceAgent = source.agent;
   // Snapshot whatever the session holds right now. The transcript is plain
   // text the model reads once, so a turn still in flight only means the
@@ -288,27 +299,35 @@ export async function generateSessionTitle(source: AgentSession): Promise<Genera
     throw new Error("The session has no usable text to name");
   }
 
-  const { model, context, options } = buildTitleRequest(sourceAgent, transcript);
-  const apiKey = await sourceAgent.getApiKey?.(model.provider);
+  const { model, context, options } = buildTitleRequest(sourceAgent, transcript, generation.previousTitle);
   const controller = new AbortController();
-  const requestOptions: SimpleStreamOptions = {
-    ...options,
-    signal: controller.signal,
-    ...(apiKey ? { apiKey } : {}),
-  };
-
-  const timeout = setTimeout(() => controller.abort(), TITLE_TIMEOUT_MS);
+  const signal = generation.signal ? AbortSignal.any([controller.signal, generation.signal]) : controller.signal;
+  signal.throwIfAborted();
+  const timeout = setTimeout(() => controller.abort(), generation.timeoutMs ?? TITLE_TIMEOUT_MS);
+  let onAbort: (() => void) | undefined;
 
   try {
-    // Providers read the prompt from the transcript's leading system message.
-    const stream = await sourceAgent.streamFunction(model, normalizeContext(context), requestOptions);
-    return titleFromAssistant(await stream.result());
+    // Race the whole request (including auth and providers ignoring signals),
+    // not just the HTTP stream. Cancellation never leaves our job hanging.
+    return await new Promise<GeneratedSessionTitle>((resolve, reject) => {
+      onAbort = () => reject(signal.reason);
+      signal.addEventListener("abort", onAbort, { once: true });
+      void (async () => {
+        const apiKey = await sourceAgent.getApiKey?.(model.provider);
+        signal.throwIfAborted();
+        const requestOptions: SimpleStreamOptions = {
+          ...options, signal, ...(apiKey ? { apiKey } : {}),
+        };
+        // Providers read the prompt from the transcript's leading system message.
+        const stream = await sourceAgent.streamFunction(model, normalizeContext(context), requestOptions);
+        return titleFromAssistant(await stream.result());
+      })().then(resolve, reject);
+    });
   } catch (error) {
-    if (controller.signal.aborted) {
-      throw new Error("Session title generation timed out");
-    }
+    if (controller.signal.aborted) throw new Error("Session title generation timed out");
     throw error;
   } finally {
-    if (timeout) clearTimeout(timeout);
+    clearTimeout(timeout);
+    if (onAbort) signal.removeEventListener("abort", onAbort);
   }
 }

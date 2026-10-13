@@ -35,6 +35,8 @@ Coverage:
 - A local extension checks dialog keyboard navigation, Esc cancellation,
   collapse/expand draft preservation, countdown display, and server-side expiry.
 
+Feature-specific browser regression for [automatic session titles](../docs/branch-features/automatic-session-titles.md): `node e2e/automatic-session-titles-run.mjs` starts an isolated checkout dev service only when no checkout dev lock exists, runs desktop/mobile tests with every API/EventSource mocked, then stops it. To reuse an already-running service containing the current source, set `E2E_BASE_URL` and run `node e2e/automatic-session-titles.mjs`. A separately installed global service is not a valid substitute for changed source. This checks title event/catalog races, policy saves and errors, draft/history preservation, reload, manual locks and subagent exclusion without provider charges.
+
 Model prompts, live model streaming, and agent execution are outside this suite.
 Failures save a screenshot, Playwright trace, and server log under
 `test-results/e2e/`; CI uploads that directory. Open a trace with

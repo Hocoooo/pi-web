@@ -27,7 +27,7 @@
 4. **接收不等于完成。** `send({type:"prompt"})` 在 SDK preflight 接受后返回；它不是等待所有生成结束的同步接口。等待过程中 `pendingPromptCount > 0` 使 `isRunning()` 为真，即使某一轮 `isStreaming` 已经变成 false。HTTP success、单次 `agent_end`、流式文本暂时停止均不足以认定全部工作结束。
 5. **完成包含父会话续写。** 对普通、非 streamingBehavior prompt，wrapper 等待 SDK `inner.prompt()` 的 promise settle 后才发 `prompt_done`。真实 SDK 回归夹具覆盖：第一轮 `agent_end` 等待后台 promise → 扩展发 `triggerTurn: true` 消息 → 父会话生成第二轮 → 仅一次 `prompt_done`，最终 `isRunning() === false`。headless 本身没有额外轮询器；能否 drain 依赖 SDK 与扩展合作，不能泛化为等待任意未注册异步任务。
 6. **失败与结束分开。** preflight 拒绝由提交请求返回；新会话 `prompt` 未被接受时还包含 `code: "prompt_rejected"`、`accepted: false`。接受后才发生的运行异常通过 `prompt_error` 回报，普通 prompt 随后仍会发 `prompt_done`。因此 `prompt_done` 表示结束边界，不保证业务成功；`steer`/`followUp` 队列路径也不能套用「每次提交都有独立 prompt_done」的规则。
-7. **Stop 和通知沿用原契约。** `abort` 取消扩展 UI 等待并调用 SDK abort；`notifyAgentRunCompleteIfIdle` 只在真正 idle 时发完成通知。headless 不绕过停止/关闭流程，也不自动开启或关闭通知。它不是服务重启后的任务恢复承诺。
+7. **Stop 和通知沿用原契约。** [每轮自动标题](automatic-session-titles.md) 复用整轮 idle 判定但独立于通知开关；后台标题不能加入 prompt promise 或延迟 `prompt_done`。Stop 也取消标题请求，headless 子代理不自动命名。 `abort` 取消扩展 UI 等待并调用 SDK abort；`notifyAgentRunCompleteIfIdle` 只在真正 idle 时发完成通知。headless 不绕过停止/关闭流程，也不自动开启或关闭通知。它不是服务重启后的任务恢复承诺。
 8. **模式属于运行时，不持久化。** 基线代码没有把 `headless` 写进 session JSONL、设置或工具选择元数据。活着的同一 wrapper 会保留值；`startRpcSession` 命中已有 registry 项时直接复用，新的 options 不会切换它。会话驱逐、重启、工具更换导致重建等路径若未重新显式传入，会回到 `false`。已有会话 API/SSE 重建目前正是默认路径。
 9. **权限和资源边界不变。** headless 不是允许自动批准确认框的授权。`startRpcSession` 的 project trust、Chat-only、子代理资源加载及工具选择仍生效；依赖 UI 的扩展需自行处理无 UI，不应被文档描述成一律批准或一律执行。可加载的扩展和模型仍可能读文件、调用工具或联网，验收应使用受控夹具。
 10. **平台无特例，但 SDK 有依赖。** 选项自身无 Windows 专属行为。实际 SDK、模型和扩展可受平台影响；当前依赖版本见 [package.json](../../package.json)。没有 UI context 不等于事件流绝不会出现 `extension_ui_request`：例如绑定中的 shutdown handler 仍可能产生通知事件。应检查「扩展能否请求交互」而不是笼统要求此事件类型绝迹。
@@ -43,6 +43,7 @@ node --experimental-strip-types --test lib/rpc-manager-extension-ui.test.mjs lib
 
 覆盖解释：
 
+- [rpc-manager-auto-title.integration.test.mjs](../../lib/rpc-manager-auto-title.integration.test.mjs)：同一整轮 draining 完成后才生成一次标题；未完成的标题请求不延长 busy/prompt_done，通知抑制不影响主会话标题。
 - [rpc-manager-headless.test.mjs](../../lib/rpc-manager-headless.test.mjs)：真实 SDK session，临时目录、内存设置、注入 streamFunction 和背景 promise；验证 drain/续写顺序，不调用真实模型或真实子代理服务。
 - [rpc-manager-shutdown.test.mjs](../../lib/rpc-manager-shutdown.test.mjs)：部分使用假 inner；覆盖有/无 UI 绑定、状态、preflight、停止和完成通知边界。
 - [rpc-manager.test.mjs](../../lib/rpc-manager.test.mjs) 中新路由参数与两处回显断言是**源码契约测试**，不是实际 HTTP 端到端测试；其他已有 RPC 回归不是 headless 的新增语义。

@@ -3,7 +3,7 @@ import test from "node:test";
 import { createJiti } from "jiti";
 
 const jiti = createJiti(import.meta.url, { tsconfigPaths: true });
-const { mergeCatalogRow } = await jiti.import("./session-catalog-helpers.ts");
+const { mergeCatalogRow, protectCatalogTitle } = await jiti.import("./session-catalog-helpers.ts");
 
 function row(overrides = {}) {
   return {
@@ -43,6 +43,21 @@ test("a locally applied title survives until the catalogue carries it", () => {
   assert.equal(merged.name, "auto-generated title");
   // ...and the catalogue wins once it does carry one.
   assert.equal(mergeCatalogRow(named, row({ name: "renamed on disk" })).name, "renamed on disk");
+});
+
+test("a delayed catalogue or hydration response cannot roll back a newer title event", () => {
+  const current = row({ name: "New generated title", autoTitleEnabled: true, detailsPending: true });
+  const event = { name: "New generated title", autoTitleEnabled: true, sessionListVersion: 20 };
+  const stale = row({ name: "Older generated title", autoTitleEnabled: false, modified: "2026-02-01", messageCount: 12 });
+  const merged = mergeCatalogRow(current, protectCatalogTitle(stale, 19, event));
+  assert.equal(merged.name, "New generated title");
+  assert.equal(merged.autoTitleEnabled, true);
+  assert.equal(merged.modified, "2026-02-01");
+  assert.equal(merged.messageCount, 12);
+  assert.equal(merged.detailsPending, undefined, "unrelated hydration must still apply");
+  assert.equal(protectCatalogTitle(stale, undefined, event).name, "New generated title");
+  assert.equal(protectCatalogTitle(stale, 21, event).name, "Older generated title", "genuinely newer server metadata remains authoritative");
+  assert.equal(protectCatalogTitle(stale, 19).name, "Older generated title", "legacy selection has no local pin");
 });
 
 test("values the catalogue does carry always win", () => {

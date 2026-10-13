@@ -55,6 +55,8 @@ import {
 export interface SessionData {
   sessionId: string;
   filePath: string;
+  info?: SessionInfo | null;
+  sessionListVersion?: number;
   totalActiveMs: number;
   tree: SessionTreeNode[];
   leafId: string | null;
@@ -172,6 +174,7 @@ export interface UseAgentSessionOptions {
   independentChat?: boolean;
   newSessionDraftKey: string | null;
   onAgentEnd?: () => void;
+  onSessionTitleChange?: (sessionId: string, title: string, autoTitleEnabled: boolean, sessionListVersion?: number) => void;
   onAttentionNeeded?: (request: BlockingExtensionUiRequest) => void;
   onSessionCreated?: (session: SessionInfo, sourceDraftKey: string) => void;
   onSessionForked?: (newSessionId: string) => void;
@@ -316,7 +319,7 @@ type SlashCommandsResponse = {
 
 export function useAgentSession(opts: UseAgentSessionOptions) {
   const {
-    session, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked,
+    session, newSessionCwd, newSessionDraftKey, onAgentEnd, onSessionTitleChange, onAttentionNeeded, onSessionCreated, onSessionForked,
     modelsRefreshKey, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsPanelOpen,
     onOpenSettings,
   } = opts;
@@ -324,6 +327,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const isNew = session === null && newSessionCwd !== null;
 
   const [data, setData] = useState<SessionData | null>(null);
+  const titleEventVersionRef = useRef(0);
   const [loading, setLoading] = useState(!isNew);
   const [error, setError] = useState<string | null>(null);
   const [activeLeafId, setActiveLeafId] = useState<string | null>(null);
@@ -610,6 +614,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const inflight = options?.force ? undefined : loadFlightsRef.current.get(flightKey);
     if (inflight) return await inflight;
   const flight = (async (): Promise<unknown> => {
+    const titleVersion = titleEventVersionRef.current;
     let messagesLoaded = false;
     try {
       if (showLoading) setLoading(true);
@@ -632,6 +637,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const d = await res.json() as SessionData;
       if (sessionIdRef.current !== sid) return null;
+      if (titleVersion === titleEventVersionRef.current && d.info && typeof d.info.autoTitleEnabled === "boolean") {
+        onSessionTitleChange?.(sid, d.info.name ?? "", d.info.autoTitleEnabled, d.sessionListVersion);
+      }
       // Freshness check: when the disk snapshot is unchanged (same opaque
       // revision), keep any history the user already paged in instead of
       // collapsing back to the fresh 50-entry window. The state hooks then
@@ -753,7 +761,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (loadFlightsRef.current.get(flightKey) === flight) loadFlightsRef.current.delete(flightKey);
     });
     return await flight;
-  }, [applyContextUsage, setToolPresetState, syncLiveModel]);
+  }, [applyContextUsage, onSessionTitleChange, setToolPresetState, syncLiveModel]);
 
   const loadContext = useCallback(async (sid: string, leafId: string | null, before?: string | null, options?: { tail?: number; signal?: AbortSignal }) => {
     try {
@@ -1398,6 +1406,15 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         }
         break;
       }
+      case "session_title_updated": {
+        const sid = sessionIdRef.current;
+        if (!sid || event.sessionId !== sid || typeof event.title !== "string" || typeof event.autoTitleEnabled !== "boolean") break;
+        titleEventVersionRef.current++;
+        // Metadata-only: do not reload/re-anchor history or retrigger paid cues.
+        onSessionTitleChange?.(sid, event.title, event.autoTitleEnabled, typeof event.sessionListVersion === "number" ? event.sessionListVersion : undefined);
+        setSessionStatsOverride((current) => current?.sessionId === sid ? { ...current, sessionName: event.title as string } : current);
+        break;
+      }
       case "agent_start":
         setSettledRun(null);
         cancelEventStreamGrace();
@@ -1661,7 +1678,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         setExtensionDialogs((queue) => removeExtensionUiRequest(queue, event.id as string));
         break;
     }
-  }, [addNotice, applyContextUsage, cancelEventStreamGrace, handleExtensionUiRequest, loadSession, notifyPromptStage, onAgentEnd, refreshContextUsage, scheduleEventStreamClose, scrollToBottom, settleUiStage, syncLiveModel]);
+  }, [addNotice, applyContextUsage, cancelEventStreamGrace, handleExtensionUiRequest, loadSession, notifyPromptStage, onAgentEnd, onSessionTitleChange, refreshContextUsage, scheduleEventStreamClose, scrollToBottom, settleUiStage, syncLiveModel]);
   handleAgentEventRef.current = handleAgentEvent;
 
   const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {

@@ -187,6 +187,8 @@ export const zhTWLocale: LocalePlugin = {
     "title.unsaved": "工作階段儲存後才能產生標題",
     "title.noMessages": "請先傳送訊息，再為工作階段命名",
     "title.generateSession": "產生工作階段標題",
+  "title.autoUpdate": "每輪結束後自動更新標題",
+  "title.autoUpdateDescription": "每個正常完成的回合會使用目前工作階段模型額外請求一次。手動改名會關閉自動更新，可在此重新開啟；失敗或停止的回合保留原標題。",
     "system.prompt": "系統提示詞",
     "system.empty": "系統提示詞為空（工具已停用）",
     "system.load": "系統提示詞尚未載入",

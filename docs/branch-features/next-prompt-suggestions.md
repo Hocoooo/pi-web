@@ -23,7 +23,7 @@
 ### 前端触发与交互
 
 1. 只在已记录的本轮 `settledRun` 与当前 session 匹配、会话不忙且功能开启时请求；不是每次打开历史会话都付费生成。
-2. 等待约 200ms，让完成后的 active leaf 刷新先落地，再 POST `/api/sessions/[id]/next-cue`，body 为 `{ model }`。
+2. 等待约 200ms，让完成后的 active leaf 刷新先落地，再 POST `/api/sessions/[id]/next-cue`，body 为 `{ model, leafId: activeLeafId }`（leaf 可为 null；旧 `{ model }` 仍兼容）。
 3. 切换会话、分支、模型偏好、关闭开关或进入新一轮时取消旧请求。结果必须与当前 session、active leaf 匹配，过期结果不展示。
 4. 建议用空白 composer 的 placeholder 展示；有文字或附图时不展示，紧凑 composer 不展示，不覆盖用户内容。
 5. 只有无修饰键 Tab，且非 IME、非 streaming、非 compact、无文字/附图、无历史/斜杠/文件补全菜单时，才采纳建议。
@@ -39,7 +39,7 @@
 12. 上下文取最近一轮附近的 user/assistant 文本：最近采集最多 6 条，若窗口中缺少发起请求则额外补入最近用户消息；用户尾部最多 500 字符、assistant 尾部最多 1000 字符。工具结果、thinking、图片不作为文本发送。
 13. 用 `modelRuntime.completeSimple` 独立请求，`maxTokens: 100`、`toolChoice: "none"`；只生成一条匹配用户语言的短消息，不调用主会话 `prompt`。
 14. 输出须为正常 `stop` 的文本；去除首尾引号/反引号后非空、无换行、最多 100 个 Unicode 码点，且包含字母或数字。非法输出直接丢弃。
-15. 请求前后都检查 idle；返回前再次检查 active leaf 没变。另一标签页/扩展启动运行后不能把旧建议送回。
+15. 请求前后都检查 idle；返回前再次检查 active branch。客户端 leaf 必须仍在当前分支，且其后只能是 `session_info` 或 `pi-web:auto-title` 元数据；这是 [每轮自动标题](automatic-session-titles.md) 的唯一例外，避免纯标题写入移动 SDK leaf 导致丢弃/重复生成。返回客户端 leaf；其他消息、compaction、model change、custom entry 或真正分支切换仍丢弃。另一标签页/扩展启动运行后不能把旧建议送回。可选 leafId 仅接受 null/缺省或非空且不超过 200 字符的字符串，非法为 400。
 
 ## 实现导航
 
@@ -55,7 +55,7 @@
 ## 自动验收
 
 ```bash
-node --experimental-strip-types --test lib/next-cue.test.mjs lib/next-cue-preference.test.mjs lib/next-cue-models.test.mjs "app/api/sessions/[id]/next-cue/route.test.mjs" components/ChatInput.test.mjs components/SettingsPanel.test.mjs
+node --experimental-strip-types --test lib/next-cue.test.mjs lib/next-cue-auto-title.test.mjs lib/next-cue-preference.test.mjs lib/next-cue-models.test.mjs "app/api/sessions/**/next-cue/route.test.mjs" components/ChatInput.test.mjs components/SettingsPanel.test.mjs
 ```
 
 包含上下文边界、异常/过期结果、模型选择、偏好同步、Tab 不自动发送等纯函数/mock/source-contract 检查。路由测试对真实 route handler 的覆盖目前重点是非法请求先被拒绝；**不能据此宣称所有 204/404/422、timeout 与真实计费流程都有端到端覆盖**。
@@ -74,6 +74,7 @@ node --experimental-strip-types --test lib/next-cue.test.mjs lib/next-cue-prefer
 
 ## Rebase 风险与已知边界
 
+- 标题在建议之前/期间落盘的回归见 `lib/next-cue-auto-title.test.mjs`；不允许为了自动标题放宽真实对话/分支变化保护。
 - 完成事件、SSE 重连、active leaf 和 session cache 都是敏感交点。保留上游 `prompt_done`/`agent_settled` 生命周期修复，不把第一条 `agent_end` 等同于整轮完成。
 - 上下文会发送给所选 provider；这是额外推理请求，不是纯本地计算。没有跨标签页全局去重或绝对一次计费保证，取消也不保证上游免计费。
 - 系统提示中的“忽略对话格式指令”与输出验证不是通用提示注入防护证明。

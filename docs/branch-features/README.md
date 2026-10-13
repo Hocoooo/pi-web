@@ -49,6 +49,8 @@
 | F19 | [独立聊天与固定隐藏工作区](independent-chat.md) | 无项目直接对话，入口在“会话项目”选择器内；固定 cwd 保持跨日历史，权限与界面均与项目会话一致，侧栏显示“对话” | default-cwd、NewSessionProjectPicker、AppShell、SessionSidebar、rpc-manager、session-reader |
 | F20 | [macOS 服务重启与运行诊断](macos-service-lifecycle.md) | 默认 Terminal 私有交接、显式用户级 LaunchAgent、独立 restart 命令；不转储环境、不自动授予权限，诊断失败不假报 verified | 安装器 mac-terminal/mac-launchagent、service-health API |
 
+| F21 | [每轮结束自动更新会话标题](automatic-session-titles.md) | 服务端整轮结束后台命名，保护手动标题；会话级开关、去重/过期保护与 next-cue 兼容 | auto-session-title、session-title、rpc-manager、会话 API、AppShell、useAgentSession |
+
 ## 交互原型（不代表生产功能）
 
 | 文档 | 验证问题 | 入口 |
@@ -77,7 +79,8 @@
 - F01 的 headless 模式不能误删正常 Web 会话的扩展 UI。
 - F11 必须经过文件授权，不因“本地部署”而放开任意文件系统路径。
 - F18 会上传未发送草稿，必须独立 opt-in，不能继承 F10 开关；仅使用独立推理，不创建主会话运行时。
-- F10/F13/F18 可能产生外部推理请求；F11 可启动桌面程序；F14 可影响全局安装与服务。文档验收不能默认授权在用户真实环境执行这些副作用。
+- F21 的标题请求不延迟 F01 的整轮完成；仅标题元数据移动 leaf 不应使 F10 重生成/丢弃建议，真实分支/对话变化仍须保护。
+- F10/F13/F18/F21 可能产生外部推理请求；F11 可启动桌面程序；F14 可影响全局安装与服务。文档验收不能默认授权在用户真实环境执行这些副作用。
 - F20 改变 macOS 的 F14 重启方式，不改变 F16 的 Windows 隐藏链；注册 LaunchAgent/登录项、打开真实 Terminal、重启当前服务仍需操作授权。运行诊断不扩大项目文件访问权限，也不继承 Terminal 的 TCC 授权。
 
 ## 开发与文档同步流程

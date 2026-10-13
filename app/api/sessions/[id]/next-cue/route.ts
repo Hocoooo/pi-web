@@ -8,8 +8,14 @@ import { resolveSessionPath } from "@/lib/session-reader";
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   let selection: NextCueModelSelection | null;
+  let leafId: string | undefined;
   try {
-    selection = parseNextCueModelRequest(await req.json());
+    const body = await req.json();
+    selection = parseNextCueModelRequest(body);
+    if (body.leafId !== undefined && body.leafId !== null) {
+      if (typeof body.leafId !== "string" || !body.leafId || body.leafId.length > 200) throw new Error("Invalid leaf");
+      leafId = body.leafId;
+    }
   } catch {
     return NextResponse.json({ error: "Invalid model selection" }, { status: 400 });
   }
@@ -24,7 +30,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   try {
     await wrapper.waitUntilReady();
     if (signal.aborted) return new Response(null, { status: 204 });
-    const result = await generateNextCue(wrapper.inner as AgentSession, signal, selection);
+    const result = await generateNextCue(wrapper.inner as AgentSession, signal, selection, leafId);
     if (!result || !wrapper.isAlive()) return new Response(null, { status: 204 });
     return NextResponse.json(result);
   } catch (error) {

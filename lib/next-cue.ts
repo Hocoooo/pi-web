@@ -1,6 +1,7 @@
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
 import type { UserMessage } from "@earendil-works/pi-ai";
 import type { NextCueModelSelection } from "./next-cue-preference";
+import { isTitleOnlyLeafChange } from "./auto-session-title";
 
 export class UnavailableNextCueModelError extends Error {}
 
@@ -79,9 +80,12 @@ export async function generateNextCue(
   session: AgentSession,
   signal?: AbortSignal,
   selection: NextCueModelSelection | null = null,
+  expectedLeafId?: string,
 ): Promise<{ text: string; leafId: string } | null> {
   const context = getNextCueContext(session);
   if (!context || !session.isIdle || signal?.aborted) return null;
+  const leafId = expectedLeafId ?? context.leafId;
+  if (!isTitleOnlyLeafChange(session.sessionManager.getBranch(), leafId)) return null;
   const model = selection
     ? session.modelRuntime.getModel(selection.provider, selection.modelId)
     : session.model;
@@ -102,6 +106,6 @@ export async function generateNextCue(
   if (signal?.aborted || response.stopReason !== "stop") return null;
   const text = parseNextCue(response.content.filter((block) => block.type === "text").map((block) => block.text).join(""));
   // Another tab/extension may have started a run while the suggestion was generated.
-  if (!text || !session.isIdle || session.sessionManager.getBranch().at(-1)?.id !== context.leafId) return null;
-  return { text, leafId: context.leafId };
+  if (!text || !session.isIdle || !isTitleOnlyLeafChange(session.sessionManager.getBranch(), leafId)) return null;
+  return { text, leafId };
 }

@@ -7,6 +7,7 @@ import { existsSync, realpathSync, writeFileSync } from "fs";
 import { resolve } from "path";
 import { validateAgentImages } from "./image-attachments";
 import { createRequestPerformanceTracker } from "./request-performance";
+import { AutoSessionTitleController, renameSessionTitle, setSessionAutoTitleEnabled, StaleSessionTitleError } from "./auto-session-title";
 import { computeSessionStats } from "./session-stats";
 import { invalidateModelsCache } from "./models-cache";
 import { resolveVisibleModels, selectInitialModelScope } from "./model-scope";
@@ -16,7 +17,7 @@ import {
   createProjectCommandBashOperations,
   preferUserBashExtension,
 } from "./project-command-env";
-import { cacheSessionPath, getLatestModelChange, invalidateSessionListCache, readLatestSessionEntryId, resolveSessionPath } from "./session-reader";
+import { cacheSessionPath, getLatestModelChange, getSessionListVersion, invalidateSessionListCache, invalidateSessionManagerCache, openSessionManager, readLatestSessionEntryId, resolveSessionPath } from "./session-reader";
 import { getProjectTrustStatus, projectTrustReloadOptions } from "./project-trust";
 import { notifySessionComplete } from "./web-push";
 import { hasActiveSessionLivenessProvider } from "./session-liveness";
@@ -130,6 +131,8 @@ type AgentSessionWrapperOptions = {
   headless?: boolean;
   onAgentRunComplete?: AgentRunCompleteListener;
   suppressCompletionNotifications?: boolean;
+  /** Production enables this for root/fork sessions, never for subagent tasks. */
+  automaticTitles?: boolean;
   /** Connects the session's MCP servers before a prompt starts a run, and lets go of them when it closes (lib/mcp-host.ts). */
   mcpHost?: Pick<McpHost, "prepareForPrompt" | "dispose">;
 };
@@ -303,6 +306,7 @@ export class AgentSessionWrapper {
   private activeMutatingCommands = 0;
   private sessionReplacement: "fork" | "clone" | null = null;
   private agentRunNeedsCompletion = false;
+  private titleRunStarted = false;
   private promptAdmissionTail: Promise<void> = Promise.resolve();
   private extensionsBound = false;
   private extensionBindingPromise: Promise<void> | null = null;
@@ -313,6 +317,8 @@ export class AgentSessionWrapper {
   private suppressModelSelectDialog = false;
   private readonly onAgentRunComplete?: AgentRunCompleteListener;
   private readonly suppressCompletionNotifications: boolean;
+  private readonly automaticTitles: boolean;
+  private readonly titles: AutoSessionTitleController;
   private readonly mcpHost?: Pick<McpHost, "prepareForPrompt" | "dispose">;
   private mcpHostDisposed = false;
   // The MCP wait of the prompt being admitted; Stop ends it.
@@ -341,6 +347,16 @@ export class AgentSessionWrapper {
     this.headless = options.headless ?? false;
     this.onAgentRunComplete = options.onAgentRunComplete;
     this.suppressCompletionNotifications = options.suppressCompletionNotifications ?? false;
+    this.automaticTitles = options.automaticTitles ?? false;
+    this.titles = new AutoSessionTitleController({
+      session: inner,
+      isAlive: () => this.isAlive(),
+      isRunning: () => this.isRunning(),
+      onChanged: (state) => {
+        invalidateSessionListCache();
+        this.emit({ type: "session_title_updated", sessionId: this.sessionId, title: state.title, autoTitleEnabled: state.enabled, sessionListVersion: getSessionListVersion() });
+      },
+    });
     this.mcpHost = options.mcpHost;
   }
 
@@ -409,7 +425,13 @@ export class AgentSessionWrapper {
       if (event.type === "message_end" && event.message && typeof event.message === "object") {
         performanceTracker.restore(event.message);
       }
-      if (event.type === "agent_start") this.agentRunNeedsCompletion = true;
+      if (event.type === "agent_start") {
+        this.agentRunNeedsCompletion = true;
+        if (this.automaticTitles) {
+          this.titleRunStarted = true;
+          this.titles.beginRun();
+        } else this.titles.cancel();
+      }
       if (event.type === "agent_end") {
         invalidateSessionListCache();
         // Every tool call of the run has finished; nothing is left to replay.
@@ -447,12 +469,40 @@ export class AgentSessionWrapper {
   private notifyAgentRunCompleteIfIdle(): void {
     if (!this.agentRunNeedsCompletion || this.isRunning()) return;
     this.agentRunNeedsCompletion = false;
+    // Independent of push/sound preferences, and deliberately not awaited.
+    if (this.automaticTitles && this.titleRunStarted) {
+      this.titleRunStarted = false;
+      this.titles.completeRun();
+    }
     if (this.suppressCompletionNotifications) return;
     try {
       this.onAgentRunComplete?.(this.sessionId);
     } catch (error) {
       console.error("[pi-web] completion listener failed:", error instanceof Error ? error.message : error);
     }
+  }
+
+  private assertTitleWritable(): void {
+    if (!this.isAlive() || this.sessionReplacement) throw new StaleSessionTitleError();
+  }
+
+  getTitleState() {
+    return this.titles.getState();
+  }
+
+  renameSession(title: string): void {
+    this.assertTitleWritable();
+    this.titles.rename(title);
+  }
+
+  setAutoTitleEnabled(enabled: boolean) {
+    this.assertTitleWritable();
+    return this.titles.setEnabled(enabled);
+  }
+
+  generateTitle(signal?: AbortSignal) {
+    this.assertTitleWritable();
+    return this.titles.generate(false, signal);
   }
 
   beginExtensionBinding(): void {
@@ -728,6 +778,10 @@ export class AgentSessionWrapper {
 
     const tracksMutation = !allowedDuringReplacement;
     if (tracksMutation) this.activeMutatingCommands += 1;
+    if (["prompt", "steer", "follow_up", "navigate_tree", "compact", "bash", "set_model", "reload", "fork", "fork_branch", "clone"].includes(type)) {
+      this.titles.cancel();
+    }
+    if (type === "abort") this.titles.stopRun();
 
     try {
       // Status reconciliation must not postpone forced cleanup after Stop.
@@ -1099,8 +1153,7 @@ export class AgentSessionWrapper {
       case "set_session_name": {
         const name = (command.name as string | undefined)?.trim();
         if (!name) throw new Error("Session name cannot be empty");
-        this.inner.setSessionName(name);
-        invalidateSessionListCache();
+        this.renameSession(name);
         return null;
       }
 
@@ -1290,6 +1343,7 @@ export class AgentSessionWrapper {
   destroy(): void {
     if (!this._alive) return;
     this._alive = false;
+    this.titles.cancel();
     this.disposeMcpHost();
     // Tell attached SSE listeners to drop this instance so the browser
     // EventSource errors and reconnects instead of staying OPEN on a dead wrapper.
@@ -1344,6 +1398,7 @@ export class AgentSessionWrapper {
     // Closing starts before the first await, so a request that arrives while
     // extensions shut down starts a fresh wrapper instead of prompting this one.
     this.closing = true;
+    this.titles.cancel();
 
     this.shutdownPromise = (async () => {
       try {
@@ -2108,6 +2163,30 @@ export function getRpcSession(sessionId: string): AgentSessionWrapper | undefine
   return getRegistry().get(sessionId);
 }
 
+/** Never append through a second manager while a wrapper is starting or closing. */
+export async function updateSessionTitle(
+  sessionId: string,
+  filePath: string,
+  update: { name: string } | { autoTitleEnabled: boolean },
+) {
+  const starting = getLocks().get(sessionId);
+  if (starting) await starting;
+  const wrapper = getRpcSession(sessionId);
+  if (wrapper) {
+    if ("name" in update) wrapper.renameSession(update.name);
+    else wrapper.setAutoTitleEnabled(update.autoTitleEnabled);
+    return wrapper.getTitleState();
+  }
+  if (!existsSync(filePath)) throw new StaleSessionTitleError();
+  const manager = openSessionManager(filePath, { mutable: true });
+  const state = "name" in update
+    ? renameSessionTitle(manager, update.name)
+    : setSessionAutoTitleEnabled(manager, update.autoTitleEnabled);
+  invalidateSessionManagerCache(filePath);
+  invalidateSessionListCache();
+  return state;
+}
+
 export interface SetRpcSessionToolsResult {
   session: AgentSessionWrapper;
   sessionId: string;
@@ -2541,6 +2620,7 @@ export async function startRpcSession(
         });
       },
       suppressCompletionNotifications: Boolean(subagentResources),
+      automaticTitles: !subagentResources,
       ...(builtins?.mcpHost ? { mcpHost: builtins.mcpHost } : {}),
     });
     const realSessionId = inner.sessionId as string;
