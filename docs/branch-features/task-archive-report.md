@@ -62,12 +62,14 @@ node node_modules/typescript/bin/tsc --noEmit
 ## 02：来源冻结与全局档案
 
 - `setTaskArchive(task, request, agentDir)` 在原 board 锁中仅对真实 active → archived 准备档案并提交 `task.reportIds`（创建顺序引用）；最近 archive receipt 的精确重试、同状态、预览、失败确认、侧栏 session 归档不创建可执行意图。恢复只替换 receipt/标记，不删除 reportIds；重新归档新 UUID、新快照。
-- `<agentDir>/task-reports/<reportId>.json` 保存任务资料、明确关联 session 当前分支全部仍存在历史的文本投影、各来源 leaf/cutoff/capturedAt/运行态，以及选择/配置原因/状态。task 只保存 ID 引用，不保存正文或来源。写盘采用普通 fsync/rename，不建设跨文件事务。准备后 board 写失败可留下未引用文件；公开读取/队列仅消费已提交引用，绝不扫描孤儿执行。
+- `<agentDir>/task-reports/<reportId>.json` 保存任务资料、明确关联 session 当前分支全部仍存在历史的文本投影、各来源 leaf/cutoff/capturedAt/运行态，以及选择/配置原因/状态。task 只保存 ID 引用，不保存正文或来源。写盘采用普通 fsync/rename，不建设跨文件事务。报告读取/写入文件段按 absolute key 在进程内 FIFO 排队（跨 route/HMR 共用，Windows key 小写），防自身状态轮询的读句柄跨替换；committed 检查不变，读取不建目录/迁移/写盘，I/O 回调不反向获取 board 锁、不调用模型。Windows 替换时的短暂 EPERM/EACCES/EBUSY 通过 `lib/task-file-replacement.ts` 仅重试相同 rename（最多 6 次，10/20/40/80/160ms 计划退避，总计 310ms）；不重发模型、不重复写正文、不删除旧目标，永久/持续占用仍传播错误并清理临时文件。FIFO 不是跨进程锁或事务。准备后 board 写失败可留下未引用文件；公开读取/队列仅消费已提交引用，绝不扫描孤儿执行。
 - 来源逐一捕获，不宣称同时刻跨文件快照。复用 scoped metadata 与 warm manager 的只读内存克隆，sleeping 文件 parse/inMemory，不 open/migrate，不启动 AgentSession、不改 JSONL。不按归档会话族扩展输入、不读取其他分支或外部文件。纳入工具调用参数、文本结果、bash 命令/结果、压缩前历史和摘要、custom 文本；最后 branch-local context edit 替换/删除生效；system/隐藏思考/图片二进制排除，图片只留存在标记。
 - 缺失/不可读来源明确记录。全部没有对话内容时直接 `generated` 的任务元数据 Markdown 档案，零配置加载/模型请求，不推断完成；非空来源初始 `queued` 或 `awaiting-configuration`；03 仅消费已提交 queued，后来保存设置不改旧意图或启动待配置报告。
 - 公开接口位于 `lib/task-reports.ts`：`getTaskReport(id, agentDir?)` 读取已提交档案含 snapshot/body；`listTaskReports(taskId?, agentDir?)` 返回无正文/快照的摘要；`listQueuedTaskReports(agentDir?)` 仅返回已提交 queued 档案；`writeTaskReport(report, agentDir?)` 为后续状态持久化入口。`prepareTaskReport(task, agentDir)` 在归档 board 锁内准备文件并返回 UUID，只有 board 提交后的 `task.reportIds` 才授权读取/入队；`TaskReport` 类型见 `lib/task-report-types.ts`。未提交 ID/not found 普通错误；损坏/缺文件报 storage-unavailable，不改读今日 session。
 - `GET /api/task-reports?taskId=...` 摘要，`?id=...` 档案，`?id=...&body=1` 只读纯文本正文。TaskInspector 内 TaskReports 展示状态/截止/缺失/运行提示、重读错误、空档案新标签打开；会话批次 pending 独立展示。03 轮询独立报告状态、显示生成基础阶段、成功链接与失败/未知；失败不隐藏旧成功链接，06 提供明确重试；07 提供独立历史版本/最新成功默认入口和显式重新生成。
 - 实现：`lib/task-report-{types,snapshot}.ts`、`lib/task-reports.ts`、task-archive/store/types、TaskReports/TaskInspector、task-reports route。02 来源验收入口（03 已适配后台生命周期）：`node --experimental-strip-types --test lib/task-reports.test.mjs app/api/task-reports/route.test.mjs lib/task-session-archive.test.mjs` 与 `node e2e/task-reports.mjs`（真实组件/API/临时存储，浏览器传输桥，无 dev 启停）。测试证据收尾另记；board 提交失败测试在既有文件锁 seam 注入已知失锁，验证预备文件不可读/不可入队，而非 monkeypatch 原生 fs binding。
+
+Windows 原子替换、错误模块身份、确定性存储故障注入和独立恢复进程清理见[平台验证契约](windows-test-portability.md#任务看板安装前修复2026-10-13)。新增窄集：`node --experimental-strip-types --test lib/task-jiti.test.mjs lib/task-report-write.test.mjs lib/task-store-write.test.mjs lib/task-report-chunks.test.mjs lib/task-report-recovery.test.mjs`；同时保留原多层全覆盖/容量失败/未知结果断言。受控故障注入不代替 ACL 或断电耐久验证。
 
 ### 02 回归边界
 

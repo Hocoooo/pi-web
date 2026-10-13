@@ -50,7 +50,7 @@
 5. 悬浮面板开关、草稿、键盘焦点、窄屏、三语言、类型检查与局部 lint 回归。整卡点击/拖动使用 `e2e/task-dashboard-card.mjs`（全 API fixture、临时真实 store）覆盖鼠标/键盘/390px CDP触屏，面板既有回归仍用 `e2e/task-dashboard-panel.mjs`。
 6. F32 `/task` 的 UI/API/生命周期三个测试边界及扩展命令发现时机见[专属契约](task-picker.md)；原归属直达详情测试通过新的独立详情按钮继续验收。
 
-[当前测试与历史套件清单](../testing/task-session-management.md)区分有效回归、显式退役的 `*.historical.mjs` 和旧专项 E2E。旧共享/启动/归档阻断测试记录属于原契约，不可直接作为本功能验证通过证明。本轮实际测试命令及结果在交付说明报告；浏览器 fixture 不等同真实 Provider、生产 SSE 或 SDK 全平台验收。未执行生产 build/install、真实模型计费、用户数据迁移、Safari/iOS 真机或 Windows 验收。
+[当前测试与历史套件清单](../testing/task-session-management.md)区分有效回归、显式退役的 `*.historical.mjs` 和旧专项 E2E。旧共享/启动/归档阻断测试记录属于原契约，不可直接作为本功能验证通过证明。本轮实际测试命令及结果在交付说明报告；浏览器 fixture 不等同真实 Provider、生产 SSE 或 SDK 全平台验收。Windows Node/SDK 单测已纳入[2026-10-13 平台验证](windows-test-portability.md#任务看板安装前修复2026-10-13)：会话夹具使用 SDK 原生 cwd 编码，HTTP 夹具统一 Jiti 错误模块身份，保留全部历史/项目范围/CAS 断言。这不等于生产 build/install、真实模型计费、用户数据迁移、Windows 浏览器/ACL 或 Safari/iOS 真机验收。
 
 与[每轮自动标题 F37](automatic-session-titles.md)整合后，普通成功聊天可能另有后台命名请求；它不是任务共享生成或 pending 投递。lib/task-management.test.mjs 的主 prompt 次数断言通过公开会话开关显式关闭自动标题，仅隔离测试边界、不改变产品默认值；自动标题收费/完成/取消语义由其专属 SDK 和浏览器测试覆盖。
 

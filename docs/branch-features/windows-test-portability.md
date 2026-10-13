@@ -54,6 +54,23 @@ npm run lint
 
 Windows 无文件符号链接权限的检查是明确的验证缺口，需在允许文件 symlink 的 Windows 或非 Windows 环境补验；跳过不能记为该行为已验收。此轮不运行生产 build，不升级全局包，不重启服务。
 
+## 任务看板安装前修复（2026-10-13）
+
+`feature/task-dashboard` 的 `3310e04` 在同一 Windows/Node 24.19/SDK 1.0 环境中隔离安装测试为 2,982 项：2,893 通过、33 失败、56 跳过。失败不是全部环境缺口；修复保留全部原断言：
+
+- **任务错误模块身份**：Jiti 的 `@/lib/...` 与相对导入在 Windows 上可使用不同缓存键。`lib/__fixtures__/task-jiti.mjs` 为 TaskOperationError、SessionCopyError 和报告设置错误的模块提供完整 native-path alias；HTTP、legacy 及报告/复制 fixture 使用同一 helper。`lib/task-jiti.test.mjs` 验证构造器身份与真实操作错误，不改生产 `instanceof` 或降级错误状态码。
+- **原生会话目录**：`lib/task-sessions.test.mjs` 交由真实 SDK `SessionManager.create(cwd)` 编码目录，不再把含驱动器/反斜杠的 cwd 直接拼到 sessions 下；历史、项目范围、竞争/唯一归属及生命周期断言继续执行。
+- **有效存储故障**：`lib/task-fs-write-fault.fixture.mjs` 在生产模块导入前装配 fs 绑定，仅在显式 armed 时对指定文件的 `open(temp, "wx")` 持续注入 EACCES，finally 恢复。报告分层与复制测试断言注入真实命中、旧字节/材料可读、发送不重做、已知 SDK child 的精确重试和来源生命周期；不依赖 Windows 无效的 chmod，不跳过原场景，也不声称测了 Windows ACL。
+- **真实文件替换竞态**：密集读取可令 Windows `rename(temp, report.json/board.json)` 返回 EPERM，普通与隔离全量复跑均曾暴露此问题，并用独立并发读写探针复现。`lib/task-file-replacement.ts` 共用 Windows EPERM/EACCES/EBUSY 同路径 rename 重试，最多 6 次、计划退避总计 310ms（不是包含系统调用的硬耗时上限）；不重发模型、不重做逻辑操作、不重写正文、不删旧目标。board 在每次 rename 前重新检查原锁，退避期间失锁即拒绝提交。永久或持续占用仍失败并清理临时文件。`lib/task-report-write.test.mjs` 验证三类短暂/永久错误与 EIO 不重试；`lib/task-store-write.test.mjs` 验证同 temp/单次 revision、永久失败字节不变/恢复及真实 onCompromised 拒绝第二次 rename。
+- **报告自身读写隔离**：`writeTaskReport/readReportFile` 的文件段用既有 `serializeByKey` 按报告 absolute key（Windows 小写）FIFO 排队，跨 route bundle/HMR 共用 `Symbol.for`，防轮询读句柄与自身替换竞争。committed 引用检查仍先执行；I/O 回调不反向获取 board 锁、不读设置、不调用模型，查询不建目录/迁移/写盘。barrier 回归确定性验证 reader 阻塞时 writer 尚未 mkdir，释放后分别得到原/新完整版本，无计时睡眠。它是进程内 I/O 顺序，不是跨进程事务、别名 realpath 合并或无限共享占用保证。
+- **恢复进程清理**：独立 service-start fixture 等 executor 完成后关闭全局 HTTP dispatcher 并自然退出，不使用 `process.exit()` 与 Windows libuv 活动句柄竞争。保留真实启动入口、持久边界、进程重启及请求次数检查。
+
+本轮最终在锁文件 `npm ci --include=dev` 后，普通环境与安装器 `buildEnvironment()` 的隔离 HOME/USERPROFILE/PI_CODING_AGENT_DIR/TEMP 环境分别执行完整 `npm test`，结果相同：**2,995 项：2,939 通过、0 失败、56 跳过、0 取消**。`tsc --noEmit` 与全仓 ESLint 通过（0 错误；仍只有两处既有 keyboard 生成 fixture unused-import 告警）。未新增 Windows 跳过；新增 rename 的 Windows 专属成功重试用例只在非 Windows 标注不适用。
+
+完整日志保留在原失败安装目录的 `test-repair-validation/npm-test-final-io.log` 和 `isolated-final-io/npm-test.log`，原失败日志未改写。静态独立复核无新增阻断；既有 rename 与 unlink 同时失败时清理错误可能覆盖原错误的诊断边界仍存在。
+
+这不是浏览器/真实 provider 质量、Windows ACL、断电或 NFS 验收。安装器仍需对提交后 HEAD 独立运行隔离全量测试、生产构建、tarball 与实际进程验证；这两轮测试结果不能替代 F14 的安装/重启结果。
+
 ## 维护与整合
 
 修改 fixture 必须保留原断言语义；MCP shutdown 或进程生命周期 API 改变时重新核对 cleanup helper。修改 installer temp 必须同步 F14、skill 与恢复指南，并验证运行时环境未被 build-only 环境污染。新源码文件继承 LF 策略；不得绕过 Git 属性让 source-contract 测试重新依赖操作者的 autocrlf 设置。

@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { createJiti } from "jiti";
+import { createTaskTestJiti } from "../../../lib/__fixtures__/task-jiti.mjs";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 
 const agentDir = await mkdtemp(join(tmpdir(), "pi-web-task-project-api-"));
@@ -13,7 +13,7 @@ const previous = process.env.PI_CODING_AGENT_DIR;
 process.env.PI_CODING_AGENT_DIR = agentDir;
 const projectA = join(agentDir, "project-a"), projectB = join(agentDir, "project-b");
 await mkdir(projectA); await mkdir(projectB);
-const jiti = createJiti(import.meta.url, { alias: { "@": process.cwd() } });
+const jiti = createTaskTestJiti(import.meta.url);
 const { GET, POST } = await jiti.import("./route.ts");
 test.after(async () => {
   if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;

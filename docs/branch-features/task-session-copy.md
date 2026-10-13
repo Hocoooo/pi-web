@@ -84,7 +84,7 @@ sourceStop→Continue、child首send、复制和启动精确retry；`lib/task-st
   [agent-client](../../lib/agent-client.ts)：所有现有调用的精确请求身份；原agent route投射明确失败详情。
 - [SDK/runtime测试](../../lib/task-session-copy.test.mjs)、[client测试](../../lib/agent-client.test.mjs)：
   真实临时SDK/file/store/fresh进程，项目/无项目、三入口/首消息、未归属/New/导航、并发重复/改payload、
-  来源归属race、真实Git同路径替换、真实POSIX失败/恢复、未知中断和模拟runtime生命周期。
+  来源归属race、真实Git同路径替换、定点 fs EACCES 失败/恢复、未知中断和模拟runtime生命周期。失败注入命中 SDK child 创建后的实际 board 临时文件写入，验证原字节/来源历史不变、child 精确重试且不重复创建；不依赖 chmod，不声称验证 Windows ACL。Windows Jiti 错误模块身份与故障 helper 见[平台验证契约](windows-test-portability.md#任务看板安装前修复2026-10-13)。
   主新增[review红绿](../../lib/task-session-copy-review.test.mjs)：原POST+实际SDK runtime提交后篡改五种2xx响应，error/跨reload同ID/原child和count只+1；三入口未知intent拒旧ID、显式无opener新tab独立attempt保留旧receipt。主[联合迁移](../../lib/task-session-copy-integration.test.mjs)验证真实07 AI provenance/05views/06history/04关系/13列及所有旧CAS/receipt。
 - [浏览器](../../e2e/task-session-copy.mjs)：Chromium中实际消息fork、`/clone`及引用branch-copy；
   全API fixture对接真实临时SDK/任务store、丢成功响应及五种异常2xx的visible error/跨reload精确retry、未知结果检查→显式新tab另试保留旧receipt、跳转/任务详情/count/刷新，零模型/child prompt。browser runtime为合成wrapper，review后端另用实际SDK runtime；都不调用真实provider。
@@ -97,5 +97,5 @@ E2E_BASE_URL=http://127.0.0.1:30142 node e2e/task-session-copy.mjs
 
 只读源交付与失败历史在 `/tmp/p11-ATUUwE/REPORT.md`，其full2719pass不是主证据。主beforehash、逐hunk迁移合并、R1/R2红绿、fresh主full/tsc/lint/交叉/browser、增量patch/hash在 `/tmp/m11-84vHSp/REPORT.md`。这些是当时主执行证据，本轮文档未重跑；服务核验/数据隔离遵循F21，不能凭历史PID授权动作。独立主复审46/25/43窄测、copy9场景、07/05联合2场景及真实Chromium opener拓扑检查通过，
 R1/R2关闭且无新具体阻断；父代理已验收11为resolved。证据 `/tmp/rm11iv/`；08联合已集成并分别接受，当前仍保持copy unknown与非事务边界。
-Windows/ACL、Safari/iOS16.2真机/软件键盘、最低Node、生产打包安装、真实provider、断电/NFS未验；
+Windows 任务复制/错误路径的 Node/SDK 单测已纳入[2026-10-13 全量验证](windows-test-portability.md#任务看板安装前修复2026-10-13)；Windows ACL、Safari/iOS16.2真机/软件键盘、最低Node、生产打包安装、真实provider、断电/NFS未验；
 Chromium/模拟runtime不替代这些平台。修改同时维护任务关系/会话合同及README索引。

@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, open, readFile, unlink } from "node:fs/promises";
+import { replaceTaskFile } from "./task-file-replacement";
+import { join, resolve } from "node:path";
+import { serializeByKey } from "./key-serializer";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { getTaskReportSettings } from "./task-report-settings";
 import { captureTaskReportSnapshot } from "./task-report-snapshot";
@@ -12,15 +14,22 @@ function reportPath(agentDir: string, id: string): string {
   if (!TASK_ID_PATTERN.test(id)) throw new TaskOperationError("invalid-input", "Invalid report ID.");
   return join(agentDir, "task-reports", `${id}.json`);
 }
+const REPORT_FILE_IO = Symbol.for("pi-web.task-report-file-io");
+function reportFileKey(file: string): string {
+  const absolute = resolve(file);
+  return process.platform === "win32" ? absolute.toLowerCase() : absolute;
+}
 export async function writeTaskReport(report: TaskReport, agentDir = getAgentDir()): Promise<void> {
   const file = reportPath(agentDir, report.id);
-  await mkdir(join(agentDir, "task-reports"), { recursive: true });
-  const temporary = `${file}.${randomUUID()}.tmp`, handle = await open(temporary, "wx", 0o600);
-  try {
-    try { await handle.writeFile(`${JSON.stringify(report)}\n`); await handle.sync(); }
-    finally { await handle.close(); }
-    await rename(temporary, file);
-  } finally { await unlink(temporary).catch((e: NodeJS.ErrnoException) => { if (e.code !== "ENOENT") throw e; }); }
+  await serializeByKey(REPORT_FILE_IO, reportFileKey(file), async () => {
+    await mkdir(join(agentDir, "task-reports"), { recursive: true });
+    const temporary = `${file}.${randomUUID()}.tmp`, handle = await open(temporary, "wx", 0o600);
+    try {
+      try { await handle.writeFile(`${JSON.stringify(report)}\n`); await handle.sync(); }
+      finally { await handle.close(); }
+      await replaceTaskFile(temporary, file);
+    } finally { await unlink(temporary).catch((e: NodeJS.ErrnoException) => { if (e.code !== "ENOENT") throw e; }); }
+  });
 }
 function metadataBody(snapshot: TaskReportSnapshot, createdAt: string): string {
   const task = snapshot.task;
@@ -62,9 +71,13 @@ export async function getTaskReport(id: string, agentDir = getAgentDir()): Promi
 }
 async function readReportFile(id: string, agentDir: string): Promise<TaskReport> {
   try {
-    const report = JSON.parse(await readFile(reportPath(agentDir, id), "utf8")) as TaskReport;
-    if (report.id !== id || !report.snapshot || !Array.isArray(report.sources)) throw new Error("Invalid report file.");
-    return report;
+    const file = reportPath(agentDir, id);
+    // Do not let our own polling hold a Windows read handle during replacement.
+    return await serializeByKey(REPORT_FILE_IO, reportFileKey(file), async () => {
+      const report = JSON.parse(await readFile(file, "utf8")) as TaskReport;
+      if (report.id !== id || !report.snapshot || !Array.isArray(report.sources)) throw new Error("Invalid report file.");
+      return report;
+    });
   } catch (error) { throw new TaskOperationError("storage-unavailable", `Report could not be read: ${error instanceof Error ? error.message : "storage error"}`); }
 }
 export function taskReportSummary({ snapshot, body, materials, ...summary }: TaskReport): TaskReportSummary {

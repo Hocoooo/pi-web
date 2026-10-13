@@ -4,11 +4,11 @@ import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import test from "node:test";
-import { createJiti } from "jiti";
+import { createTaskTestJiti } from "../../../lib/__fixtures__/task-jiti.mjs";
 const directory = await mkdtemp(path.join(os.tmpdir(), "pi-web-tasks-api-"));
 const original = process.env.PI_CODING_AGENT_DIR;
 process.env.PI_CODING_AGENT_DIR = directory;
-const jiti = createJiti(import.meta.url, { alias: { "@": process.cwd() } });
+const jiti = createTaskTestJiti(import.meta.url);
 const { GET, POST } = await jiti.import("./route.ts");
 test.after(async () => {
   if (original === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = original;

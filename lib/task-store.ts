@@ -1,4 +1,5 @@
-import { mkdir, open, realpath, rename, unlink } from "node:fs/promises";
+import { mkdir, open, realpath, unlink } from "node:fs/promises";
+import { replaceTaskFile } from "./task-file-replacement";
 import { join } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { normalizeCwd } from "./validated-cwd";
@@ -197,8 +198,7 @@ async function atomicWrite(file: string, document: TaskDocument, assertLock: () 
   try {
     try { await handle.writeFile(text, "utf8"); await handle.sync(); }
     finally { await handle.close(); }
-    assertLock();
-    await rename(temporary, file);
+    await replaceTaskFile(temporary, file, assertLock);
   } finally {
     await unlink(temporary).catch((error: NodeJS.ErrnoException) => { if (error.code !== "ENOENT") throw error; });
   }

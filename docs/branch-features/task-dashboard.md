@@ -119,6 +119,8 @@ F36 02 增加可选 `task.reportIds:string[]`（唯一 UUID、创建顺序）；
 
 ## 公共操作、授权与原子性
 
+Windows 原子替换共用 `lib/task-file-replacement.ts` 的有界 rename 重试：不重放 mutation，不删除旧目标，每次尝试前重新检查原 board 锁；失锁或持续不可写仍拒绝提交并保留原字节。`lib/task-store-write.test.mjs` 验证同 temp/单次 revision、永久失败后的精确恢复及退避期间失锁。平台证据与限制见[2026-10-13 验证契约](windows-test-portability.md#任务看板安装前修复2026-10-13)，不改变下述 CAS、receipt、迁移或文件授权。
+
 - 唯一 `taskOperation(input,{agentDir})`；GET `/api/tasks` list、POST同一入口、no-store。公共HTTP白名单拒内部admit/pending/complete/copy及伪receipt/额外字段。严格UUID/原生session ID/列/文字/安全整数，ID不拼路径；256KiB，400非法/404不存在/409冲突/503存储或版本失败。
 - create/createFromSession使用不可变原创建指纹，不拿可变标题或今日项目key猜重试；旧UUID先确认，即使目录/source删失。真正新UUID才验当前目录/服务端项目；不收client projectKey。todo存在优先，否则同锁配置首unfinished，永不默认done/复活todo。
 - move只单UUID+before/after另一目标列邻居或edge:start/end，不接受可见数组。检验task/order CAS；同任务最近receipt在旧目标已删时仍只确认历史。真实移动严格updatedAt至少旧+1ms，no-op不改时间，计数上限拒绝。
