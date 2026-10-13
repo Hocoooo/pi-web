@@ -11,16 +11,18 @@ import { TaskColumnSettings, taskColumnName } from "./TaskColumnSettings";
 import { TaskProjectField } from "./TaskProject";
 import { TaskDetails, type TaskEditDraft } from "./TaskDetails";
 import { TaskInspector } from "./TaskInspector";
+import { TaskArchivePreview } from "./TaskArchivePreview";
 import { useI18n } from "@/hooks/useI18n";
 import { useTheme } from "@/hooks/useTheme";
-import { TASK_TEXT_LIMITS, type TaskBoard, type TaskColumnId, type TaskRecord, type TaskRequest, type TaskMovePosition, type TaskMutationResult, type TaskSessionsResult, type TaskRelationRequest, type TaskSessionActivity, type TaskSort } from "@/lib/task-types";
+import { TASK_TEXT_LIMITS, type TaskBoard, type TaskColumnId, type TaskRecord, type TaskRequest, type TaskMovePosition, type TaskMutationResult, type TaskSessionsResult, type TaskRelationRequest, type TaskSessionActivity, type TaskSort, type TaskArchivePreview as ArchivePreview } from "@/lib/task-types";
 import styles from "./TaskDashboard.module.css";
 
 async function requestTask(input: { action: "list" }): Promise<TaskBoard>;
 async function requestTask(input: Extract<TaskRequest, { action: "set-columns" | "remove-column" | "save-view" | "change-session-relation" }>): Promise<TaskBoard>;
 async function requestTask(input: { action: "sessions"; id: string }): Promise<TaskSessionsResult>;
+async function requestTask(input: { action: "preview-archive"; id: string }): Promise<ArchivePreview>;
 async function requestTask(input: Extract<TaskRequest, { action: "create" | "createFromSession" | "edit" | "link" | "move" | "set-archive" | "change-project" }>): Promise<TaskMutationResult>;
-async function requestTask(input: TaskRequest): Promise<TaskBoard | TaskMutationResult | TaskSessionsResult> {
+async function requestTask(input: TaskRequest): Promise<TaskBoard | TaskMutationResult | TaskSessionsResult | ArchivePreview> {
   const response = await fetch("/api/tasks", input.action === "list" ? { cache: "no-store" } : {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input),
   });
@@ -55,12 +57,22 @@ export function TaskDashboard({ active = true, onClose, currentSessionId = null,
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [selectedTaskId, setSelectedTaskState] = useState<string | null>(null);
   const [inspectedTaskIds, setInspectedTaskIds] = useState<string[]>([]);
+  const archivePreviewVersion = useRef(0);
+  const [archiveReview, setArchiveReview] = useState<{ taskId: string; preview: ArchivePreview | null; error: string | null } | null>(null);
+  const archiveTrigger = useRef<HTMLButtonElement | null>(null);
   const setSelectedTaskId = useCallback((id: string | null) => {
+    archivePreviewVersion.current++;
+    setArchiveReview(null);
     setSelectedTaskState(id);
     if (id) setInspectedTaskIds(current => current.includes(id) ? current : [...current, id]);
   }, []);
   const activeRef = useRef(active);
-  useLayoutEffect(() => { activeRef.current = active; }, [active]);
+  useLayoutEffect(() => {
+    activeRef.current = active;
+    if (!active) { archivePreviewVersion.current++; setArchiveReview(null); }
+    const version = archivePreviewVersion;
+    return () => { version.current++; };
+  }, [active]);
   const inspector = useRef<HTMLDivElement>(null);
   const dashboard = useRef<HTMLDivElement>(null);
   const feedbackRef = useRef<HTMLDivElement>(null);
@@ -246,8 +258,13 @@ export function TaskDashboard({ active = true, onClose, currentSessionId = null,
     if (pendingRef.current) return;
     startMutation();
     try {
-      applyResult(await requestTask(request));
-      setNotice(t(request.archived ? "tasks.archive.archivedNotice" : "tasks.archive.restoredNotice"));
+      const result = await requestTask(request);
+      applyResult(result);
+      if (request.cascade) {
+        // A public pending intent (or missing batch confirmation) is not full success.
+        if (result.task.pendingSessionArchive || !result.sessionArchive) throw new Error(t("tasks.archive.pending"));
+        setNotice(t("tasks.archive.cascadeNotice", { count: result.sessionArchive.rootSessionIds.length, skipped: result.sessionArchive.skipped.length }));
+      } else setNotice(t(request.archived ? "tasks.archive.archivedNotice" : "tasks.archive.restoredNotice"));
     } catch (cause) {
       const failure = cause as Error & { code?: string };
       setError(failure.message);
@@ -255,6 +272,47 @@ export function TaskDashboard({ active = true, onClose, currentSessionId = null,
       try { setBoard(await requestTask({ action: "list" })); }
       catch (syncFailure) { setError(`${failure.message} — ${(syncFailure as Error).message}`); }
     } finally { finishMutation(); }
+  }
+  function cancelArchiveReview() {
+    archivePreviewVersion.current++;
+    setArchiveReview(null);
+    const trigger = archiveTrigger.current;
+    requestAnimationFrame(() => {
+      if (activeRef.current && trigger?.isConnected && trigger.getClientRects().length) trigger.focus({ preventScroll: true });
+    });
+  }
+  async function previewArchive(task: TaskRecord, trigger = archiveTrigger.current) {
+    if (pendingRef.current || !activeRef.current) return;
+    archiveTrigger.current = trigger;
+    const version = ++archivePreviewVersion.current;
+    setArchiveReview({ taskId: task.id, preview: null, error: null });
+    try {
+      const preview = await requestTask({ action: "preview-archive", id: task.id });
+      if (version !== archivePreviewVersion.current || !activeRef.current) return;
+      if (preview.taskId !== task.id) throw new Error(t("tasks.taskUnavailable"));
+      setArchiveReview({ taskId: task.id, preview, error: null });
+    } catch (cause) {
+      if (version === archivePreviewVersion.current && activeRef.current) setArchiveReview({ taskId: task.id, preview: null, error: (cause as Error).message });
+    }
+  }
+  function confirmArchive(confirmCrossTask: boolean) {
+    const preview = archiveReview?.preview;
+    if (!preview || pendingRef.current || disabled) return;
+    if (preview.families.some(family => family.otherTasks.length > 0) && !confirmCrossTask) return;
+    const request: Extract<TaskRequest, { action: "set-archive" }> = {
+      action: "set-archive", id: preview.taskId, archived: true, expectedArchiveRevision: preview.archiveRevision,
+      operationId: newTaskId(), cascade: { previewToken: preview.token, confirmCrossTask },
+    };
+    archivePreviewVersion.current++; setArchiveReview(null);
+    void submitArchive(request);
+  }
+  function resumeArchive(task: TaskRecord) {
+    const intent = task.pendingSessionArchive;
+    if (!intent) return;
+    // Durable public intent supplies the original UUID/base/token, including after reload.
+    void submitArchive({ action: "set-archive", id: task.id, archived: true,
+      expectedArchiveRevision: intent.expectedArchiveRevision, operationId: intent.operationId,
+      cascade: { previewToken: intent.previewToken, confirmCrossTask: intent.confirmCrossTask } });
   }
   function moveTask(task: TaskRecord, columnId: TaskColumnId, position: TaskMovePosition = { edge: "end" }, snapshot = board) {
     if (pendingRef.current || !snapshot) return;
@@ -439,7 +497,13 @@ export function TaskDashboard({ active = true, onClose, currentSessionId = null,
         if (!selectedTask || !board) return null;
         return <TaskInspector hidden={id !== selectedTaskId} key={selectedTask.id} task={selectedTask} visibleTasks={visibleTasks} sort={sort} disabled={disabled} panelRef={id === selectedTaskId ? inspector : undefined}
         onClose={() => { setSelectedTaskId(null); dashboard.current?.focus({ preventScroll: true }); }} onMove={moveTask} feedback={id === selectedTaskId ? feedback : null}
-        onArchive={() => void submitArchive({ action: "set-archive", id: selectedTask.id, archived: !selectedTask.archived, expectedArchiveRevision: selectedTask.archiveRevision, operationId: newTaskId() })}>
+        onArchive={trigger => {
+          if (selectedTask.archived) void submitArchive({ action: "set-archive", id: selectedTask.id, archived: false, expectedArchiveRevision: selectedTask.archiveRevision, operationId: newTaskId() });
+          else void previewArchive(selectedTask, trigger);
+        }} onResumeArchive={() => resumeArchive(selectedTask)}
+        onCancelArchive={archiveReview?.taskId === id ? cancelArchiveReview : undefined}
+        archiveReview={archiveReview?.taskId === id ? <TaskArchivePreview key={`${id}:${archiveReview.preview?.token ?? "loading"}`} preview={archiveReview.preview} error={archiveReview.error} disabled={disabled}
+          onCancel={cancelArchiveReview} onConfirm={confirmArchive} onRetry={() => void previewArchive(selectedTask)} /> : null}>
         <TaskDetails task={selectedTask} active={active && id === selectedTaskId} currentSessionId={currentSessionId} disabled={disabled}
           onRemove={changeRelation}
           onLink={editTask} runningIds={activityError ? null : runningIds} sessionActivity={sessionActivity}

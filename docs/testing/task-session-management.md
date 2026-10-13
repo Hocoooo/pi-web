@@ -15,6 +15,16 @@
 - `components/AppShell*.test.mjs`、`components/ChatWindow*.test.mjs`、`components/TaskDashboard.navigation.test.mjs`、`lib/i18n/*.test.mjs`：导航、草稿、删除后新 composer、三语言及其既有回归；任务直达只消费最新读取的结果，失败可重试、缺失目标明确提示、普通 mutation 失败不被自动刷新抹掉。当前合计 79 项通过。
 - `e2e/task-dashboard-panel.mjs`：真实浏览器/隔离 task store，session 目录与关系为合成响应；默认多对话列表、任务归属直达（含关闭期间在另一标签页新增的任务）、详情仅“移除”菜单（键盘/IME/Escape/Tab/点外部/隐藏后关闭/失败与丢响应精确重试/窄屏主题）、解除/归档、关联失败提示保留、读取失败为未知、旧 URL 拒绝与重新打开保留草稿、Escape/IME/焦点、关闭停止加载、三语言×浅深色390px、零共享请求/零 Agent 写请求。任务编辑/移动/归档使用真实临时 store；不替代服务端 scope/CAS/SDK 测试。
 
+## F35 一次性联动归档回归
+
+- `lib/task-session-archive.test.mjs`：真实 SDK/临时 board+sidecar，固定范围、多级族/跨任务双向确认、owner ABA/迟到成员、缺失/未落盘/非UUID/孤儿跳过、部分失败/pending/重启确认、恢复任务栅栏和不覆盖后来的手动会话恢复。
+- `lib/session-archive-batch.test.mjs`：v1 保留/首次批次 v2、效果+receipt 同写、精确去重、独立进程写入、损坏新 schema 拒绝。
+- `app/api/tasks/session-archive.test.mjs`：真实 HTTP preview/cascade/restore、严格请求、完整目录 archived 标记、隐藏内部receipt、原历史字节不变。
+- `e2e/task-session-archive.mjs`：浏览器全 API fixture，内联预览取消/IME/焦点、跨任务复选框、过期预览、丢响应精确重试、异常成功不假报、reload pending 恢复/取消、三语言×两主题390px、零 Agent 写请求/草稿保留。
+- `e2e/task-dashboard-panel.mjs` 的原导航归档步骤现在显式确认预览；其 session/关系仍是合成响应，真实 board 测试不冒充真实 session 效果（由上述 HTTP/SDK 专项验证）。
+
+本轮执行数量以交付说明为准，历史 task-only 归档回归验证兼容请求，不代表 Dashboard 不联动；历史执行准入/busy 守卫测试仍退役。
+
 ## 缺失对话移除回归
 
 删除原生 session 后，任务仍保留关系并显示缺失；详情菜单现在允许显式移除，不自动清理或重建 session。缺失行返回真实 generation/updateRevision，只有解除到 null 放宽存在性要求，改绑仍拒绝；owner/CAS/operationId 精确重试和历史保留不变。

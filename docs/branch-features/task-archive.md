@@ -1,8 +1,10 @@
 # 任务归档与恢复
 
-## 当前契约：仅管理显示
+## 当前契约：管理显示与一次性联动
 
-见[任务 session 管理契约](task-session-management.md)。归档/恢复保留独立 CAS、receipt、可发现列表与原资料/关系/历史；不要求关联 session 空闲，不阻止普通发送或复制，不自动 Stop/恢复/完成。归档任务仍可管理关联关系。以下 12 阶段的 active/fullbusy 发送、复制和关系守卫描述已被替代，只作历史记录。
+见[任务 session 管理契约](task-session-management.md)及[F35 一次性关联对话归档](task-session-archive.md)。Dashboard 归档先预览固定会话族范围，跨任务族须额外确认；独立 archive CAS/receipt 保留，恢复任务不恢复会话，后来关联/复制不自动归档。会话批次与任务写入不是跨文件原子事务；未确认结果保留 pending 和原请求精确重试，不假报完成。
+
+不要求关联 session 空闲，不阻止普通发送或复制，不自动 Stop/恢复/完成，保留原资料/关系/历史。归档任务仍可管理关联关系。未带 cascade 的旧任务归档请求保持只隐藏任务卡片的兼容语义。下文 12 阶段的 active/fullbusy 发送、复制和关系守卫描述已被替代，只作历史记录。
 
 当前01–14全部父验收resolved，统一[当前schema/CAS/迁移权威表](task-dashboard.md#当前存储cas与迁移权威表)为v7。主12 `/tmp/m12-39pOIJ/REPORT.md` 与父独立archive/browser证据分层；[历史附录](task-dashboard-validation-history.md#12-原准入归档与09组合)保留原超时无exit/源dual-root/当时v5，不把旧未合09/10/14当当前事实。最终综合/平台核验另报。
 [12票据](../../.scratch/task-dashboard/issues/12-archive-and-restore.md)、[规格D6](../../.scratch/task-dashboard/spec.md)、
@@ -11,7 +13,7 @@
 ## 入口与行为
 
 - `/tasks` 的“任务列表”默认日常任务；可显式选“已归档（数量）”或全部。归档列表仍能使用原文字/项目/状态/优先级/标签/运行筛选查找，卡片有归档标记及“恢复”。没有彻底删除。
-- 未完成任务也能归档；成功仅隐藏卡片，不改变完成含义、列、资料、手动数组、关联、当前知识/全部历史、08选择或11复制receipt，不删除native session、不调用abort/prompt。恢复回到当前保存列与位置（包括用户后来显式移动/14删列迁移的结果，不复活已删源列），不称任务已完成或模型已停止。
+- 未完成任务也能归档；任务域只隐藏卡片，Dashboard 经 F35 预览确认另联动归档当前会话族；不改变完成含义、列、资料、手动数组、关联、当前知识/全部历史、08选择或11复制receipt，不删除native session、不调用abort/prompt。恢复回到当前保存列与位置（包括用户后来显式移动/14删列迁移的结果，不复活已删源列），不称任务已完成或模型已停止。
 - 归档范围是独立的页面投影，不写进05保存的六条件；打开旧保存视图仍保留全部stable conditions，包括未来删除列ID的fail-closed，不静默删条件扩大结果。02/06/07草稿仍按task ID停放；隐藏/恢复不自动rebase。
 - 详情可继续只读历史、编辑资料及确认知识；发布后来版本不会自动恢复。归档任务的准备/开始与新的AI整理要求先恢复。用户仍可显式移列/调序归档任务；14[安全删列](task-column-removal.md)全量包含归档任务，原样保持archiveflag/revision/receipt与09pending，不自动restore/检查busy或调用Stop/AI。14已分别父resolved，不与12互代执行证据。
 - 成功响应后才反馈归档/恢复；后端busy、冲突、存储/网络错误可见。不因失败自动恢复、停止或发送。未知网络/存储结果保留原UUID/base/目标值及“精确重试”；online/focus/手动refresh只同步权威板，不能抹去未确认错误或假报成功。两页旧CAS冲突需重读并显式选择新意图。
@@ -23,7 +25,7 @@
 引入于当时v5的additive archive域；合法legacy整个域缺失才hydrate，当前必填/坏值与统一迁移见F21权威表。部分、null、非法计数或receipt拒读、不重置。不第二数据库，保留views、AI/manual/restore provenance、start、copies与所有旧CAS/receipt。
 
 公共 `taskOperation` / POST `/api/tasks`：
-`{action:"set-archive",id,archived,expectedArchiveRevision,operationId}`，未知字段/坏ID/base拒绝。
+`{action:"set-archive",id,archived,expectedArchiveRevision,operationId}`，未知字段/坏ID/base拒绝。F35 允许归档附加严格 `cascade:{previewToken,confirmCrossTask}`，增加 `preview-archive` 及耐久 pending/completed 子回执；恢复拒绝 cascade，旧 receipt 不自动获得会话副作用。
 同锁验证task和独立CAS；真正切换只增加archiveRevision，**不增加task/order/columns/views revision或知识pointer、不改updatedAt**，避免归档把最近更新排序、资料/知识草稿或08预览伪装成新内容。
 同base同目标no-op仍保存精确receipt、不增加计数。最近同UUID/同fingerprint重试优先确认，返回同锁最新完整board，不重新执行或回拨其它域；同UUID改payload冲突。
 更晚归档/恢复替换最近receipt后，旧请求不能猜当前状态重放；不无限保存操作日志。

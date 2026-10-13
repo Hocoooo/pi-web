@@ -1,14 +1,50 @@
 import { createHash } from "node:crypto";
-import { TASK_ID_PATTERN, TaskOperationError, type TaskRequest } from "./task-types";
+import { isTaskSessionId, TASK_ID_PATTERN, TaskOperationError, type TaskArchiveSkipped, type TaskRequest } from "./task-types";
 import type { StoredTaskRecord } from "./task-store";
 
 export type ArchiveRequest = Extract<TaskRequest, { action: "set-archive" }>;
 export function parseArchiveRequest(v: Record<string, unknown>): ArchiveRequest {
-  if (Object.keys(v).length !== 5 || Object.keys(v).some(k => !["action", "id", "archived", "expectedArchiveRevision", "operationId"].includes(k))
+  const cascade = v.cascade;
+  if (cascade !== undefined && (v.archived !== true || typeof cascade !== "object" || cascade === null || Array.isArray(cascade)
+    || Object.keys(cascade).length !== 2 || !Object.hasOwn(cascade, "previewToken") || !Object.hasOwn(cascade, "confirmCrossTask")
+    || typeof (cascade as Record<string, unknown>).previewToken !== "string" || !/^[0-9a-f]{64}$/.test((cascade as Record<string, unknown>).previewToken as string)
+    || typeof (cascade as Record<string, unknown>).confirmCrossTask !== "boolean")) throw new TaskOperationError("invalid-input", "A current archive preview and explicit family consent are required.");
+  if (Object.keys(v).length !== (cascade === undefined ? 5 : 6) || Object.keys(v).some(k => !["action", "id", "archived", "expectedArchiveRevision", "operationId", "cascade"].includes(k))
     || typeof v.id !== "string" || !TASK_ID_PATTERN.test(v.id) || typeof v.archived !== "boolean"
     || !Number.isSafeInteger(v.expectedArchiveRevision) || (v.expectedArchiveRevision as number) < 0
     || typeof v.operationId !== "string" || !TASK_ID_PATTERN.test(v.operationId)) throw new TaskOperationError("invalid-input", "Invalid archive request.");
   return v as ArchiveRequest;
+}
+export interface StoredArchiveCascade {
+  status: "pending" | "completed";
+  expectedArchiveRevision: number;
+  previewToken: string;
+  confirmCrossTask: boolean;
+  rootSessionIds: string[];
+  skipped: TaskArchiveSkipped[];
+}
+export interface StoredArchiveReceipt { operationId: string; fingerprint: string; cascade?: StoredArchiveCascade }
+export function validArchiveReceipt(value: unknown): value is StoredArchiveReceipt {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const v = value as Record<string, unknown>;
+  if (Object.keys(v).some(key => !["operationId", "fingerprint", "cascade"].includes(key))
+    || typeof v.operationId !== "string" || !TASK_ID_PATTERN.test(v.operationId)
+    || typeof v.fingerprint !== "string" || !/^[0-9a-f]{64}$/.test(v.fingerprint)) return false;
+  if (!Object.hasOwn(v, "cascade")) return true;
+  if (typeof v.cascade !== "object" || v.cascade === null || Array.isArray(v.cascade)) return false;
+  const c = v.cascade as Record<string, unknown>;
+  return Object.keys(c).length === 6 && Object.keys(c).every(key => ["status", "expectedArchiveRevision", "previewToken", "confirmCrossTask", "rootSessionIds", "skipped"].includes(key))
+    && (c.status === "pending" || c.status === "completed") && Number.isSafeInteger(c.expectedArchiveRevision) && (c.expectedArchiveRevision as number) >= 0
+    && typeof c.previewToken === "string" && /^[0-9a-f]{64}$/.test(c.previewToken) && typeof c.confirmCrossTask === "boolean"
+    && Array.isArray(c.rootSessionIds) && c.rootSessionIds.every(id => typeof id === "string" && TASK_ID_PATTERN.test(id)) && new Set(c.rootSessionIds).size === c.rootSessionIds.length
+    && Array.isArray(c.skipped) && c.skipped.every(s => typeof s === "object" && s !== null && !Array.isArray(s)
+      && Object.keys(s).length === 2 && isTaskSessionId(s.sessionId) && ["missing", "unpersisted", "unsupported-id", "unresolved-family"].includes(s.reason))
+    && new Set(c.skipped.map(s => s.sessionId)).size === c.skipped.length;
+}
+export function archiveRequestFingerprint(request: ArchiveRequest): string {
+  const tuple: unknown[] = [request.id, request.archived, request.expectedArchiveRevision];
+  if (request.cascade) tuple.push([request.cascade.previewToken, request.cascade.confirmCrossTask]);
+  return createHash("sha256").update(JSON.stringify(tuple)).digest("hex");
 }
 export function assertTaskActive(task: StoredTaskRecord): void {
   if (task.archived) throw new TaskOperationError("conflict", "This task is archived. Restore it from the task board's Archived list before starting work. Nothing was sent; the task was not automatically restored.");
@@ -21,7 +57,7 @@ export async function assertTaskSessionsIdle(agentDir: string, ids: readonly str
   if (busy.length) throw new TaskOperationError("conflict", `Associated conversation is busy (${busy.map(s => `${s.id}: ${s.waitingForInput ? "waiting for input" : s.compacting ? "compacting" : s.bashRunning ? "shell running" : s.queued ? "queued work" : "running or awaiting admission"}`).join(", ")}). Wait for all work to finish or explicitly Stop it in chat, then retry. Changing task links does not stop work.`);
 }
 export async function setTaskArchive(task: StoredTaskRecord, request: ArchiveRequest): Promise<boolean> {
-  const fingerprint = createHash("sha256").update(JSON.stringify([request.id, request.archived, request.expectedArchiveRevision])).digest("hex");
+  const fingerprint = archiveRequestFingerprint(request);
   if (task.archiveReceipt?.operationId === request.operationId) {
     if (task.archiveReceipt.fingerprint !== fingerprint) throw new TaskOperationError("conflict", "This archive operation ID was used for another request.");
     return false;

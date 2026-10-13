@@ -63,16 +63,17 @@ F31 详情关联对话行的 `...` 仅打开“移除”菜单，选择后只解
 | F24 | [主动AI整理共享重点（暂停）](task-ai-summary.md) | F31 移除任务/当前对话的整理和草稿入口，所有 summary-* 新操作在存储/模型调用前拒绝；旧 AI 来源数据保留，原07执行测试明确退役 | task-summary/types、TaskSummary、task-context/operations、Dashboard/Sidebar |
 | F25 | [复制/fork继承任务](task-session-copy.md) | 11已主集成并验收resolved：原clone/fork/fork_branch新SDK session继承唯一关系、source-owner CAS/权威scope、durable intent/精确receipt；异常2xx保留UUID、未知结果人工检查后显式新tab尝试；不伪造08采用 | rpc-manager、agent-client、task-session-copy、task-operations/store、agent route |
 | F26 | [任务准备对话与独立发送（暂停）](task-start-chat.md) | F31 移除开始执行/材料预览；旧 taskStart 在路由 startup/权限变更前及 wrapper 再次拒绝，旧准备 URL 明确提示；普通聊天后关联 session，不再注入任务资料，旧 receipt/native 历史兼容 | TaskStart、ChatWindow/useAgentSession、task-start/types/store/operations、agent/new、rpc-manager |
-| F27 | [任务归档与恢复](task-archive.md) | 可发现归档列表/恢复、独立 archive CAS/精确 receipt；F31 归档只改变管理显示，不要求 session 空闲、不阻止聊天/关联/复制，不 Stop/自动恢复/自动完成，保留全部历史 | task-archive/types/store/operations、rpc-manager、agent routes、TaskDashboard/Details |
+| F27 | [任务归档与恢复](task-archive.md) | 可发现归档列表/恢复、独立 archive CAS/精确 receipt；F35 Dashboard 经预览一次性联动归档会话族，恢复任务不恢复会话；不要求空闲、不阻止聊天/关联/复制，不 Stop/自动完成，保留全部历史 | task-archive/types/store/operations、rpc-manager、agent routes、TaskDashboard/Details |
 | F28 | [已有对话显式接收共享更新（暂停）](task-context-updates.md) | F31 移除版本/更新 UI 及其轮询；拒绝新选择/投递，普通 prompt 不消费旧 pending、不安装发送观察器；保留 choices/deliveries/native 历史，暂停不等于遗忘 | TaskContextUpdates/ChatWindow、task-context-updates/update-send、task-start/types/store/operations、RPC/tasks API |
 | F29 | [安全删除状态列](task-column-removal.md) | 14 resolved：done/lastunfinished保护、独立完成确认、完整ordered源摘要/有界请求、hidden/archive原子迁移、旧board receipt返回当前派生digest、删todo两create首unfinished；与10联合回归 | TaskColumnSettings、TaskDashboard、task-operations/store/types、tasks API |
 | F30 | [解除/改绑任务关系](task-session-relation.md) | F31 关系只管理归属，不要求任务 active 或 session idle；仍保留同锁权威 scope、唯一 owner、generation/CAS/精确 receipt、旧 pending 清理和复制 ABA 保护，不改 cwd/模型/工具/原生历史 | task-relations/operations/store、TaskSessionMenu/TaskSessions/Dashboard、task-summary/start/context-update-send/session-copy |
 | F31 | [任务 session 管理](task-session-management.md) | 任务详情以关联对话为主体、当前会话归属与直达入口、卡片数量/运行提示；管理与执行解耦，停用共享/启动/更新路径，旧数据与历史兼容保留 | TaskDashboard/Details/Sessions/SessionMenu、SessionTaskLink/ChatWindow/AppShell、task-operations/relations/archive/session-copy、rpc-manager |
 | F32 | [聊天任务选择器 `/task`](task-picker.md) | 紧凑主题选择器、单行归属栏、全键盘/慢保存焦点约束与状态本地化；新会话预选不启动 Agent，正常创建后关联；已有会话关联/改绑/解除；同项目/归档/CAS、失败草稿与 ID 保留、详情独立入口 | TaskPicker/TaskSelectionDialog/SessionTaskLink/ChatInput/ChatWindow、useTaskSelection/useAgentSession、tasks API/task-types/task-operations |
 | F33 | [任务项目选择与修改](task-projects.md) | 合并 Pi 对话与任务项目、复用目录新增/选择、同项目保留关联、跨项目预览确认后原子解除；项目 CAS/精确重试、不改聊天执行；真实隔离服务浏览器验收 | TaskProject/Dashboard/Details/Inspector、tasks API、task-operations/store/types |
-| F34 | [对话归档与恢复](session-archive.md) | 与改名/删除同区悬停显示的归档/恢复操作、独立持久化会话显示状态、日常侧栏隐藏/可发现归档列表、祖先会话族与范围搜索；不改 JSONL/完整历史、任务归属或 Agent 生命周期，确认后更新与显式幂等重试 | session-archive/view、sessions/archive/list/search API、SessionSidebar/SessionSearch |
+| F34 | [对话归档与恢复](session-archive.md) | 与改名/删除同区悬停显示、独立会话显示状态/族范围/搜索；F35 复用同锁 sidecar 批量归档及 v2 回执，单会话接口/恢复不改任务；不改 JSONL/完整历史、任务归属或 Agent 生命周期 | session-archive/view、sessions/archive/list/search API、SessionSidebar/SessionSearch |
+| F35 | [任务一次性关联对话归档](task-session-archive.md) | Dashboard 归档先预览固定会话族，跨任务须额外确认；耐久 pending/批次回执与精确重试，部分失败不假报成功；恢复任务不恢复会话，后来关联/fork 不自动归档，不 Stop/改历史 | task-session-archive、task-archive/store/operations/types、session-archive/reader/family、tasks API、TaskArchivePreview/Dashboard/Inspector |
 
-## 任务功能历史快照（2026-10-09 文档收尾；当前范围见 F31/F32/F33）
+## 任务功能历史快照（2026-10-09 文档收尾；当前范围见 F31/F32/F33/F35）
 
 - **01–14 全部已由父代理按各票范围验收 resolved**；10 最终独立主复审见 `/tmp/t10mr-mus4_2wp/REPORT.md`，修复证据见 `/tmp/t10fix-l8beyj3o/REPORT.md`。最终独立综合核验及父review已完成，见[最终接受记录](../../.scratch/task-dashboard/FINAL-ACCEPTANCE.md)；仅已执行范围通过，不代表全平台/真实provider验收。
 - 当前存储为 **v7**；唯一的[当前 schema、独立 CAS 与迁移表](task-dashboard.md#当前存储cas与迁移权威表)由 F21 维护，其余任务合同引用它。14 `columnRemovalDigests` 同锁派生、不持久；09 选择 ≠ native append ≠ 成功 SDK input/response ≠ provider wire/read。

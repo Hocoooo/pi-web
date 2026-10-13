@@ -1,14 +1,15 @@
 import { relationGeneration, assertRelationGeneration, associateRelation, parseRelationRequest, changeSessionRelation } from "./task-relations";
 import { assertTaskActive, parseArchiveRequest, setTaskArchive } from "./task-archive";
+import { archiveTaskWithSessions, previewTaskSessionArchive } from "./task-session-archive";
 import { parseStartRequest, prepareTaskStart, admitTaskStart } from "./task-start";
 import { parseContextUpdateRequest, validateUpdateSession, updateState, selectContextUpdate, clearContextUpdate, completeContextUpdate, updateMaterial, readContextUpdateState } from "./task-context-updates";
-import type { TaskContextUpdateState, TaskUpdateChoice, TaskStartSnapshot, TaskSessionTaskResult, TaskPickerResult, TaskProjectPreview, TaskProjectsResult } from "./task-types";
+import type { TaskContextUpdateState, TaskUpdateChoice, TaskStartSnapshot, TaskSessionTaskResult, TaskPickerResult, TaskProjectPreview, TaskProjectsResult, TaskArchivePreview } from "./task-types";
 export type PendingContextUpdate = { taskId: string; relationGeneration: number; choice: TaskUpdateChoice; snapshot: TaskStartSnapshot } | null;
 import type { TaskStartPreview, TaskSessionContext } from "./task-types";
 import { createHash } from "node:crypto";
 import type { SessionCopyReceipt } from "./task-session-copy";
 type CopyOperationResult = { receipt: SessionCopyReceipt; fresh: boolean };
-import { parseSaveView, publicTaskView, saveTaskView } from "./task-saved-views";
+import { parseSaveView, saveTaskView } from "./task-saved-views";
 import { parseContextRequest, publishContext } from "./task-context";
 import { generatedSummarySource, type SummaryDependencies } from "./task-summary";
 import type { TaskSummaryResponse } from "./task-summary-types";
@@ -16,7 +17,7 @@ import { normalizeCwd, validatedCwd } from "./validated-cwd";
 import { resolveProjectAuthoritatively } from "./worktree";
 import { projectIdentityKey } from "./project-identity";
 import { isChatWorkspace } from "./chat-workspace";
-import { publicTask, taskCreationFingerprint, taskColumnRemovalDigest, withTaskStore, type StoredTaskRecord } from "./task-store";
+import { publicTask, publicTaskBoard, taskCreationFingerprint, taskColumnRemovalDigest, withTaskStore, type StoredTaskRecord } from "./task-store";
 import { taskSessionCatalogue, sameTaskSessionProject, publicTaskSession } from "./task-sessions";
 import { isTaskSessionId, TASK_SESSION_BATCH_LIMIT, type TaskSessionsResult, DEFAULT_TASK_PRIORITY, isCompletionColumn, isTaskColumn, isTaskColumnId, isTaskColumnLabel, isTaskLabel, isTaskPriority, TASK_COLUMNS, TASK_COLUMN_LIMITS, TASK_ID_PATTERN, TASK_LABEL_LIMITS, TASK_TEXT_LIMITS, TaskOperationError, type TaskBoard, type TaskColumnConfig, type TaskProject, type TaskMutationResult, type TaskRequest } from "./task-types";
 
@@ -73,6 +74,10 @@ function parseRequest(input: unknown, sessionCopy = false): TaskRequest {
   }
   if (["context-update-state", "accept-context-update", "clear-context-update", "pending-context-update", "complete-context-update"].includes(value.action as string)) return parseContextUpdateRequest(value);
   if (value.action === "set-archive") return parseArchiveRequest(value);
+  if (value.action === "preview-archive") {
+    if (Object.keys(value).length !== 2 || typeof value.id !== "string" || !TASK_ID_PATTERN.test(value.id)) return invalid("A valid task archive preview is required.");
+    return { action: "preview-archive", id: value.id };
+  }
   if (value.action === "admit-session-work") {
     if (Object.keys(value).some(k => !["action", "sessionId", "taskId"].includes(k)) || !isTaskSessionId(value.sessionId)
       || Object.hasOwn(value, "taskId") && (typeof value.taskId !== "string" || !TASK_ID_PATTERN.test(value.taskId))) return invalid("Invalid session admission request.");
@@ -159,7 +164,7 @@ async function selectedProject(cwd: string | null, agentDir: string): Promise<Ta
 }
 
 /** Single task boundary. Legacy context data remains readable, but new context work is suspended. */
-export async function taskOperation(input: unknown, options: { agentDir: string; signal?: AbortSignal; summaryDeps?: SummaryDependencies; sessionCopy?: boolean }): Promise<TaskBoard | TaskMutationResult | TaskProjectPreview | TaskProjectsResult | TaskSessionsResult | TaskSessionTaskResult | TaskPickerResult | TaskSummaryResponse | CopyOperationResult | TaskStartPreview | TaskContextUpdateState | PendingContextUpdate | { context: TaskSessionContext | null }> {
+export async function taskOperation(input: unknown, options: { agentDir: string; signal?: AbortSignal; summaryDeps?: SummaryDependencies; sessionCopy?: boolean }): Promise<TaskBoard | TaskMutationResult | TaskArchivePreview | TaskProjectPreview | TaskProjectsResult | TaskSessionsResult | TaskSessionTaskResult | TaskPickerResult | TaskSummaryResponse | CopyOperationResult | TaskStartPreview | TaskContextUpdateState | PendingContextUpdate | { context: TaskSessionContext | null }> {
   // Refuse before opening (or migrating) storage, loading histories or invoking providers.
   if (typeof input === "object" && input !== null && "action" in input && typeof input.action === "string"
     && (input.action.startsWith("summary-") || ["publish-context", "restore-context", "prepare-start", "admit-start",
@@ -170,9 +175,9 @@ export async function taskOperation(input: unknown, options: { agentDir: string;
   // Compatibility for older in-process callers: task visibility never gates session work.
   // In particular, ordinary chat must not depend on task-store availability or migration.
   if (request.action === "admit-session-work") return { context: null };
-  return withTaskStore<TaskBoard | TaskMutationResult | TaskProjectPreview | TaskProjectsResult | TaskSessionsResult | TaskSessionTaskResult | TaskPickerResult | CopyOperationResult | TaskStartPreview | TaskContextUpdateState | PendingContextUpdate | { context: TaskSessionContext | null }>(options.agentDir, async (document) => {
-    const board = (): TaskBoard => ({ columnRemovalDigests: Object.fromEntries(document.columns.map(column => [column.id, taskColumnRemovalDigest(document.tasks, column.id)])), viewsRevision: document.viewsRevision, savedViews: document.savedViews.map(publicTaskView), orderRevision: document.orderRevision, columnsRevision: document.columnsRevision,
-      columns: document.columns.map((column) => ({ ...column, isCompletion: isCompletionColumn(column.id) })), tasks: document.tasks.map(publicTask) });
+  if (request.action === "set-archive" && request.cascade) return archiveTaskWithSessions(request, options.agentDir);
+  return withTaskStore<TaskBoard | TaskMutationResult | TaskArchivePreview | TaskProjectPreview | TaskProjectsResult | TaskSessionsResult | TaskSessionTaskResult | TaskPickerResult | CopyOperationResult | TaskStartPreview | TaskContextUpdateState | PendingContextUpdate | { context: TaskSessionContext | null }>(options.agentDir, async (document) => {
+    const board = (): TaskBoard => publicTaskBoard(document);
     const result = (task: StoredTaskRecord, changed: boolean) => ({ value: { task: publicTask(task), board: board() }, changed });
     const bumpOrder = () => {
       if (document.orderRevision === Number.MAX_SAFE_INTEGER) throw new TaskOperationError("storage-unavailable", "Task order revision limit reached; no changes were saved.");
@@ -342,6 +347,7 @@ export async function taskOperation(input: unknown, options: { agentDir: string;
       return result(task, true);
     }
     if (!existing) throw new TaskOperationError("not-found", "Task not found. Reload the board.");
+    if (request.action === "preview-archive") return { value: await previewTaskSessionArchive(document, existing, options.agentDir), changed: false };
     if (request.action === "preview-project" || request.action === "change-project") {
       const fingerprint = request.action === "change-project"
         ? createHash("sha256").update(JSON.stringify([request.id, request.cwd === null ? null : normalizeCwd(request.cwd), request.expectedRevision, request.previewToken])).digest("hex") : null;

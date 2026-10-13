@@ -6,7 +6,7 @@ export interface SessionFamily {
   latestModified: string;
 }
 
-function resolveFamilyRoots(sessions: readonly SessionInfo[]): Map<string, string | null> {
+export function resolveFamilyRoots(sessions: readonly Pick<SessionInfo, "id" | "relation">[]): Map<string, string | null> {
   const byId = new Map(sessions.map((session) => [session.id, session]));
   const roots = new Map<string, string | null>();
 

@@ -114,6 +114,8 @@ export type TaskContextUpdateRequest =
 export interface TaskRecord extends TaskDetails {
   archived: boolean;
   archiveRevision: number;
+  /** Fixed retry intent when the task is archived but its session batch is unconfirmed. */
+  pendingSessionArchive?: PendingSessionArchive;
   sharedContext: TaskSharedContext;
   id: string;
   project: TaskProject | null;
@@ -137,6 +139,30 @@ export interface TaskFilter {
   activity: "all" | "working" | "idle";
 }
 export interface TaskSavedView { id: string; name: string; filter: TaskFilter; sort: TaskSort }
+export interface TaskArchiveSkipped {
+  sessionId: string;
+  reason: "missing" | "unpersisted" | "unsupported-id" | "unresolved-family";
+}
+export interface TaskArchiveFamily {
+  rootSessionId: string;
+  name?: string;
+  sessionIds: string[];
+  otherTasks: { id: string; title: string; sessionIds: string[] }[];
+}
+export interface TaskArchivePreview {
+  taskId: string;
+  archiveRevision: number;
+  token: string;
+  linkedSessionIds: string[];
+  families: TaskArchiveFamily[];
+  skipped: TaskArchiveSkipped[];
+}
+export interface PendingSessionArchive {
+  operationId: string;
+  expectedArchiveRevision: number;
+  previewToken: string;
+  confirmCrossTask: boolean;
+}
 export interface TaskBoard {
   /** Server-derived full ordered source digests; response-only, not column configuration. */
   columnRemovalDigests: Record<TaskColumnId, string>;
@@ -174,7 +200,8 @@ export type TaskRequest =
   | { action: "projects" }
   | { action: "preview-project"; id: string; cwd: string | null }
   | { action: "change-project"; id: string; cwd: string | null; expectedRevision: number; previewToken: string; operationId: string }
-  | { action: "set-archive"; id: string; archived: boolean; expectedArchiveRevision: number; operationId: string }
+  | { action: "preview-archive"; id: string }
+  | { action: "set-archive"; id: string; archived: boolean; expectedArchiveRevision: number; operationId: string; cascade?: { previewToken: string; confirmCrossTask: boolean } }
   | { action: "admit-session-work"; sessionId: string; taskId?: string }
   | { action: "prepare-session-copy"; operationId: string; sourceSessionId: string; fingerprint: string }
   | { action: "complete-session-copy"; operationId: string; sourceSessionId: string; fingerprint: string; newSessionId: string | null }
@@ -194,7 +221,7 @@ export type TaskRequest =
   | TaskContextUpdateRequest;
 export interface TaskProjectsResult { projects: TaskProject[] }
 export interface TaskProjectPreview { project: TaskProject | null; revision: number; token: string; detachSessionIds: string[] }
-export interface TaskMutationResult { task: TaskRecord; board: TaskBoard }
+export interface TaskMutationResult { task: TaskRecord; board: TaskBoard; sessionArchive?: { rootSessionIds: string[]; skipped: TaskArchiveSkipped[] } }
 export interface TaskCopyResult { cancelled: boolean; newSessionId?: string }
 export type TaskSessionActivity = Pick<TaskSessionInfo, "running" | "waitingForInput" | "compacting" | "bashRunning" | "queued">;
 export interface TaskSessionInfo {

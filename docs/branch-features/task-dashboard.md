@@ -79,7 +79,9 @@
 | knowledge | currentVersionId、不可变versions（manual/restore/AI真实来源与内部publish receipt） | restore形成新version；知识不是全聊天或自动采用 |
 | start/update/copy | 严格new-start tuple、每session choices/pending/deliveries、prepared/completed copy intent；各原epoch | 选择≠append≠SDK成功input/response≠provider wire/read；child不复制source tuple/pending/read |
 | relation | sessionRelations仅sessionId/generation/最近receipt，未列出身份epoch为0 | owner+generation防owned/null-owner ABA；旧合法receipt仅事实确认 |
-| 派生响应（不持久） | columnRemovalDigests完整ordered源摘要，运行提示 | 同锁摘要绑定源ID及每个[id,task revision,archiveRevision]；全hidden/archive，所有board-returning精确retry返回当前map；start/copy专用响应不伪board/read |
+| 派生响应（不持久） | columnRemovalDigests完整ordered源摘要，运行提示；F35 pendingSessionArchive 固定重试材料 | 同锁摘要绑定源ID及每个[id,task revision,archiveRevision]；全hidden/archive，所有board-returning精确retry返回当前map；start/copy专用响应不伪board/read |
+
+F35 在任务 `archiveReceipt` 内增加严格可选 `cascade:{status,expectedArchiveRevision,previewToken,confirmCrossTask,rootSessionIds,skipped}`；v7 无该子域的旧记录原样兼容，不能将旧 receipt 重试升级为联动。公共任务剥离 receipt，仅 pending 时派生固定重试材料。已有归档字段缺失/损坏规则不变，坏/部分子域拒读，旧版本因严格 receipt 验证拒绝新格式。一次性联动协议及独立 session sidecar v2 见 [F35](task-session-archive.md) 和 [ADR0008](../adr/0008-one-shot-task-session-archive.md)。
 
 ### 独立 CAS 与 receipt
 
@@ -93,7 +95,7 @@
 | 列设置/删列 | columnsRevision；删列另orderRevision + 完整source digest + 独立done consent | 设置仅columns；非空删列order一次、受影响task revision/time一次；最近删除receipt仅确认，不重演/复活列 |
 | 保存视图 | viewsRevision + 固定filter/sort/base/UUID | 只推进views；每已保存记录receipt，不覆盖/删除/扩大未知列条件 |
 | 发布/恢复知识 | currentVersionId + operationId/canonical内容或恢复引用 | updatedAt递增，不推进task/order；不可变版本receipt可在更晚current后确认，不回拨/重新Provider |
-| 归档/恢复任务 | archiveRevision + operationId/目标值 | 只archive CAS/receipt，不改updatedAt/task/order/知识，不Stop/done；最近receipt确认当前board |
+| 归档/恢复任务 | archiveRevision + operationId/目标值；F35 联动另绑定 preview token/跨任务确认 | 只archive CAS/receipt，不改updatedAt/task/order/知识，不Stop/done；最近receipt确认当前board。联动保留固定pending/completed子域，批次效果与session侧回执同写；恢复不恢复会话 |
 | 更新选择/clear/complete | 独立session update revision、operationId、owner+epoch | 只选择明确版本；complete只消费自己不清新pending；未提交旧epoch拒绝，已有delivery仅在当前owner合法时确认事实 |
 | 准备/发送/复制 | 原start selection或copy intent、owner+epoch、权威scope/active/busy | 新执行不得ABA复活；completed copy返回原child不按今日owner重绑；未知prepared failclosed、人工检查后显式新意图 |
 

@@ -5,23 +5,24 @@ import { normalizeCwd } from "./validated-cwd";
 import lockfile from "proper-lockfile";
 import { serializeByKey } from "./key-serializer";
 import { readRegularFileText } from "./regular-file";
-import { DEFAULT_TASK_PRIORITY, isTaskSessionId, isTaskColumn, isTaskColumnId, isTaskColumnLabel, isTaskLabel, isTaskPriority, TASK_COLUMNS, TASK_COLUMN_LIMITS, TASK_ID_PATTERN, TASK_LABEL_LIMITS, TASK_TEXT_LIMITS, TaskOperationError, type TaskColumnConfig, type TaskRecord } from "./task-types";
+import { DEFAULT_TASK_PRIORITY, isTaskSessionId, isTaskColumn, isTaskColumnId, isTaskColumnLabel, isTaskLabel, isTaskPriority, TASK_COLUMNS, TASK_COLUMN_LIMITS, TASK_ID_PATTERN, TASK_LABEL_LIMITS, TASK_TEXT_LIMITS, TaskOperationError, type TaskBoard, type TaskColumnConfig, type TaskRecord, isCompletionColumn } from "./task-types";
 
 import { validSessionRelations, type SessionRelationRevision } from "./task-relations";
 import { validSessionContexts } from "./task-start";
 import { validSessionUpdates } from "./task-context-updates";
 import { publicSharedContext, validSharedContext, type StoredSharedContext } from "./task-context";
-import { validSavedViews, type StoredTaskView } from "./task-saved-views";
+import { publicTaskView, validSavedViews, type StoredTaskView } from "./task-saved-views";
+import { validArchiveReceipt, type StoredArchiveReceipt } from "./task-archive";
 import { validSessionCopies, type SessionCopyReceipt } from "./task-session-copy";
 
 export interface StoredTaskRecord extends TaskRecord {
   sharedContext: StoredSharedContext;
   creationFingerprint: string;
   moveReceipt?: { operationId: string; fingerprint: string };
-  archiveReceipt?: { operationId: string; fingerprint: string };
+  archiveReceipt?: StoredArchiveReceipt;
   projectReceipt?: { operationId: string; fingerprint: string };
 }
-interface TaskDocument { version: 7; sessionRelations: SessionRelationRevision[]; columnRemovalReceipt?: { operationId: string; fingerprint: string }; sessionCopies: SessionCopyReceipt[]; viewsRevision: number; savedViews: StoredTaskView[]; orderRevision: number; columnsRevision: number; columns: TaskColumnConfig[]; tasks: StoredTaskRecord[] }
+export interface TaskDocument { version: 7; sessionRelations: SessionRelationRevision[]; columnRemovalReceipt?: { operationId: string; fingerprint: string }; sessionCopies: SessionCopyReceipt[]; viewsRevision: number; savedViews: StoredTaskView[]; orderRevision: number; columnsRevision: number; columns: TaskColumnConfig[]; tasks: StoredTaskRecord[] }
 function defaultColumns(): TaskColumnConfig[] { return TASK_COLUMNS.map(({ id, label }) => ({ id, label })); }
 function validColumns(value: unknown): value is TaskColumnConfig[] {
   if (!Array.isArray(value) || value.length < 2 || value.length > TASK_COLUMN_LIMITS.count) return false;
@@ -53,7 +54,17 @@ export function taskColumnRemovalDigest(tasks: readonly Pick<TaskRecord, "id" | 
 export function publicTask(task: StoredTaskRecord): TaskRecord {
   const { creationFingerprint, moveReceipt, archiveReceipt, projectReceipt, ...record } = task;
   void creationFingerprint; void moveReceipt; void archiveReceipt; void projectReceipt;
-  return { ...record, sharedContext: publicSharedContext(task.sharedContext) };
+  const cascade = archiveReceipt?.cascade;
+  return { ...record, sharedContext: publicSharedContext(task.sharedContext),
+    ...(cascade?.status === "pending" ? { pendingSessionArchive: {
+      operationId: archiveReceipt!.operationId, expectedArchiveRevision: cascade.expectedArchiveRevision,
+      previewToken: cascade.previewToken, confirmCrossTask: cascade.confirmCrossTask,
+    } } : {}) };
+}
+export function publicTaskBoard(document: TaskDocument): TaskBoard {
+  return { columnRemovalDigests: Object.fromEntries(document.columns.map(column => [column.id, taskColumnRemovalDigest(document.tasks, column.id)])),
+    viewsRevision: document.viewsRevision, savedViews: document.savedViews.map(publicTaskView), orderRevision: document.orderRevision, columnsRevision: document.columnsRevision,
+    columns: document.columns.map(column => ({ ...column, isCompletion: isCompletionColumn(column.id) })), tasks: document.tasks.map(publicTask) };
 }
 const MAX_BYTES = 32 * 1024 * 1024;
 const STORE_KEY = Symbol.for("pi-web.task-store");
@@ -68,9 +79,10 @@ function validTask(value: unknown, columns: readonly TaskColumnConfig[]): value 
   if (!Number.isSafeInteger(value.revision) || (value.revision as number) < 1) return false;
   const legacyArchive = !Object.hasOwn(value, "archived") && !Object.hasOwn(value, "archiveRevision") && !Object.hasOwn(value, "archiveReceipt");
   if (!legacyArchive && (typeof value.archived !== "boolean" || !Number.isSafeInteger(value.archiveRevision) || (value.archiveRevision as number) < 0)) return false;
-  if (value.archiveReceipt !== undefined && (!record(value.archiveReceipt) || Object.keys(value.archiveReceipt).length !== 2
-    || typeof value.archiveReceipt.operationId !== "string" || !TASK_ID_PATTERN.test(value.archiveReceipt.operationId)
-    || typeof value.archiveReceipt.fingerprint !== "string" || !/^[0-9a-f]{64}$/.test(value.archiveReceipt.fingerprint))) return false;
+  if (Object.hasOwn(value, "pendingSessionArchive")) return false; // Response-only retry intent, never persisted.
+  if (value.archiveReceipt !== undefined && (!validArchiveReceipt(value.archiveReceipt)
+    || value.archiveReceipt.cascade && (value.archived !== true
+      || value.archiveRevision !== value.archiveReceipt.cascade.expectedArchiveRevision && value.archiveRevision !== value.archiveReceipt.cascade.expectedArchiveRevision + 1))) return false;
   if (value.projectReceipt !== undefined && (!record(value.projectReceipt) || Object.keys(value.projectReceipt).length !== 2
     || typeof value.projectReceipt.operationId !== "string" || !TASK_ID_PATTERN.test(value.projectReceipt.operationId)
     || typeof value.projectReceipt.fingerprint !== "string" || !/^[0-9a-f]{64}$/.test(value.projectReceipt.fingerprint))) return false;
@@ -192,7 +204,7 @@ async function atomicWrite(file: string, document: TaskDocument, assertLock: () 
 }
 
 /** Serializes readers and writers across route bundles AND processes, then atomically commits. */
-export async function withTaskStore<T>(agentDir: string, operation: (document: TaskDocument) => { value: T; changed: boolean } | Promise<{ value: T; changed: boolean }>): Promise<T> {
+export async function withTaskStore<T>(agentDir: string, operation: (document: TaskDocument, assertLock: () => void) => { value: T; changed: boolean } | Promise<{ value: T; changed: boolean }>): Promise<T> {
   try {
     const directory = join(agentDir, "tasks");
     await mkdir(directory, { recursive: true, mode: 0o700 });
@@ -213,7 +225,7 @@ export async function withTaskStore<T>(agentDir: string, operation: (document: T
         const text = readRegularFileText(file, MAX_BYTES);
         const missing = text === undefined;
         const decoded = missing ? { document: { version: 7 as const, sessionRelations: [], sessionCopies: [], viewsRevision: 0, savedViews: [], orderRevision: 0, columnsRevision: 0, columns: defaultColumns(), tasks: [] }, migrated: false } : decodeDocument(text);
-        const result = await operation(decoded.document);
+        const result = await operation(decoded.document, assertLock);
         assertLock();
         if (missing || decoded.migrated || result.changed) await atomicWrite(file, decoded.document, assertLock);
         assertLock();

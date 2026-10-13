@@ -45,7 +45,7 @@ await context.route("**/api/**", async route => {
   if (url.pathname === "/api/tasks") {
     if (request.method() === "GET") boardReads++;
     const input = request.method() === "GET" ? { action: "list" } : request.postDataJSON();
-    if (input.action === "projects") return route.fulfill({ json: await taskOperation(input, { agentDir }) });
+    if (input.action === "projects" || input.action === "preview-archive") return route.fulfill({ json: await taskOperation(input, { agentDir }) });
     if (input.action === "sessions") return route.fulfill({ json: {
       linked: sessionFixtures.filter(session => memberships.get(session.id) === input.id),
       candidates: sessionFixtures.filter(session => !memberships.has(session.id)),
@@ -285,6 +285,8 @@ try {
   await dialog.getByRole("button", { name: "Link to task", exact: true }).click();
   await inspector.getByRole("heading", { name: initialBoard.tasks[1].title, exact: true }).waitFor();
   await inspector.getByRole("button", { name: `Archive: ${initialBoard.tasks[1].title}`, exact: true }).click();
+  await inspector.getByRole("button", { name: "Archive task and session families", exact: true }).click();
+  await inspector.getByRole("button", { name: `Restore: ${initialBoard.tasks[1].title}`, exact: true }).waitFor();
   await dialog.getByRole("button", { name: "Close task details", exact: true }).click();
   await dialog.getByRole("button", { name: "Close task dashboard", exact: true }).click();
   await membership.getByRole("button", { name: `Task: ${initialBoard.tasks[1].title} · Archived`, exact: true }).waitFor();
