@@ -8,6 +8,7 @@ import { createJiti } from "jiti";
 const jiti = createJiti(import.meta.url, { alias: { "@": process.cwd() } });
 const { SessionManager } = await jiti.import("@earendil-works/pi-coding-agent");
 const { POST } = await jiti.import("./route.ts");
+const { waitForTaskReportExecutor } = await jiti.import("../../../lib/task-report-executor.ts");
 const { GET: sessions } = await jiti.import("../sessions/route.ts");
 const { readArchivedSessionIds } = await jiti.import("../../../lib/session-archive.ts");
 const { invalidateSessionListCache } = await jiti.import("../../../lib/session-reader.ts");
@@ -16,6 +17,7 @@ test("public HTTP preview/consent/commit/restore use native history and complete
   const agentDir = await mkdtemp(join(tmpdir(), "task-archive-api-")), cwd = join(agentDir, "chat-workspace"); await mkdir(cwd);
   const previous = process.env.PI_CODING_AGENT_DIR; process.env.PI_CODING_AGENT_DIR = agentDir; invalidateSessionListCache();
   t.after(async () => {
+    await waitForTaskReportExecutor();
     if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous;
     invalidateSessionListCache(); await rm(agentDir, { recursive: true, force: true });
   });

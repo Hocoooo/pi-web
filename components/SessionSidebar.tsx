@@ -699,10 +699,10 @@ export function SessionSidebar({ onOpenTasks, selectedSessionId, onSelectSession
       }
       // Only apply confirmed writes; supersede any pre-write list request.
       sessionLoadIdRef.current++;
-      setAllSessions(current => {
-        const ids = new Set(current.filter(item => item.archived && item.relation?.kind !== "subagent").map(item => item.id));
+      setCatalogSnapshot(current => {
+        const ids = new Set(current.sessions.filter(item => item.archived && item.relation?.kind !== "subagent").map(item => item.id));
         if (archived) ids.add(session.id); else ids.delete(session.id);
-        return withSessionArchiveState(current, ids);
+        return { ...current, sessions: withSessionArchiveState(current.sessions, ids) };
       });
       await loadSessions(false, true);
     } catch {

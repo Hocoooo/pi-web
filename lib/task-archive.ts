@@ -56,7 +56,7 @@ export async function assertTaskSessionsIdle(agentDir: string, ids: readonly str
   const busy = getTaskSessionActivity(agentDir, ids).filter(s => s.running || s.waitingForInput || s.compacting || s.bashRunning || s.queued);
   if (busy.length) throw new TaskOperationError("conflict", `Associated conversation is busy (${busy.map(s => `${s.id}: ${s.waitingForInput ? "waiting for input" : s.compacting ? "compacting" : s.bashRunning ? "shell running" : s.queued ? "queued work" : "running or awaiting admission"}`).join(", ")}). Wait for all work to finish or explicitly Stop it in chat, then retry. Changing task links does not stop work.`);
 }
-export async function setTaskArchive(task: StoredTaskRecord, request: ArchiveRequest): Promise<boolean> {
+export async function setTaskArchive(task: StoredTaskRecord, request: ArchiveRequest, agentDir: string): Promise<boolean> {
   const fingerprint = archiveRequestFingerprint(request);
   if (task.archiveReceipt?.operationId === request.operationId) {
     if (task.archiveReceipt.fingerprint !== fingerprint) throw new TaskOperationError("conflict", "This archive operation ID was used for another request.");
@@ -66,6 +66,11 @@ export async function setTaskArchive(task: StoredTaskRecord, request: ArchiveReq
   // Visibility only: archiving never waits for, stops, or restricts session work.
   if (task.archived !== request.archived) {
     if (task.archiveRevision === Number.MAX_SAFE_INTEGER) throw new TaskOperationError("storage-unavailable", "Archive revision limit reached; no changes were saved.");
+    if (request.archived) {
+      const { prepareTaskReport } = await import("./task-reports");
+      const reportId = await prepareTaskReport(task, agentDir);
+      task.reportIds = [...(task.reportIds ?? []), reportId];
+    }
     task.archived = request.archived;
     task.archiveRevision++;
   }

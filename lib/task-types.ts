@@ -112,6 +112,8 @@ export type TaskContextUpdateRequest =
   | { action: "pending-context-update"; sessionId: string }
   | { action: "complete-context-update"; id: string; sessionId: string; delivery: TaskUpdateDelivery; relationGeneration?: number };
 export interface TaskRecord extends TaskDetails {
+  /** Creation-ordered global report identities; independent of the latest archive receipt. */
+  reportIds?: string[];
   archived: boolean;
   archiveRevision: number;
   /** Fixed retry intent when the task is archived but its session batch is unconfirmed. */

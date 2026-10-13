@@ -79,6 +79,7 @@ function validTask(value: unknown, columns: readonly TaskColumnConfig[]): value 
   if (!Number.isSafeInteger(value.revision) || (value.revision as number) < 1) return false;
   const legacyArchive = !Object.hasOwn(value, "archived") && !Object.hasOwn(value, "archiveRevision") && !Object.hasOwn(value, "archiveReceipt");
   if (!legacyArchive && (typeof value.archived !== "boolean" || !Number.isSafeInteger(value.archiveRevision) || (value.archiveRevision as number) < 0)) return false;
+  if (value.reportIds !== undefined && (!Array.isArray(value.reportIds) || value.reportIds.some(id => typeof id !== "string" || !TASK_ID_PATTERN.test(id)) || new Set(value.reportIds).size !== value.reportIds.length)) return false;
   if (Object.hasOwn(value, "pendingSessionArchive")) return false; // Response-only retry intent, never persisted.
   if (value.archiveReceipt !== undefined && (!validArchiveReceipt(value.archiveReceipt)
     || value.archiveReceipt.cascade && (value.archived !== true
@@ -200,6 +201,17 @@ async function atomicWrite(file: string, document: TaskDocument, assertLock: () 
     await rename(temporary, file);
   } finally {
     await unlink(temporary).catch((error: NodeJS.ErrnoException) => { if (error.code !== "ENOENT") throw error; });
+  }
+}
+
+/** Atomic board replacement permits a read-only snapshot without creating locks or migrating files. */
+export function readTaskStore(agentDir: string): TaskDocument | undefined {
+  try {
+    const text = readRegularFileText(join(agentDir, "tasks", "board.json"), MAX_BYTES);
+    return text === undefined ? undefined : decodeDocument(text).document;
+  } catch (error) {
+    if (error instanceof TaskOperationError) throw error;
+    throw new TaskOperationError("storage-unavailable", "Task storage is unavailable.");
   }
 }
 

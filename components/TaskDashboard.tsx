@@ -495,7 +495,7 @@ export function TaskDashboard({ active = true, onClose, currentSessionId = null,
       {inspectedTaskIds.map(id => {
         const selectedTask = board?.tasks.find(task => task.id === id);
         if (!selectedTask || !board) return null;
-        return <TaskInspector hidden={id !== selectedTaskId} key={selectedTask.id} task={selectedTask} visibleTasks={visibleTasks} sort={sort} disabled={disabled} panelRef={id === selectedTaskId ? inspector : undefined}
+        return <TaskInspector active={active && id === selectedTaskId} hidden={id !== selectedTaskId} key={selectedTask.id} task={selectedTask} visibleTasks={visibleTasks} sort={sort} disabled={disabled} panelRef={id === selectedTaskId ? inspector : undefined}
         onClose={() => { setSelectedTaskId(null); dashboard.current?.focus({ preventScroll: true }); }} onMove={moveTask} feedback={id === selectedTaskId ? feedback : null}
         onArchive={trigger => {
           if (selectedTask.archived) void submitArchive({ action: "set-archive", id: selectedTask.id, archived: false, expectedArchiveRevision: selectedTask.archiveRevision, operationId: newTaskId() });

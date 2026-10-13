@@ -72,6 +72,9 @@ F31 详情关联对话行的 `...` 仅打开“移除”菜单，选择后只解
 | F33 | [任务项目选择与修改](task-projects.md) | 合并 Pi 对话与任务项目、复用目录新增/选择、同项目保留关联、跨项目预览确认后原子解除；项目 CAS/精确重试、不改聊天执行；真实隔离服务浏览器验收 | TaskProject/Dashboard/Details/Inspector、tasks API、task-operations/store/types |
 | F34 | [对话归档与恢复](session-archive.md) | 与改名/删除同区悬停显示、独立会话显示状态/族范围/搜索；F35 复用同锁 sidecar 批量归档及 v2 回执，单会话接口/恢复不改任务；不改 JSONL/完整历史、任务归属或 Agent 生命周期 | session-archive/view、sessions/archive/list/search API、SessionSidebar/SessionSearch |
 | F35 | [任务一次性关联对话归档](task-session-archive.md) | Dashboard 归档先预览固定会话族，跨任务须额外确认；耐久 pending/批次回执与精确重试，部分失败不假报成功；恢复任务不恢复会话，后来关联/fork 不自动归档，不 Stop/改历史 | task-session-archive、task-archive/store/operations/types、session-archive/reader/family、tasks API、TaskArchivePreview/Dashboard/Inspector |
+| F36 | [任务归档报告（01–08：分层材料、恢复/重试、历史与只读工具）](task-archive-report.md) | 全局专用设置/冻结来源；锁外唯一串行 SDK 无工具请求，固定模型意图；容量内完整分段/有限分层综合、逐层真实材料与完整目录；无法收缩/容纳明确失败保留成果，启动续跑未发送阶段不重做durable材料，未知不自动重发；明确当前设置/原快照精确重试；所选快照新版本/操作去重、创建顺序最新成功默认入口与历史；全局成功档案文本检索/全层级完整分页、配置开关/普通只读预设、零模型零写入/不注入 | task-report-settings/types、task-report-snapshot/types、task-reports/executor/chunks/tools、tool-presets/rpc-manager、instrumentation-node、task-archive/operations、TaskReports/Inspector、task-reports API |
+| F37 | [每轮结束自动更新会话标题](automatic-session-titles.md) | 服务端整轮结束后台命名，保护手动标题；会话级开关、去重/过期保护与 next-cue 兼容；任务关联/归档不触发命名，归档保留完整目录与匹配版本 | auto-session-title、session-title、rpc-manager、会话 API、AppShell、useAgentSession、SessionSidebar |
+| F40 | [原视频附件（01–09 已 review / resolved）](video-attachments.md) | 单 MP4/AVI 共用上传/skip、原生引用、精确 tapsvc/SDK auth＋Google、20 MiB/完整32 MiB；失败恢复/未知不自动重发、有效上下文/压缩/分支/复制、原 SDK 队列/Stop/Recall、项目/无项目与 Chat-only | VideoAttachmentPicker、ChatInput/ChatWindow/MessageView、useAgentSession/draft-store、video-transport/input-binding、session-reader、agent routes |
 
 ## 任务功能历史快照（2026-10-09 文档收尾；当前范围见 F31/F32/F33/F35）
 
@@ -79,13 +82,9 @@ F31 详情关联对话行的 `...` 仅打开“移除”菜单，选择后只解
 - 当前存储为 **v7**；唯一的[当前 schema、独立 CAS 与迁移表](task-dashboard.md#当前存储cas与迁移权威表)由 F21 维护，其余任务合同引用它。14 `columnRemovalDigests` 同锁派生、不持久；09 选择 ≠ native append ≠ 成功 SDK input/response ≠ provider wire/read。
 - [阶段验证历史附录](task-dashboard-validation-history.md)保留失败因果、原 claimed 时点和证据指针；[65 US / 24 T coverage ledger](../../.scratch/task-dashboard/FINAL-COVERAGE.md)按执行层级与未验边界分列，不把计划/静态检查算执行通过。
 
-| F21 | [每轮结束自动更新会话标题](automatic-session-titles.md) | 服务端整轮结束后台命名，保护手动标题；会话级开关、去重/过期保护与 next-cue 兼容 | auto-session-title、session-title、rpc-manager、会话 API、AppShell、useAgentSession |
-| F40 | [原视频附件（01–09 已 review / resolved）](video-attachments.md) | 单 MP4/AVI 共用上传/skip、原生引用、精确 tapsvc/SDK auth＋Google、20 MiB/完整32 MiB；失败恢复/未知不自动重发、有效上下文/压缩/分支/复制、原 SDK 队列/Stop/Recall、项目/无项目与 Chat-only | VideoAttachmentPicker、ChatInput/ChatWindow/MessageView、useAgentSession/draft-store、video-transport/input-binding、session-reader、agent routes |
-
 ## 视频附件：01–09 全部已独立 review / resolved
 
 [F40](video-attachments.md)记录选择/拖入、上传、原生引用、恢复、重开/追问、压缩、分支/复制、队列/Stop/Recall 与会话模式/模型切换的稳定契约。精确 tapsvc，无别名/fallback、SDK 或全局配置修改。实际 SDK/Google final-fetch、mounted browser、历史真实 Next/AppShell MP4/AVI 各一次200严格分层；571项开发期有界回归不等于全量，任务复制原三项故障注入失败和一次未知根因恢复超时风险保留。[公开验收摘要与可执行命令](video-attachments-acceptance.md)不依赖本地 scratch、临时捕获或会话正文。
-
 
 ## 交互原型（不代表生产功能）
 
@@ -129,8 +128,8 @@ F31 详情关联对话行的 `...` 仅打开“移除”菜单，选择后只解
 - F01 的 headless 模式不能误删正常 Web 会话的扩展 UI。
 - F11 必须经过文件授权，不因“本地部署”而放开任意文件系统路径。
 - F18 会上传未发送草稿，必须独立 opt-in，不能继承 F10 开关；仅使用独立推理，不创建主会话运行时。
-- F21 的标题请求不延迟 F01 的整轮完成；仅标题元数据移动 leaf 不应使 F10 重生成/丢弃建议，真实分支/对话变化仍须保护。
-- F10/F13/F18/F21 可能产生外部推理请求；F11 可启动桌面程序；F14 可影响全局安装与服务。文档验收不能默认授权在用户真实环境执行这些副作用。
+- F37 的标题请求不延迟 F01 的整轮完成；仅标题元数据移动 leaf 不应使 F10 重生成/丢弃建议，真实分支/对话变化仍须保护。F32 任务关联与 F34/F35 归档不触发命名；会话归档的确认更新保留完整目录与匹配的 sessionListVersion，并强制回读权威列表。
+- F10/F13/F18/F37 可能产生外部推理请求；F11 可启动桌面程序；F14 可影响全局安装与服务。文档验收不能默认授权在用户真实环境执行这些副作用。
 - F20 改变 macOS 的 F14 重启方式，不改变 F16 的 Windows 隐藏链；注册 LaunchAgent/登录项、打开真实 Terminal、重启当前服务仍需操作授权。运行诊断不扩大项目文件访问权限，也不继承 Terminal 的 TCC 授权。
 
 ## 开发与文档同步流程

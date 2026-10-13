@@ -56,6 +56,8 @@ import { createPiWebBuiltinExtensions } from "./builtin-extensions";
 import type { McpHost } from "./mcp-host";
 import { mcpPromptPreparation, type McpCommandCandidate } from "./mcp-command";
 import { createReadOnlyMcpPolicyExtension } from "./mcp-read-only-policy";
+import { createTaskReportToolsExtension } from "./task-report-tools";
+import { TASK_REPORT_TOOL_NAMES } from "./tool-presets";
 import { createSubagentSkillsBinding } from "./subagent-skills";
 import { isNestedToolExecutionEvent } from "./agent-event-wire";
 import { isChatWorkspace } from "./chat-workspace";
@@ -224,7 +226,7 @@ export interface RpcSessionStartOptions {
   thinkingLevel?: ThinkingLevel;
 }
 
-const CODING_TOOL_NAMES = ["read", "bash", "powershell", "edit", "write", "grep", "find", "ls"];
+const CODING_TOOL_NAMES = ["read", "bash", "powershell", "edit", "write", "grep", "find", "ls", ...TASK_REPORT_TOOL_NAMES];
 const THINKING_LEVEL_NAMES = new Set<ThinkingLevel>(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 
 // Extensions require a complete Theme, while the web UI applies its own styling.
@@ -2625,6 +2627,7 @@ export async function startRpcSession(
             extensionFactories: [
               ...(builtins?.extensions ?? []),
               createReadOnlyMcpPolicyExtension(),
+              createTaskReportToolsExtension(agentDir),
               createProjectCommandBashExtension({
                 cwd: sessionCwd,
                 settings: settingsManager,

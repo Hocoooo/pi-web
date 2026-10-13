@@ -27,7 +27,7 @@
 ### 导航与草稿
 
 - 侧栏单一“任务看板”图标按钮打开 Settings 风格居中浮层，不改变 URL、不卸载聊天、不创建或发送会话。关闭按钮、背景或 Escape 关闭；任务不进入 session 列表。
-- 首次打开后 TaskPanel 保持挂载；关闭只隐藏，任务编辑/新建/筛选/保存视图等页面内草稿保留。隐藏时停止看板 refresh/activity listeners，不留下 `aria-modal` 标记阻断聊天快捷键。重新打开重读权威状态，不重置固定草稿 base。整页刷新/离开页面仍不保证任务草稿。
+- 首次打开后 TaskPanel 保持挂载；关闭只隐藏，任务编辑/新建/筛选/保存视图等页面内草稿保留。隐藏时停止看板 refresh/activity listeners，以及缓存 Inspector 的报告 GET/轮询（仅 active 且所选详情读取，切任务/收详情同样取消，重开重读；精确操作 ID/错误保留，不取消后台报告生成），不留下 `aria-modal` 标记阻断聊天快捷键。重新打开重读权威状态，不重置固定草稿 base。整页刷新/离开页面仍不保证任务草稿。
 - 旧 `/tasks?sourceSession=…` / `summarySession=…` 重定向 `/?tasks=1&…`，消费首次参数时保留原创建/整理入口；后台初始化 cwd/URL 不关闭面板。
 - 对话链接/准备后进入聊天通过 TaskPanelNavigation 调用 AppShell 的既有选择/新建逻辑，而不是只改 query。跳转序号与 workspace intent 拒绝迟到响应；关闭面板/后续选择使旧请求失效。同 cwd 准备把当前 composer 直接转移到准备身份，不经可能已有旧草稿的公共 parking slot 合并。准备 token 由 shell 持有，普通 New/选择同步清除，不依赖 URL 完成；native promotion 不覆盖重核材料。不自动发送，修改键打开对话链接仍使用原生新标签页行为。
 - 焦点进入面板，Tab 在面板（详情打开时在详情）内循环；关闭恢复触发按钮。IME Escape 不关闭；详情 Escape 先收详情，目录选择器 Escape 只关闭上层。目录选择器在面板之上，隐藏父面板不留下 portal。
@@ -75,13 +75,15 @@
 | 位置 | 当前持久事实 | 对外/边界 |
 |---|---|---|
 | board | version:7、tasks、columns/columnsRevision、orderRevision、savedViews/viewsRevision、sessionCopies、sessionRelations；可选columnRemovalReceipt | public board剥离内部receipt/创建指纹，不含第二owner索引 |
-| task | UUID、五种资料、project或null、columnId、revision、createdAt/updatedAt、creationFingerprint、sessionIds、sharedContext、sessionContexts、sessionUpdates、archived/archiveRevision；可选moveReceipt/archiveReceipt/projectReceipt（F33，旧记录可缺省） | sessionIds唯一owner；tasks数组唯一手动顺序 |
+| task | UUID、五种资料、project或null、columnId、revision、createdAt/updatedAt、creationFingerprint、sessionIds、sharedContext、sessionContexts、sessionUpdates、archived/archiveRevision；可选moveReceipt/archiveReceipt/projectReceipt（F33，旧记录可缺省）及 reportIds（F36，只有曾建档才有） | sessionIds唯一owner；tasks数组唯一手动顺序 |
 | knowledge | currentVersionId、不可变versions（manual/restore/AI真实来源与内部publish receipt） | restore形成新version；知识不是全聊天或自动采用 |
 | start/update/copy | 严格new-start tuple、每session choices/pending/deliveries、prepared/completed copy intent；各原epoch | 选择≠append≠SDK成功input/response≠provider wire/read；child不复制source tuple/pending/read |
 | relation | sessionRelations仅sessionId/generation/最近receipt，未列出身份epoch为0 | owner+generation防owned/null-owner ABA；旧合法receipt仅事实确认 |
 | 派生响应（不持久） | columnRemovalDigests完整ordered源摘要，运行提示；F35 pendingSessionArchive 固定重试材料 | 同锁摘要绑定源ID及每个[id,task revision,archiveRevision]；全hidden/archive，所有board-returning精确retry返回当前map；start/copy专用响应不伪board/read |
 
 F35 在任务 `archiveReceipt` 内增加严格可选 `cascade:{status,expectedArchiveRevision,previewToken,confirmCrossTask,rootSessionIds,skipped}`；v7 无该子域的旧记录原样兼容，不能将旧 receipt 重试升级为联动。公共任务剥离 receipt，仅 pending 时派生固定重试材料。已有归档字段缺失/损坏规则不变，坏/部分子域拒读，旧版本因严格 receipt 验证拒绝新格式。一次性联动协议及独立 session sidecar v2 见 [F35](task-session-archive.md) 和 [ADR0008](../adr/0008-one-shot-task-session-archive.md)。
+
+F36 02 增加可选 `task.reportIds:string[]`（唯一 UUID、创建顺序）；没有报告时不持久化空字段，不引入迁移/第二索引。真实归档 hook 准备全局档案并在 board 提交引用，精确重试/同状态不重复；恢复保留引用、重新归档追加新身份。报告正文/快照/模型配置不写 board 或 archive receipt，查询/队列只接受已提交 ID；03 真实新增引用提交后锁外唤醒后台独立串行执行器，正文/阶段不回写 board；04详细材料及05有限分层综合的计划/输入引用/真实结果/阶段继续只写UUID档案，task目录读统一报告接口，会话批次/任务恢复与报告分离；见 [F36](task-archive-report.md)。
 
 ### 独立 CAS 与 receipt
 

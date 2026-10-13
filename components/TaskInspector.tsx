@@ -4,11 +4,12 @@ import type { ReactNode, RefObject } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import type { TaskColumnId, TaskMovePosition, TaskRecord, TaskSort } from "@/lib/task-types";
 import styles from "./TaskDashboard.module.css";
+import { TaskReports } from "./TaskReports";
 
 /** Outside the board projection: filtering, moving and archiving cannot remove an open review. */
-export function TaskInspector({ hidden = false, task, visibleTasks, sort, disabled, panelRef, onClose, onMove, onArchive, archiveReview, onCancelArchive, onResumeArchive, feedback, children }: {
+export function TaskInspector({ active = true, hidden = false, task, visibleTasks, sort, disabled, panelRef, onClose, onMove, onArchive, archiveReview, onCancelArchive, onResumeArchive, feedback, children }: {
   task: TaskRecord; visibleTasks: TaskRecord[]; sort: TaskSort; disabled: boolean;
-  hidden?: boolean; panelRef?: RefObject<HTMLDivElement | null>; onClose: () => void;
+  active?: boolean; hidden?: boolean; panelRef?: RefObject<HTMLDivElement | null>; onClose: () => void;
   onMove: (task: TaskRecord, columnId: TaskColumnId, position?: TaskMovePosition) => void;
   onArchive: (trigger: HTMLButtonElement) => void; archiveReview?: ReactNode;
   onCancelArchive?: () => void; onResumeArchive?: () => void; feedback: ReactNode; children: ReactNode;
@@ -34,6 +35,7 @@ export function TaskInspector({ hidden = false, task, visibleTasks, sort, disabl
       {task.labels.length > 0 && <ul className={styles.labels} aria-label={t("tasks.labels")}>{task.labels.map(label => <li key={label}>{label}</li>)}</ul>}
       <p className={styles.metadata}>{t("tasks.updated")}: <time dateTime={task.updatedAt}>{new Date(task.updatedAt).toLocaleString()}</time></p>
     </div>
+    <TaskReports task={task} active={active} />
     {feedback}
     {task.pendingSessionArchive && <div role="status" className={styles.error}>
       <p>{t("tasks.archive.pending")}</p>

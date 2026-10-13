@@ -1,3 +1,4 @@
+import { wakeTaskReportExecutor } from "./task-report-executor";
 import { createHash } from "node:crypto";
 import { archiveRequestFingerprint, setTaskArchive, type ArchiveRequest } from "./task-archive";
 import { relationGeneration } from "./task-relations";
@@ -58,10 +59,11 @@ function response(document: TaskDocument, task: StoredTaskRecord): TaskMutationR
  * can fence uncommitted work; the atomic archive receipt confirms committed work without replay. */
 export async function archiveTaskWithSessions(request: ArchiveRequest, agentDir: string): Promise<TaskMutationResult> {
   const fingerprint = archiveRequestFingerprint(request);
+  let reportCommitted = false;
   const pending = await withTaskStore(agentDir, async document => {
     const task = findTask(document, request.id);
     if (task.archiveReceipt?.operationId === request.operationId) {
-      await setTaskArchive(task, request); // Exact identity check before confirming old effects.
+      await setTaskArchive(task, request, agentDir); // Exact identity check before confirming old effects.
       if (!task.archiveReceipt.cascade) throw new TaskOperationError("conflict", "This archive operation has no linked conversation intent.");
       return { value: task.archiveReceipt.cascade.status === "pending", changed: false };
     }
@@ -72,12 +74,15 @@ export async function archiveTaskWithSessions(request: ArchiveRequest, agentDir:
     const preview = await previewTaskSessionArchive(document, task, agentDir);
     if (preview.token !== request.cascade!.previewToken) throw new TaskOperationError("conflict", "Linked conversations or their families changed. Review the archive again; no changes were saved.");
     if (preview.families.some(family => family.otherTasks.length) && !request.cascade!.confirmCrossTask) throw new TaskOperationError("conflict", "Confirm the impact on other tasks' conversation families before archiving. Nothing was changed.");
-    await setTaskArchive(task, request);
+    await setTaskArchive(task, request, agentDir);
+    reportCommitted = true;
     task.archiveReceipt!.cascade = { status: "pending", expectedArchiveRevision: request.expectedArchiveRevision,
       previewToken: preview.token, confirmCrossTask: request.cascade!.confirmCrossTask,
       rootSessionIds: preview.families.map(family => family.rootSessionId), skipped: preview.skipped };
     return { value: true, changed: true };
   });
+  // The first commit authorizes the report independently of the conversation batch outcome.
+  if (reportCommitted) wakeTaskReportExecutor(agentDir);
   return withTaskStore(agentDir, async (document, assertBoardLock) => {
     const task = findTask(document, request.id), receipt = task.archiveReceipt;
     if (receipt?.operationId !== request.operationId || receipt.fingerprint !== fingerprint || !receipt.cascade || !task.archived) {

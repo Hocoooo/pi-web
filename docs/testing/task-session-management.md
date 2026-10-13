@@ -25,6 +25,22 @@
 
 本轮执行数量以交付说明为准，历史 task-only 归档回归验证兼容请求，不代表 Dashboard 不联动；历史执行准入/busy 守卫测试仍退役。
 
+## F36（02–05）归档报告交点回归
+
+- `lib/task-management.test.mjs` 的 busy 归档回归使用现有 wrapper 的真实布尔运行快照并计数，断言运行/压缩/bash/队列信息进入报告，但不成为归档 gate；精确重试和恢复不重新采样、不停止工作、不改原生历史。
+- `lib/task-archive.test.mjs` 的整任务比较只排除归档域及新增 `reportIds`，另显式断言首次归档追加一个引用、恢复保留引用；资料/关系/知识/其他 CAS 与 receipts 仍须原样保留。不能为旧“绝不采样”断言退回产品要求。
+- `lib/task-reports.test.mjs`、`app/api/task-reports/route.test.mjs`、`lib/task-session-archive.test.mjs` 验证全局冻结档案、仅已提交引用可读取/入队、来源与联动族范围分离及 pending 批次不重复建档；`e2e/task-reports.mjs` 使用真实组件/API/临时持久化的浏览器传输桥，覆盖三语言×1100/390px 的状态、来源覆盖、空正文打开和读取错误，不启停 dev。
+- 02 历史阶段只验收来源/排队/空档案，证据见 [02 handoff](../../.scratch/task-archive-report/handoff-02.md)。03 新增 `lib/task-report-generation.test.mjs` 的真实 SDK/本地受控 provider，覆盖锁外后台、模型/等级/无工具、完整固定输入、串行热重载、失败/超时停及正文持久化；`e2e/task-reports.mjs` 三语言×1100/390 关闭页后生成、实时失败/未知和旧成功链接。阶段结果见 [03 handoff](../../.scratch/task-archive-report/handoff-03.md)，不验收真实模型质量、04–08 或全仓测试。
+- 04 新增 `lib/task-report-chunks.test.mjs`：真实归档/受控SDK请求、完整文本分段覆盖/单长工具Unicode切片、逐段材料与全量单层综合、统一正文/material读取/删除来源、中间/综合错误及写入失败、仍需多层明确失败。UI新增真实材料目录/部分进度/失败保留材料/成功读取，三语言×1100/390；证据见 [04 handoff](../../.scratch/task-archive-report/handoff-04.md)。不验05–08或真实模型质量。
+- 05更新同一chunks行为入口：原超材料失败用例改为真实有限L1/L2成功、保留完整source slice拼回；每次容量/输出上限/无工具、全部中层目录及统一API读取、L2 error/length/EACCES、初始及后续不收缩/单材料不容纳明确失败、旧成功不覆盖。UI实际三语言×1100/390多层进度/全部链接/中层popup，不另建阅读系统。见 [05 handoff](../../.scratch/task-archive-report/handoff-05.md)；06恢复和08工具未实现、不假验证。
+- 03 后台存活超过归档请求；临时数据 fixture 在删除 agentDir 前等待 `waitForTaskReportExecutor()`，而不是取消生成或删正在使用的目录。02 full-source 测试使用小容量模型令后台零请求明确失败后比较不可变快照，仍不截断来源/回退归档行为。
+
+## F36 review：缓存详情报告读取生命周期
+
+`env -u NODE_OPTIONS node e2e/task-reports.mjs` 在原三语言×1100/390 报告回归之外，挂载真实 TaskPanel/TaskDashboard，三语言390px 覆盖 A generating → B queued、收详情/关浮层取消在途 GET 和两次真实轮询间隔无新增请求、重开重读、缓存 Inspector 不卸载、隐藏期间受控后台生成继续，以及丢响应 retry/regeneration 跨切任务/隐藏保留原 operationId 的精确确认。仅 Next URL context 由 harness 提供，任务/报告请求桥接真实 handlers/临时文件，不启停 Next，不使用真实模型或用户数据。
+
+只读 profile 的公开输出回归：`env -u NODE_OPTIONS node --experimental-strip-types --test lib/subagents.test.mjs lib/tool-presets.test.mjs`，覆盖新增报告工具且排除 shell/写工具。所有本轮命令清除外部 `NODE_OPTIONS`，避免相对 stdio-guard preload 在 fixture 临时 cwd 不存在；不改 MCP、环境过滤或 stdio guard 生产代码。实际结果及残余见 [fixes](../../.scratch/task-archive-report/reviews/fixes.md)，不把 harness 环境失败当产品修复。
+
 ## 缺失对话移除回归
 
 删除原生 session 后，任务仍保留关系并显示缺失；详情菜单现在允许显式移除，不自动清理或重建 session。缺失行返回真实 generation/updateRevision，只有解除到 null 放宽存在性要求，改绑仍拒绝；owner/CAS/operationId 精确重试和历史保留不变。

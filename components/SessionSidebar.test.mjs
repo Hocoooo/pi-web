@@ -82,6 +82,14 @@ test("exposes the loaded session catalog and its matching version to the shell",
   assert.match(source, /setCatalogSnapshot\(\{ sessions: data\.sessions, sessionListVersion: data\.sessionListVersion \}\)/);
 });
 
+test("confirmed archive updates preserve the title-aware catalog and its matching version", () => {
+  const archiveSource = source.slice(source.indexOf("const changeSessionArchive ="), source.indexOf("const initialLoadDone ="));
+  assert.match(archiveSource, /setCatalogSnapshot\(current =>/);
+  assert.match(archiveSource, /return \{ \.\.\.current, sessions: withSessionArchiveState\(current\.sessions, ids\) \}/);
+  assert.match(archiveSource, /await loadSessions\(false, true\)/);
+  assert.doesNotMatch(source, /setAllSessions/);
+});
+
 test("subagent completion stays silent and never becomes unread", () => {
   assert.match(source, /completionNotificationSuppressedSessionIds\?: string\[\]/);
   assert.match(

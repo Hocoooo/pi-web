@@ -35,6 +35,7 @@ import {
 } from "@/lib/thinking-expansion-preference";
 import { ModelsConfig } from "./ModelsConfig";
 import { ModelSelector } from "./ModelSelector";
+import { TaskReportSettings } from "./TaskReportSettings";
 import { setupPushSubscription } from "@/lib/push-client";
 import { SkillsConfig } from "./SkillsConfig";
 import { AgentsConfig } from "./AgentsConfig";
@@ -409,6 +410,8 @@ function GeneralSettings({ cwd, active, sessionId, onSessionReloaded, quoteSelec
           </div>
         </div>
       </section>
+
+      <TaskReportSettings active={active} />
 
       {shellSettings?.isWindows && (
         <section className="settings-general-section">

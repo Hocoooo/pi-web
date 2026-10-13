@@ -74,4 +74,6 @@ E2E_BASE_URL=http://127.0.0.1:30142 node e2e/session-archive.mjs
 
 除 F35 固定任务批次外，不提供任意批量归档、彻底删除后的恢复、导入归档包、按时间自动归档或 CLI 侧栏隐藏；CLI 仍可正常加载原 JSONL。Windows/NFS/断电耐久、Safari/iOS 16.2 真机及真实 provider/SSE 未自动验证，不执行生产 build/install。恢复保持原 modified，不以归档时间重排；归档视图仅内存状态，完整刷新回到日常。
 
+与[每轮自动标题 F37](automatic-session-titles.md)整合时，确认归档/恢复后的本地族投影须通过 setCatalogSnapshot 更新，保留目录匹配的 sessionListVersion，然后强制回读权威列表；不能恢复旧的独立 setAllSessions 状态或丢失标题事件更新。归档操作本身不触发、关闭或取消自动命名。回归入口包含 components/SessionSidebar.test.mjs、自动标题专项与 e2e/session-archive.mjs，配合类型检查。
+
 修改同轮同步本文件、F34 索引、侧栏/五条/键盘/右键与 sessions topic 的交点和测试。上游整合时保留 sidecar-only 存储、完整权威目录、族范围和确认后更新，不能把归档改成删除或执行准入。

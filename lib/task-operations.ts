@@ -1,3 +1,4 @@
+import { wakeTaskReportExecutor } from "./task-report-executor";
 import { relationGeneration, assertRelationGeneration, associateRelation, parseRelationRequest, changeSessionRelation } from "./task-relations";
 import { assertTaskActive, parseArchiveRequest, setTaskArchive } from "./task-archive";
 import { archiveTaskWithSessions, previewTaskSessionArchive } from "./task-session-archive";
@@ -176,7 +177,8 @@ export async function taskOperation(input: unknown, options: { agentDir: string;
   // In particular, ordinary chat must not depend on task-store availability or migration.
   if (request.action === "admit-session-work") return { context: null };
   if (request.action === "set-archive" && request.cascade) return archiveTaskWithSessions(request, options.agentDir);
-  return withTaskStore<TaskBoard | TaskMutationResult | TaskArchivePreview | TaskProjectPreview | TaskProjectsResult | TaskSessionsResult | TaskSessionTaskResult | TaskPickerResult | CopyOperationResult | TaskStartPreview | TaskContextUpdateState | PendingContextUpdate | { context: TaskSessionContext | null }>(options.agentDir, async (document) => {
+  let reportCommitted = false;
+  const mutation = await withTaskStore<TaskBoard | TaskMutationResult | TaskArchivePreview | TaskProjectPreview | TaskProjectsResult | TaskSessionsResult | TaskSessionTaskResult | TaskPickerResult | CopyOperationResult | TaskStartPreview | TaskContextUpdateState | PendingContextUpdate | { context: TaskSessionContext | null }>(options.agentDir, async (document) => {
     const board = (): TaskBoard => publicTaskBoard(document);
     const result = (task: StoredTaskRecord, changed: boolean) => ({ value: { task: publicTask(task), board: board() }, changed });
     const bumpOrder = () => {
@@ -402,7 +404,12 @@ export async function taskOperation(input: unknown, options: { agentDir: string;
         : completeContextUpdate(existing, request.sessionId, request.delivery);
       return result(existing, changed);
     }
-    if (request.action === "set-archive") return result(existing, await setTaskArchive(existing, request));
+    if (request.action === "set-archive") {
+      const count = existing.reportIds?.length ?? 0;
+      const changed = await setTaskArchive(existing, request, options.agentDir);
+      reportCommitted = (existing.reportIds?.length ?? 0) > count;
+      return result(existing, changed);
+    }
     if (request.action === "prepare-start") { assertTaskActive(existing); return { value: await prepareTaskStart(existing, request.operationId, request.sessionId, options.agentDir, relationGeneration(document, request.sessionId ?? request.operationId)), changed: false }; }
     if (request.action === "admit-start") {
       assertTaskActive(existing);
@@ -501,4 +508,6 @@ export async function taskOperation(input: unknown, options: { agentDir: string;
     // Even a logical no-op persists its exact receipt, without changing order/revision/time.
     return result(existing, true);
   });
+  if (reportCommitted) wakeTaskReportExecutor(options.agentDir);
+  return mutation;
 }

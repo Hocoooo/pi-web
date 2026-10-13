@@ -21,12 +21,13 @@ export const CONFIGURED_TOOL_PRESET = "configured";
 export const TOOL_PRESET_VALUES = ["configured", "none", "read-only", "default", "full"] as const;
 export type ToolPreset = typeof TOOL_PRESET_VALUES[number];
 
+export const TASK_REPORT_TOOL_NAMES = ["search_task_reports", "read_task_report"] as const;
 export const PRESET_NONE: string[] = [];
-export const PRESET_READ_ONLY: string[] = ["read", "grep", "find", "ls"];
-export const PRESET_DEFAULT: string[] = ["read", "bash", "edit", "write"];
-export const PRESET_FULL: string[] = ["bash", "read", "edit", "write", "grep", "find", "ls"];
+export const PRESET_READ_ONLY: string[] = ["read", "grep", "find", "ls", ...TASK_REPORT_TOOL_NAMES];
+export const PRESET_DEFAULT: string[] = ["read", "bash", "edit", "write", ...TASK_REPORT_TOOL_NAMES];
+export const PRESET_FULL: string[] = ["bash", "read", "edit", "write", "grep", "find", "ls", ...TASK_REPORT_TOOL_NAMES];
 
-const BUILTIN_TOOL_NAMES = new Set([...PRESET_FULL, "powershell"]);
+const BUILTIN_TOOL_NAMES = new Set(["bash", "powershell", "read", "edit", "write", "grep", "find", "ls"]);
 
 export function isToolPreset(value: unknown): value is ToolPreset {
   return typeof value === "string" && (TOOL_PRESET_VALUES as readonly string[]).includes(value);
@@ -50,9 +51,9 @@ export function getPresetFromToolNames(toolNames: readonly string[]): ConcreteTo
     .sort()
     .join(",");
 
-  if (active === [...PRESET_READ_ONLY].sort().join(",")) return "read-only";
-  if (active === [...PRESET_DEFAULT].sort().join(",")) return "default";
-  if (active === [...PRESET_FULL].sort().join(",")) return "full";
+  if (active === PRESET_READ_ONLY.filter(name => BUILTIN_TOOL_NAMES.has(name)).sort().join(",")) return "read-only";
+  if (active === PRESET_DEFAULT.filter(name => BUILTIN_TOOL_NAMES.has(name)).sort().join(",")) return "default";
+  if (active === PRESET_FULL.filter(name => BUILTIN_TOOL_NAMES.has(name)).sort().join(",")) return "full";
   return "default";
 }
 
