@@ -426,12 +426,13 @@ export async function taskOperation(input: unknown, options: { agentDir: string;
           ...(byId.has(id) ? publicTaskSession(byId.get(id)!) : { id, missing: true, running: false }),
           relationGeneration: relationGeneration(document, id), updateRevision: updateState(existing, id).revision,
         })),
-        candidates: catalogue.filter((session) => !owners.has(session.id) && sameTaskSessionProject(existing.project, session)).map(publicTaskSession),
+        candidates: catalogue.filter((session) => session.isMainSession && !owners.has(session.id) && sameTaskSessionProject(existing.project, session)).map(publicTaskSession),
       }, changed: false };
       // Validate the ENTIRE batch before mutation (including already-linked IDs).
       for (const id of request.sessionIds) {
         const session = byId.get(id);
         if (!session) throw new TaskOperationError("not-found", "A selected session no longer exists. No sessions were linked.");
+        if (!session.isMainSession && !existing.sessionIds.includes(id)) return invalid("Only main sessions can be selected. No sessions were linked.");
         if (!sameTaskSessionProject(existing.project, session)) return invalid("A selected session is outside this task's project. No sessions were linked.");
         if (owners.has(id) && owners.get(id) !== existing.id) throw new TaskOperationError("conflict", "A selected session belongs to another task. No sessions were linked.");
       }

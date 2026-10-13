@@ -7,6 +7,7 @@
 ## 用户契约
 
 - 一个任务可关联多段对话；每段对话最多归属一个任务，也可以不关联。继续保留权威项目范围：同项目才可关联，无项目聊天归无项目任务。
+- Dashboard“关联已有对话”仅列同范围、未归属任务的主 session；普通独立复制/fork 仍可选，子代理及其递归后代不列入。不能仅凭 `parentSession` 过滤，因为复制/fork 也携带该字段；服务端读取有界关系元数据，并为尚未落盘的 warm wrapper 保留创建身份。无法确认关系的派生会话不进入候选，直接批量 `link` 新增此类会话亦整批拒绝。此规则只收紧 Dashboard 候选/批量关联，不改变当前对话的其他管理入口；既有子代理关联不迁移、不删除、不伪装缺失，仍显示真实运行态、可移除，旧已关联集合的精确重试保持无操作。
 - [F33 项目选择与修改](task-projects.md)：创建可选 Pi 已有项目或新增目录；详情单行修改入口，跨项目先预览、确认后原子解除不兼容关联，不移动/删除/停止 session。底部不重复项目路径。
 - 保留任务资料、手动状态、筛选、排序、列管理、归档恢复、批量关联、解除/改绑、从当前对话创建任务，以及复制/fork 的任务归属继承。
 - 任务卡片始终显示关联对话数量，运行中额外显示运行数量；AI 运行不自动改变任务状态。整张卡片单击打开详情、任意区域可启动拖动，移除专用把手；鼠标6px阈值区分点击与拖动，触屏短按详情/长按250ms拖动/快速滑动滚动。拖动结束不误开详情，拖动时 Escape 只取消拖动；Enter/空格打开详情。详情不显示或操作“移入某状态”（待办/进行中等），只保留同状态内的上移/下移与归档；状态变更通过看板跨列拖动。
@@ -53,6 +54,15 @@
 [当前测试与历史套件清单](../testing/task-session-management.md)区分有效回归、显式退役的 `*.historical.mjs` 和旧专项 E2E。旧共享/启动/归档阻断测试记录属于原契约，不可直接作为本功能验证通过证明。本轮实际测试命令及结果在交付说明报告；浏览器 fixture 不等同真实 Provider、生产 SSE 或 SDK 全平台验收。Windows Node/SDK 单测已纳入[2026-10-13 平台验证](windows-test-portability.md#任务看板安装前修复2026-10-13)：会话夹具使用 SDK 原生 cwd 编码，HTTP 夹具统一 Jiti 错误模块身份，保留全部历史/项目范围/CAS 断言。这不等于生产 build/install、真实模型计费、用户数据迁移、Windows 浏览器/ACL 或 Safari/iOS 真机验收。
 
 与[每轮自动标题 F37](automatic-session-titles.md)整合后，普通成功聊天可能另有后台命名请求；它不是任务共享生成或 pending 投递。lib/task-management.test.mjs 的主 prompt 次数断言通过公开会话开关显式关闭自动标题，仅隔离测试边界、不改变产品默认值；自动标题收费/完成/取消语义由其专属 SDK 和浏览器测试覆盖。
+
+主 session 候选回归：`node --experimental-strip-types --test app/api/tasks/sessions.test.mjs lib/task-sessions.test.mjs lib/subagent-extension-scope.integration.test.mjs`，覆盖 cold/cache、warm 尚未落盘、子代理重开、递归子代理、普通 fork 保留、混合批次整批拒绝及既有子代理关联仍可管理；隔离临时数据、不调用真实模型。
+
+## 本次主 session 候选验证
+
+- 首先以真实 SDK/隔离临时目录的 tasks HTTP 路由测试复现子代理混入，再修复通过；候选读取不改变 board/native history 字节。
+- 扩展 tasks API、task/session/RPC/subagent 回归：721 项通过、5 项平台跳过；`tsc --noEmit`、全仓 lint、`git diff --check` 通过。
+- 当前 Node 26 环境中 `lib/task-session-copy.test.mjs` 的三项写入故障注入测试在修改前 HEAD 隔离副本同样失败（HTTP copy structured failure、SDK child relation write failure、runtime clone relation-write failure）。扩展绿色回归显式排除这三项，不宣称未过滤的全量套件通过，未修改无关复制实现/故障注入 fixture。
+- 本轮未执行浏览器 UI、Windows/Safari 真机、真实 provider 或安装/服务重启；专项只使用临时数据及 faux provider。
 
 ## 维护
 

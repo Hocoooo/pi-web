@@ -80,6 +80,45 @@ test("HTTP unlink of a deleted conversation keeps relation CAS and exact retries
   assert.equal((await post({ ...request, targetTaskId: target.task.id })).status, 409, "an operation ID cannot be repurposed");
   await assert.rejects(readFile(native.getSessionFile()), { code: "ENOENT" });
 });
+test("existing-conversation candidates include main/fork sessions but not subagent descendants", async () => {
+  const { SUBAGENT_META_TYPE } = await jiti.import("../../../lib/subagents.ts");
+  const { listSessionsIncremental } = await jiti.import("../../../lib/session-list-scanner.ts");
+  const root = SessionManager.create(cwd, sessionDir);
+  root.appendMessage({ role: "user", content: "Main conversation fixture", timestamp: Date.now() });
+  const fork = SessionManager.create(cwd, sessionDir, { parentSession: root.getSessionFile() });
+  fork.appendMessage({ role: "user", content: "Independent fork fixture", timestamp: Date.now() });
+  const child = SessionManager.create(cwd, sessionDir, { parentSession: root.getSessionFile() });
+  child.appendCustomEntry(SUBAGENT_META_TYPE, { version: 1, parentSessionId: root.getSessionId(), parentSessionPath: root.getSessionFile(), profile: "explore" });
+  child.appendMessage({ role: "user", content: "Child fixture", timestamp: Date.now() });
+  const nested = SessionManager.create(cwd, sessionDir, { parentSession: child.getSessionFile() });
+  nested.appendCustomEntry(SUBAGENT_META_TYPE, { version: 1, parentSessionId: child.getSessionId(), parentSessionPath: child.getSessionFile(), profile: "explore" });
+  nested.appendMessage({ role: "user", content: "Nested child fixture", timestamp: Date.now() });
+  const task = (await (await post({ action: "create", id: randomUUID(), title: "Main sessions only", description: "", completionCriteria: "", cwd: null })).json()).task;
+  const file = join(agentDir, "tasks", "board.json"), before = await readFile(file);
+  const histories = await Promise.all([root, fork, child, nested].map(manager => readFile(manager.getSessionFile())));
+  for (const cached of [false, true]) {
+    if (cached) await listSessionsIncremental();
+    const response = await post({ action: "sessions", id: task.id });
+    assert.equal(response.status, 200);
+    const data = await response.json(), ids = data.candidates.map(session => session.id);
+    assert.ok(ids.includes(root.getSessionId()), "main conversations remain candidates");
+    assert.ok(ids.includes(fork.getSessionId()), "a parentSession header alone must not hide an independent fork");
+    assert.equal(ids.includes(child.getSessionId()), false, "subagent sessions must not be candidates");
+    assert.equal(ids.includes(nested.getSessionId()), false, "nested subagent sessions must not be candidates");
+    assert.equal(JSON.stringify(data).includes("Child fixture"), false);
+    assert.deepEqual(await readFile(file), before, "listing is read-only");
+  }
+  for (const rejected of [child, nested]) {
+    const response = await post({ action: "link", id: task.id, expectedRevision: task.revision, sessionIds: [root.getSessionId(), rejected.getSessionId()] });
+    assert.equal(response.status, 400, "direct requests cannot bypass the main-session candidate policy");
+    assert.deepEqual(await readFile(file), before, "a mixed batch must not partially link the main session");
+  }
+  const linked = await post({ action: "link", id: task.id, expectedRevision: task.revision, sessionIds: [root.getSessionId(), fork.getSessionId()] });
+  assert.equal(linked.status, 200);
+  assert.deepEqual((await linked.json()).task.sessionIds, [root.getSessionId(), fork.getSessionId()]);
+  assert.deepEqual(await Promise.all([root, fork, child, nested].map(manager => readFile(manager.getSessionFile()))), histories);
+});
+
 test("session-task is minimal read-only ownership metadata, including archived/missing native sessions", async () => {
   const board = await (await GET()).json(), task = board.tasks[0];
   assert.equal((await post({ action: "set-archive", id: task.id, archived: true, expectedArchiveRevision: task.archiveRevision, operationId: randomUUID() })).status, 200);

@@ -46,6 +46,7 @@ import {
   readSubagentSessionResources,
   subagentExtensionLoaderOptions,
   SUBAGENT_CONTROL_TOOL_NAMES,
+  SUBAGENT_META_TYPE,
 } from "./subagents";
 import { createSubagentController } from "./subagent-runtime";
 import { isBuiltInSubagentsEnabled } from "./subagent-settings";
@@ -132,6 +133,8 @@ type ExtensionCommandContextActionsLike = {
 };
 
 type AgentSessionWrapperOptions = {
+  /** Cached creation identity; metadata-only listings must not walk session entries. */
+  isSubagent?: boolean;
   preparedSessionId?: string;
   exactSystemPrompt?: () => string;
   chatOnly?: boolean;
@@ -297,6 +300,7 @@ export function resolveActiveToolNames(
 // ============================================================================
 
 export class AgentSessionWrapper {
+  readonly isSubagent: boolean;
   /** Explicit task preparation identity, retained only for an unflushed rebuild. */
   readonly preparedSessionId?: string;
   // A Set, not an array: an SSE stream unsubscribes from inside emit() when it
@@ -356,6 +360,7 @@ export class AgentSessionWrapper {
     options: AgentSessionWrapperOptions = {},
   ) {
     this.videoTransport = createVideoTransport(inner);
+    this.isSubagent = options.isSubagent ?? false;
     this.preparedSessionId = options.preparedSessionId;
     this.hadSessionFile = Boolean(inner.sessionFile && existsSync(inner.sessionFile));
     this.exactSystemPrompt = options.exactSystemPrompt;
@@ -2140,6 +2145,7 @@ const SUBAGENT_CONTROLLER = createSubagentController({
         ? { exactSystemPrompt: options.exactSystemPrompt }
         : {}),
       chatOnly: options?.chatOnly,
+      isSubagent: true,
       suppressCompletionNotifications: true,
     });
     registerRpcWrapper(wrapper);
@@ -2431,7 +2437,7 @@ export function getRpcSessionMetadata() {
     const path = manager.getSessionFile();
     if (!header || (typeof session.hasDeletedSessionFile === "function" ? session.hasDeletedSessionFile() : !path || !existsSync(path))) return [];
     return [{ id: header.id, cwd: header.cwd, path: path ?? "", name: manager.getSessionName(),
-      ...rpcActivitySnapshot(session) }];
+      isSubagent: session.isSubagent === true, ...rpcActivitySnapshot(session) }];
   });
 }
 
@@ -2534,14 +2540,12 @@ export async function startRpcSession(
     sessionManager = SessionManager.create(cwd, undefined, options.newSessionId ? { id: options.newSessionId } : undefined);
   }
   const sessionCwd = sessionManager.getCwd();
-  const subagentResources = sessionFile
-    ? readSubagentSessionResources(
-        sessionManager.getEntries() as unknown as SessionEntry[],
-      )
-    : null;
+  const initialEntries = sessionManager.getEntries() as unknown as SessionEntry[];
+  const isSubagent = initialEntries.some(entry => entry.type === "custom" && entry.customType === SUBAGENT_META_TYPE);
+  const subagentResources = sessionFile ? readSubagentSessionResources(initialEntries) : null;
   const persistedToolNames = subagentResources
     ? undefined
-    : readSessionToolSelection(sessionManager.getEntries() as unknown as SessionEntry[]);
+    : readSessionToolSelection(initialEntries);
   const selectedToolNames = subagentResources?.tools ?? persistedToolNames ?? requestedToolNames;
   if (!subagentResources && persistedToolNames === undefined && requestedToolNames !== undefined) {
     appendSessionToolSelection(sessionManager, selectedToolNames ?? []);
@@ -2712,6 +2716,7 @@ export async function startRpcSession(
         : undefined;
     exactSystemPromptRef.current = exactSystemPrompt;
     const wrapper = new AgentSessionWrapper(inner, {
+      isSubagent,
       preparedSessionId: options.newSessionId,
       exactSystemPrompt,
       chatOnly,
