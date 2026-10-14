@@ -9,14 +9,13 @@ import { taskMatchesText } from "@/lib/task-view";
 import { CHAT_WORKSPACE_KEY } from "@/lib/session-kind";
 import { getSessionPanelShortcut, type SessionPanel } from "@/lib/panel-focus-shortcuts";
 import type { TaskCatalogEntry } from "@/lib/task-catalog-types";
-import type { SessionArchiveScope } from "@/lib/session-archive-view";
 import styles from "./SidebarSearchControls.module.css";
 
-type Filters = { query: string; taskId: string | null; archive: SessionArchiveScope };
-const activeCount = (filters: Filters) => Number(Boolean(filters.query.trim())) + Number(Boolean(filters.taskId)) + Number(filters.archive !== "active");
+type Filters = { query: string; taskId: string | null };
+const activeCount = (filters: Filters) => Number(Boolean(filters.query.trim())) + Number(Boolean(filters.taskId));
 function summaryParts(filters: Filters, tasks: readonly TaskCatalogEntry[] | null, t: (key: string) => string): string[] {
   return [filters.taskId ? `${t("sidebar.conditionTask")}: ${filters.taskId === "unlinked" ? t("sidebar.unlinkedTask") : tasks?.find(task => task.id === filters.taskId)?.title ?? filters.taskId}` : "",
-    filters.archive === "archived" ? t("sidebar.archiveScopeArchived") : "", filters.query.trim() ? `“${filters.query.trim()}”` : ""].filter(Boolean);
+    filters.query.trim() ? `“${filters.query.trim()}”` : ""].filter(Boolean);
 }
 
 export function SidebarFilterSummary({ filters, tasks, onReset }: { filters: Filters; tasks: readonly TaskCatalogEntry[] | null; onReset: () => void }) {
@@ -32,10 +31,10 @@ export function SidebarFilterSummary({ filters, tasks, onReset }: { filters: Fil
 
 /** One UI entry owns condition editing. Choosing task metadata never changes
  * chat membership; close and page navigation never reset applied conditions. */
-export function SidebarSearchControls({ open, onOpenChange, filters, onQuery, onTask, onArchive, onReset, tasks, projectKey, archivedCount, loading, failed, onReload, onDetails, onFocusPanel }: {
+export function SidebarSearchControls({ open, onOpenChange, filters, onQuery, onTask, onReset, tasks, projectKey, loading, failed, onReload, onDetails, onFocusPanel }: {
   open: boolean; onOpenChange: (open: boolean) => void; filters: Filters;
-  onQuery: (query: string) => void; onTask: (id: string | null) => void; onArchive: (scope: SessionArchiveScope) => void; onReset: () => void;
-  tasks: readonly TaskCatalogEntry[] | null; projectKey: string | null; archivedCount: number;
+  onQuery: (query: string) => void; onTask: (id: string | null) => void; onReset: () => void;
+  tasks: readonly TaskCatalogEntry[] | null; projectKey: string | null;
   loading: boolean; failed: boolean; onReload: () => void; onDetails: (id: string) => void;
   onFocusPanel?: (panel: SessionPanel) => void;
 }) {
@@ -43,7 +42,7 @@ export function SidebarSearchControls({ open, onOpenChange, filters, onQuery, on
   const isMobile = useIsMobile();
   const id = useId();
   const trigger = useRef<HTMLButtonElement>(null), panel = useRef<HTMLDivElement>(null), bodyInput = useRef<HTMLInputElement>(null), taskInput = useRef<HTMLInputElement>(null);
-  const [page, setPage] = useState<"home" | "task" | "archive" | "add">("home");
+  const [page, setPage] = useState<"home" | "task" | "add">("home");
   const [taskQuery, setTaskQuery] = useState("");
   const [position, setPosition] = useState<CSSProperties>({ left: 12, top: 60 });
   const close = useCallback(() => onOpenChange(false), [onOpenChange]);
@@ -57,8 +56,7 @@ export function SidebarSearchControls({ open, onOpenChange, filters, onQuery, on
   const selected = tasks?.find(task => task.id === filters.taskId);
   const choices = useMemo(() => (tasks ?? []).filter(task => (!projectKey || (task.project?.projectKey ?? CHAT_WORKSPACE_KEY) === projectKey) && taskMatchesText(task, taskQuery)), [tasks, projectKey, taskQuery]);
   const count = activeCount(filters);
-  const conditions = [{ id: "task" as const, label: t("sidebar.conditionTask"), value: filters.taskId === "unlinked" ? t("sidebar.unlinkedTask") : selected?.title ?? filters.taskId ?? t("sidebar.allTasks") },
-    { id: "archive" as const, label: t("sidebar.conditionArchive"), value: t(filters.archive === "archived" ? "sidebar.archiveScopeArchived" : "sidebar.activeSessions") }];
+  const conditions = [{ id: "task" as const, label: t("sidebar.conditionTask"), value: filters.taskId === "unlinked" ? t("sidebar.unlinkedTask") : selected?.title ?? filters.taskId ?? t("sidebar.allTasks") }];
   const go = (next: typeof page) => { setTaskQuery(""); setPage(next); };
   useLayoutEffect(() => {
     if (!open) return;
@@ -160,7 +158,7 @@ export function SidebarSearchControls({ open, onOpenChange, filters, onQuery, on
         }}>
         <header className={styles.header}>
           {page !== "home" && <button type="button" className={styles.iconButton} aria-label={t("sidebar.filtersBack")} onClick={() => go("home")}>‹</button>}
-          <h2 className={styles.heading}>{t(page === "home" ? "sidebar.searchFilters" : page === "task" ? "sidebar.conditionTask" : page === "archive" ? "sidebar.conditionArchive" : "sidebar.addCondition")}</h2>
+          <h2 className={styles.heading}>{t(page === "home" ? "sidebar.searchFilters" : page === "task" ? "sidebar.conditionTask" : "sidebar.addCondition")}</h2>
           <button type="button" className={styles.iconButton} aria-label={t("sidebar.closeFilters")} onClick={close}>×</button>
         </header>
         <div className={styles.body}>
@@ -176,8 +174,8 @@ export function SidebarSearchControls({ open, onOpenChange, filters, onQuery, on
               <button type="button" className={styles.conditionButton} aria-label={condition.label} aria-describedby={`${id}-${condition.id}-value`} onClick={() => go(condition.id)}>
                 <span className={styles.conditionLabel}>{condition.label}</span><span id={`${id}-${condition.id}-value`} className={styles.conditionValue}>{condition.value}</span><span aria-hidden="true">›</span>
               </button>
-              {(condition.id === "task" ? filters.taskId : filters.archive === "archived") && <button type="button" className={styles.iconButton}
-                aria-label={t(condition.id === "task" ? "sidebar.clearTaskFilter" : "sidebar.resetArchiveFilter")} onClick={() => condition.id === "task" ? onTask(null) : onArchive("active")}>×</button>}
+              {filters.taskId && <button type="button" className={styles.iconButton}
+                aria-label={t("sidebar.clearTaskFilter")} onClick={() => onTask(null)}>×</button>}
             </div>)}
             <button type="button" className={styles.add} aria-label={t("sidebar.addCondition")} onClick={() => go("add")}>＋ {t("sidebar.addCondition")}</button>
             {selected && <button type="button" className={styles.add} style={{float:"right"}} onClick={() => {close(); onDetails(selected.id);}}>{t("sidebar.taskDetails")} ↗</button>}
@@ -195,10 +193,6 @@ export function SidebarSearchControls({ open, onOpenChange, filters, onQuery, on
             {loading && tasks === null && <p role="status" className={styles.notice}>{t("sidebar.tasksLoading")}</p>}
             {tasks !== null && taskQuery.trim() && !choices.length && <p role="status" className={styles.notice}>{t("sidebar.noTaskMatches")}</p>}
           </>}
-          {page === "archive" && <div role="listbox" aria-label={t("sidebar.conditionArchive")} className={styles.choices} onKeyDown={navigateChoices}>
-            {(["active", "archived"] as const).map(scope => choice(t(scope === "active" ? "sidebar.activeSessions" : "sidebar.archivedSessions", {count:archivedCount}), filters.archive === scope,
-              () => {onArchive(scope); go("home");}, {"data-archive-option":scope}))}
-          </div>}
           {page === "add" && <div className={styles.choices}>{conditions.map(condition => <button key={condition.id} type="button" className={styles.choice} onClick={() => go(condition.id)}>{condition.label}<span style={{marginLeft:"auto"}} aria-hidden="true">›</span></button>)}</div>}
           {failed && <p role="alert" className={`${styles.notice} ${styles.error}`}>{t("sidebar.tasksUnavailable")} <button type="button" className={styles.add} onClick={onReload}>{t("sidebar.tasksReload")}</button></p>}
         </div>

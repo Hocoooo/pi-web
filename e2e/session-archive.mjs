@@ -63,22 +63,19 @@ const filters = (p, messages = getLocalePlugin("en").messages) => {
     if (await back.isVisible()) await back.click();
     await dialog.getByRole("searchbox", {name:label("contentSearch"), exact:true}).waitFor();
   };
-  const scopeOptions = async () => {
-    await open();
-    await dialog.getByRole("button", {name:label("conditionArchive"), exact:true}).click();
-  };
+  const close = async () => { if (await dialog.isVisible()) await dialog.getByRole("button", {name:label("closeFilters"), exact:true}).click(); };
+  const scopeSelect = p.locator(`select[aria-label="${label("sessionListScope")}"]`);
   return {
     open,
-    close: async () => { if (await dialog.isVisible()) await dialog.getByRole("button", {name:label("closeFilters"), exact:true}).click(); },
+    close,
     scope: async value => {
-      await scopeOptions();
-      await dialog.locator(`[data-archive-option="${value}"]`).click();
-      await dialog.getByRole("searchbox", {name:label("contentSearch"), exact:true}).waitFor();
+      await close(); // The mobile filter sheet guards background controls and shortcuts.
+      await scopeSelect.selectOption(value);
     },
     assertScope: async value => {
-      await scopeOptions();
-      assert.equal(await dialog.locator(`[data-archive-option="${value}"]`).getAttribute("aria-selected"), "true", "applied conversation scope is retained");
-      await dialog.getByRole("button", {name:label("filtersBack"), exact:true}).click();
+      await close();
+      await scopeSelect.waitFor();
+      assert.equal(await scopeSelect.inputValue(), value, "applied conversation scope is retained in the native select");
     },
     body: async query => { await open(); await dialog.getByRole("searchbox", {name:label("contentSearch"), exact:true}).fill(query); },
   };

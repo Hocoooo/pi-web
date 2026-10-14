@@ -1,8 +1,8 @@
 # 对话归档与恢复
 
-## F39 统一入口
+## F39 Task／正文入口与原会话范围
 
-[统一搜索与筛选面板](sidebar-search-filters.md)取代侧栏常驻 active/archived 下拉，范围在面板子页选择，关闭保留状态/正文结果；归档写失败/retry仍在侧栏可见。此改变不调整 sidecar、会话族或搜索API。`e2e/session-archive.mjs`已迁移到新面板，维持原历史/草稿/hover/cross-tab/主题回归。
+用户后续要求会话（日常／归档）保持原UI：列表上方原生 active/archived 选择框保留，不移入[统一Task／正文搜索面板](sidebar-search-filters.md)。范围切换保留Task/正文并按新scope重搜；面板/摘要清除只清Task/正文，不切回日常。仅归档不显示额外筛选摘要/角标，归档失败/retry仍在原范围选择下。会话行悬停/右键归档恢复不变；不调整sidecar、会话族或API。`e2e/session-archive.mjs`通过原生选择框操作范围，保留历史/草稿/hover/cross-tab/主题回归。
 
 ## F38 Task 树/检索交点
 

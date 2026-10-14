@@ -51,7 +51,10 @@ try {
   await page.goto(`${base}/?cwd=${encodeURIComponent(project.cwd)}`,{waitUntil:"networkidle"});
   const opener = page.getByRole("button",{name:"Search and filters",exact:true});
   await opener.waitFor({timeout:5000});
-  assert.equal(await page.locator('#session-sidebar select').count(),0,"no permanent task/archive dropdowns");
+  const sessionScope = page.getByRole("combobox",{name:"Session list",exact:true});
+  assert.equal(await page.locator('#session-sidebar select').count(),1,"only the original session range selector is permanent");
+  assert.equal(await sessionScope.inputValue(),"active","daily conversations remain the default");
+  assert.deepEqual(await sessionScope.locator('option').allTextContents(),["Active sessions","Archived sessions (1)"]);
   assert.equal(await page.locator('#session-sidebar input[type="search"]').count(),0,"no permanent task/body search fields");
   assert.equal(await page.locator('[data-sidebar-filter-summary]').count(),0,"default view has no summary row");
   await opener.click();
@@ -67,16 +70,23 @@ try {
   await dialog.getByRole("button",{name:"Close filters",exact:true}).click();
   await page.locator('[data-sidebar-filter-summary]').waitFor();
   assert.equal(await page.locator('[data-sidebar-row="session:unified-1"]').count(),0,"task condition stays active after closing");
-  assert.equal(await page.locator('#session-sidebar select').count(),0);
+  assert.equal(await page.locator('#session-sidebar select').count(),1);
+  await sessionScope.selectOption("archived");
+  await page.locator('[data-sidebar-row="session:unified-2"]').waitFor();
+  assert.equal(await page.locator('[data-sidebar-row="session:unified-0"]').count(),0);
+  assert.equal(page.url(),originalUrl,"switching the original session range does not navigate chat");
+  assert.equal(await opener.locator('[aria-label="1 active conditions"]').count(),1,"archive is not counted as an extra search condition");
   await opener.click();
+  assert.equal(await dialog.getByRole("button",{name:"Conversation scope",exact:true}).count(),0,"session range is not duplicated inside the popup");
   await dialog.getByRole("button",{name:"Add condition",exact:true}).click();
-  await dialog.getByRole("button",{name:"Conversation scope",exact:true}).click();
-  await dialog.locator('[data-archive-option="archived"]').click();
+  assert.equal(await dialog.getByRole("button",{name:"Conversation scope",exact:true}).count(),0,"the condition menu does not duplicate session range");
+  await dialog.getByRole("button",{name:"Task",exact:true}).click();
+  await dialog.getByRole("button",{name:"Back to filters",exact:true}).click();
   await dialog.getByRole("searchbox",{name:"Search conversation content",exact:true}).fill("a phrase");
   await page.getByText("Matching excerpt",{exact:true}).waitFor();
   assert.equal(searches.at(-1).taskId,taskId);
   assert.equal(searches.at(-1).archive,"archived");
-  for(const [name,value] of [["Task","Migration task"],["Conversation scope","Archived conversations"]]) {
+  for(const [name,value] of [["Task","Migration task"]]) {
     const description = await dialog.getByRole("button",{name,exact:true}).evaluate(element => (element.getAttribute("aria-describedby") ?? "").split(/\s+/).map(id => document.getElementById(id)?.textContent ?? "").join(" "));
     assert.equal(description,value,"home condition controls expose their applied values to screen readers");
   }
@@ -87,7 +97,22 @@ try {
   assert.equal(await page.evaluate(() => document.activeElement.getAttribute("aria-label")),"Search and filters","keyboard close restores the opener");
   await page.getByText("Matching excerpt",{exact:true}).waitFor();
   const summary = page.locator('[data-sidebar-filter-summary]');
-  assert.match((await summary.innerText()).replace(/\s+/g," "),/Migration task.*Archived conversations.*\+1/);
+  assert.match((await summary.innerText()).replace(/\s+/g," "),/Migration task.*a phrase/);
+  assert.doesNotMatch(await summary.innerText(),/Archived conversations/);
+  assert.equal(await opener.locator('[aria-label="2 active conditions"]').count(),1,"badge counts Task and body only");
+  for(const archive of ["active","archived"]) {
+    const scopedSearch = page.waitForResponse(response => {
+      const url = new URL(response.url());
+      return url.pathname === "/api/sessions/search" && url.searchParams.get("archive") === archive && url.searchParams.get("taskId") === taskId && url.searchParams.get("q") === "a phrase";
+    });
+    await sessionScope.selectOption(archive);
+    await scopedSearch;
+    assert.equal(searches.at(-1).archive,archive,"native scope switch refreshes the same Task/body search");
+    assert.equal(searches.at(-1).taskId,taskId);
+    assert.equal(searches.at(-1).q,"a phrase");
+    assert.equal(await dialog.count(),0,"switching session range does not require opening filters");
+    assert.equal(page.url(),originalUrl);
+  }
   assert.equal(await summary.evaluate(element => element.scrollHeight > 34),false,"conditions do not grow into stacked rows");
   await opener.click();
   assert.equal(await dialog.getByRole("searchbox",{name:"Search conversation content",exact:true}).inputValue(),"a phrase");
@@ -103,6 +128,13 @@ try {
   assert.equal(await dialog.count(),0,"outside click dismisses the desktop panel");
   await summary.getByRole("button",{name:"Clear search and filters",exact:true}).click();
   assert.equal(await summary.count(),0);
+  assert.equal(await sessionScope.inputValue(),"archived","clearing search/Task never switches back to daily sessions");
+  await page.locator('[data-sidebar-row="session:unified-2"]').waitFor();
+  assert.equal(await opener.locator('[aria-label$="active conditions"]').count(),0,"archive-only view has no filter badge");
+  await opener.click();
+  assert.equal(await dialog.getByRole("button",{name:"Clear search and filters",exact:true}).isDisabled(),true,"archive alone does not enable filter reset");
+  await dialog.getByRole("button",{name:"Close filters",exact:true}).click();
+  await sessionScope.selectOption("active");
   await page.locator('[data-sidebar-row="session:unified-1"]').waitFor();
   await opener.click();
   await dialog.getByRole("button",{name:"Task",exact:true}).click();
@@ -139,6 +171,20 @@ try {
     } catch(error) {focusFailures.push(`${name}: ${error.message}`);console.error(`FAIL: ${name}: ${error.message}`);}
     finally {await target.close();}
   };
+  await focusCase("popup reset keeps archived session scope",async () => {},async (target,popover) => {
+    await popover.getByRole("button",{name:"Close filters",exact:true}).click();
+    const scope = target.getByRole("combobox",{name:"Session list",exact:true});
+    await scope.selectOption("archived");
+    await target.getByRole("button",{name:"Search and filters",exact:true}).click();
+    await popover.getByRole("button",{name:"Task",exact:true}).click();
+    await popover.locator(`[data-task-option="${taskId}"]`).click();
+    await popover.getByRole("searchbox").fill("reset content");
+    await popover.getByRole("button",{name:"Clear search and filters",exact:true}).click();
+    assert.equal(await scope.inputValue(),"archived","popup reset does not change the separate session range");
+    assert.equal(await popover.getByRole("searchbox").inputValue(),"");
+    assert.equal(await popover.getByRole("button",{name:"Clear search and filters",exact:true}).isDisabled(),true);
+    assert.equal(await target.locator('[data-sidebar-filter-summary]').count(),0);
+  });
   await focusCase("desktop reset preserves Tab containment",async () => {},async (target,popover) => {
     await popover.getByRole("searchbox").fill("reset content");
     await popover.getByRole("button",{name:"Clear search and filters",exact:true}).click();
@@ -232,6 +278,10 @@ try {
   await desktopZh.screenshot({path:join(evidence,"zh-CN-desktop-panel.png"),fullPage:true});
   await previewPanel.getByRole("button",{name:"关闭筛选面板",exact:true}).click();
   await desktopZh.screenshot({path:join(evidence,"zh-CN-desktop-filtered.png"),fullPage:true});
+  await desktopZh.locator('#session-sidebar select').selectOption("archived");
+  await desktopZh.locator('[data-sidebar-filter-summary]').getByRole("button",{name:"清除搜索与筛选",exact:true}).click();
+  await desktopZh.locator('[data-sidebar-row="session:unified-2"]').waitFor();
+  await desktopZh.screenshot({path:join(evidence,"zh-CN-desktop-archived.png"),fullPage:true});
   await desktopZh.close();
   for(const localeId of ["en","zh-CN","zh-TW"]) {
     const locale = Object.values(await jiti.import(`../lib/i18n/messages/${localeId}.ts`))[0];
@@ -243,6 +293,11 @@ try {
     await mobile.goto(`${base}/?cwd=${encodeURIComponent(project.cwd)}`,{waitUntil:"networkidle"});
     await mobile.addStyleTag({content:"nextjs-portal { display:none !important; }"});
     await openMobileDrawer(mobile);
+    const scopeM = mobile.getByRole("combobox",{name:m("sidebar.sessionListScope"),exact:true});
+    assert.equal(await scopeM.inputValue(),"active");
+    await scopeM.selectOption("archived");
+    await mobile.locator('[data-sidebar-row="session:unified-2"]').waitFor();
+    assert.equal(await mobile.locator('[data-sidebar-filter-summary]').count(),0,"archive-only mobile range has no search summary");
     const triggerM = mobile.getByRole("button",{name:m("sidebar.searchFilters"),exact:true});
     await triggerM.click();
     const panelM = mobile.getByRole("dialog",{name:m("sidebar.searchFilters"),exact:true});
@@ -272,6 +327,11 @@ try {
     await panelM.getByRole("button",{name:m("sidebar.closeFilters"),exact:true}).click();
     await mobile.locator('[data-sidebar-filter-summary]').waitFor();
     assert.equal(await panelM.count(),0);
+    await mobile.locator('[data-sidebar-filter-summary]').getByRole("button",{name:m("sidebar.clearSearchFilters"),exact:true}).click();
+    assert.equal(await scopeM.inputValue(),"archived","mobile reset also preserves the independent session range");
+    assert.equal(await mobile.locator('[data-sidebar-filter-summary]').count(),0);
+    await scopeM.selectOption("active");
+    await mobile.locator('[data-sidebar-row="session:unified-1"]').waitFor();
     await mobile.close();
   }
   assert.deepEqual(unexpected,[]);assert.deepEqual(errors,[]);

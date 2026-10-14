@@ -587,7 +587,7 @@ export function SessionSidebar({ onOpenTasks, onFocusSessionPanel, selectedSessi
   const [sessionSearchOpen, setSessionSearchOpen] = useState(false);
   const [sessionSearchQuery, setSessionSearchQuery] = useState("");
   const sessionSearchActive = Boolean(sessionSearchQuery.trim());
-  const resetSearchFilters = useCallback(() => {setSessionSearchQuery(""); setTaskFilter(null); setArchiveScope("active");}, []);
+  const resetSearchFilters = useCallback(() => {setSessionSearchQuery(""); setTaskFilter(null);}, []);
   const [changesCount, setChangesCount] = useState(0);
   const [changesCollapsed, setChangesCollapsed] = useState(true);
   const [explorerRefreshDone, setExplorerRefreshDone] = useState(false);
@@ -1621,9 +1621,9 @@ export function SessionSidebar({ onOpenTasks, onFocusSessionPanel, selectedSessi
               {t("sidebar.new")}
             </button>
             <SidebarSearchControls open={sessionSearchOpen} onOpenChange={setSessionSearchOpen}
-              filters={{query:sessionSearchQuery, taskId:taskFilter, archive:archiveScope}} onQuery={setSessionSearchQuery}
-              onTask={chooseTaskFilter} onArchive={setArchiveScope} onReset={resetSearchFilters}
-              tasks={tasks ?? null} projectKey={showAllProjects ? null : selectedProject?.key ?? null} archivedCount={archivedCount}
+              filters={{query:sessionSearchQuery, taskId:taskFilter}} onQuery={setSessionSearchQuery}
+              onTask={chooseTaskFilter} onReset={resetSearchFilters}
+              tasks={tasks ?? null} projectKey={showAllProjects ? null : selectedProject?.key ?? null}
               loading={taskState.loading} failed={taskState.failed} onReload={() => void taskState.reload()} onDetails={id => onOpenTasks?.(id)} onFocusPanel={onFocusSessionPanel} />
           </div>
         </div>
@@ -2195,13 +2195,21 @@ export function SessionSidebar({ onOpenTasks, onFocusSessionPanel, selectedSessi
           overflow: "hidden",
         }}
       >
-        <SidebarFilterSummary filters={{query:sessionSearchQuery, taskId:taskFilter, archive:archiveScope}} tasks={tasks ?? null} onReset={resetSearchFilters} />
+        <div className="shrink-0 px-3 py-2">
+          <select aria-label={t("sidebar.sessionListScope")} value={archiveScope}
+            onChange={event => setArchiveScope(event.target.value as SessionArchiveScope)}
+            className="h-[30px] w-full min-w-0 cursor-pointer rounded-[7px] border border-border bg-bg-panel px-2 text-xs text-text focus:outline-2 focus:outline-accent">
+            <option value="active">{t("sidebar.activeSessions")}</option>
+            <option value="archived">{t("sidebar.archivedSessions", { count: archivedCount })}</option>
+          </select>
+          {archiveFailure && <div role="alert" className="mt-2 text-xs text-red-400">
+            {t("sidebar.sessionArchiveFailed")}
+            <button type="button" disabled={archivingSessionId !== null} className="ml-2 cursor-pointer underline disabled:opacity-50"
+              onClick={() => void changeSessionArchive(archiveFailure.session, archiveFailure.archived)}>{t("sidebar.retryArchive")}</button>
+          </div>}
+        </div>
+        <SidebarFilterSummary filters={{query:sessionSearchQuery, taskId:taskFilter}} tasks={tasks ?? null} onReset={resetSearchFilters} />
         {taskState.failed && !sessionSearchOpen && <div role="alert" className="px-3 py-2 text-xs text-red-400">{t("sidebar.tasksUnavailable")} <button type="button" className="underline" onClick={() => void taskState.reload()}>{t("sidebar.tasksReload")}</button></div>}
-        {archiveFailure && <div role="alert" className="px-3 py-2 text-xs text-red-400">
-          {t("sidebar.sessionArchiveFailed")}
-          <button type="button" disabled={archivingSessionId !== null} className="ml-2 cursor-pointer underline disabled:opacity-50"
-            onClick={() => void changeSessionArchive(archiveFailure.session, archiveFailure.archived)}>{t("sidebar.retryArchive")}</button>
-        </div>}
         <SessionSearch open={sessionSearchActive} query={sessionSearchQuery} archiveScope={archiveScope} archiveVersion={archiveFingerprint}
           taskId={taskFilter} taskVersion={taskState.membershipVersion} selectedSessionId={selectedSessionId} onSelectSession={handleSelectSessionFromList}>
         <div

@@ -30,9 +30,11 @@ const filters = (p, messages = en) => {
     await dialog.getByRole("searchbox", {name:label("taskSearch"), exact:true}).fill(query);
     return dialog.getByRole("listbox", {name:label("taskFilter"), exact:true});
   };
+  const close = async () => { if (await dialog.isVisible()) await dialog.getByRole("button", {name:label("closeFilters"), exact:true}).click(); };
+  const scopeSelect = p.locator(`select[aria-label="${label("sessionListScope")}"]`);
   return {
     open, taskOptions,
-    close: async () => { if (await dialog.isVisible()) await dialog.getByRole("button", {name:label("closeFilters"), exact:true}).click(); },
+    close,
     chooseTask: async (id, query = "") => {
       const options = await taskOptions(query);
       const option = id === "unlinked"
@@ -43,10 +45,8 @@ const filters = (p, messages = en) => {
     },
     clearTask: async () => { await open(); await dialog.getByRole("button", {name:label("clearTaskFilter"), exact:true}).click(); },
     scope: async value => {
-      await open();
-      await dialog.getByRole("button", {name:label("conditionArchive"), exact:true}).click();
-      await dialog.locator(`[data-archive-option="${value}"]`).click();
-      await dialog.getByRole("searchbox", {name:label("contentSearch"), exact:true}).waitFor();
+      await close(); // The mobile filter sheet guards background controls and shortcuts.
+      await scopeSelect.selectOption(value);
     },
     body: async query => { await open(); await dialog.getByRole("searchbox", {name:label("contentSearch"), exact:true}).fill(query); },
   };
