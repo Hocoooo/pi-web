@@ -31,6 +31,7 @@ const fulfillApi = async route => {
     }
     return json({ error:"Unexpected mutation" }, 400);
   }
+  if (path === "/api/tasks/catalog") return json({tasks:[]});
   if (path === "/api/sessions") return json({sessions:catalog(), sessionListVersion:version, runningSessionIds:[id]});
   if (path === "/api/agent/running") return json({runningSessionIds:[id], sessionListVersion:version});
   if (path === "/api/sessions/search") {
@@ -53,7 +54,35 @@ await context.route("**/api/**", fulfillApi);
 const page = await context.newPage(), peer = await context.newPage();
 for (const p of [page, peer]) p.on("pageerror", e => errors.push(e.message));
 const row = p => p.locator(`[data-sidebar-row="session:${id}"]`);
-const scope = p => p.getByRole("combobox", {name:"Session list", exact:true});
+const filters = (p, messages = getLocalePlugin("en").messages) => {
+  const label = key => messages[`sidebar.${key}`];
+  const dialog = p.getByRole("dialog", {name:label("searchFilters"), exact:true});
+  const open = async () => {
+    if (!await dialog.isVisible()) await p.getByRole("button", {name:label("searchFilters"), exact:true}).click();
+    const back = dialog.getByRole("button", {name:label("filtersBack"), exact:true});
+    if (await back.isVisible()) await back.click();
+    await dialog.getByRole("searchbox", {name:label("contentSearch"), exact:true}).waitFor();
+  };
+  const scopeOptions = async () => {
+    await open();
+    await dialog.getByRole("button", {name:label("conditionArchive"), exact:true}).click();
+  };
+  return {
+    open,
+    close: async () => { if (await dialog.isVisible()) await dialog.getByRole("button", {name:label("closeFilters"), exact:true}).click(); },
+    scope: async value => {
+      await scopeOptions();
+      await dialog.locator(`[data-archive-option="${value}"]`).click();
+      await dialog.getByRole("searchbox", {name:label("contentSearch"), exact:true}).waitFor();
+    },
+    assertScope: async value => {
+      await scopeOptions();
+      assert.equal(await dialog.locator(`[data-archive-option="${value}"]`).getAttribute("aria-selected"), "true", "applied conversation scope is retained");
+      await dialog.getByRole("button", {name:label("filtersBack"), exact:true}).click();
+    },
+    body: async query => { await open(); await dialog.getByRole("searchbox", {name:label("contentSearch"), exact:true}).fill(query); },
+  };
+};
 const assertActionSizes = async (p, archived, messages = getLocalePlugin("en").messages) => {
   const names = [
     messages["sidebar.rename"],
@@ -71,6 +100,9 @@ const assertActionSizes = async (p, archived, messages = getLocalePlugin("en").m
 try {
   await page.goto(`${base}/?session=${id}`);
   await row(page).waitFor();
+  const panel = filters(page);
+  await panel.open();
+  await panel.close();
   await peer.goto(`${base}/?session=${id}`);
   await row(peer).waitFor();
   const composer = page.locator("textarea.chat-input-textarea").first();
@@ -103,21 +135,24 @@ try {
   await page.getByText("Complete answer remains available", {exact:true}).waitFor();
   await row(peer).waitFor({state:"detached"});
   assert.equal(archivedIds.has(id), true);
-  await scope(page).selectOption("archived");
+  await panel.scope("archived");
+  await panel.close();
   await row(page).waitFor();
   await row(page).click();
   assert.equal(archivedIds.has(id), true, "opening archived history does not restore");
   assert.equal(await composer.inputValue(), "draft is preserved");
-  await page.getByRole("button", {name:"Search conversations", exact:true}).click();
-  await page.getByRole("searchbox", {name:"Search all conversations...", exact:true}).fill("Preserved");
+  await panel.body("Preserved");
+  await panel.close();
   await page.getByRole("button").filter({hasText:"Archive conversation"}).filter({hasText:"Preserved older history"}).waitFor();
   assert.equal(scopes.at(-1), "archived");
-  await scope(page).selectOption("active");
+  await panel.scope("active");
+  await panel.close();
   await page.getByRole("button").filter({hasText:"Other conversation"}).filter({hasText:"Preserved older history"}).waitFor();
   assert.equal(scopes.at(-1), "active");
   assert.equal(await page.getByRole("button").filter({hasText:"Archive conversation"}).count(), 0);
-  await page.getByRole("searchbox", {name:"Search all conversations...", exact:true}).fill("");
-  await scope(page).selectOption("archived");
+  await panel.body("");
+  await panel.scope("archived");
+  await panel.close();
   await row(page).waitFor();
   await row(page).hover();
   const restore = page.getByRole("button", {name:"Restore session: Archive conversation", exact:true});
@@ -127,7 +162,8 @@ try {
   await row(page).waitFor({state:"detached"});
   assert.equal(archivedIds.has(id), false);
   await row(peer).waitFor();
-  await scope(page).selectOption("active");
+  await panel.scope("active");
+  await panel.close();
   await row(page).waitFor();
   assert.equal(await composer.inputValue(), "draft is preserved");
   await row(page).click({button:"right"});
@@ -141,13 +177,14 @@ try {
   await confirmedMenu;
   assert.equal(archivedIds.has(id), true, "stale Archive menu must not restore after another tab archives");
   await page.reload();
-  await scope(page).waitFor();
-  assert.equal(await scope(page).inputValue(), "active");
+  await panel.assertScope("active");
+  await panel.close();
   assert.equal(await row(page).count(), 0, "refresh retains server archive state and default active scope");
   await page.getByText("Complete answer remains available", {exact:true}).waitFor();
   await page.keyboard.press("Alt+ArrowLeft");
   await row(page).waitFor();
-  assert.equal(await scope(page).inputValue(), "archived", "explicit focus reveals selected archived family without restoring");
+  await panel.assertScope("archived");
+  await panel.close();
   assert.equal(archivedIds.has(id), true);
   assert.ok(mutations.every(m => m.method === "PUT" && m.path.endsWith("/archive")), "no delete, stop, prompt or task mutation");
   assert.deepEqual(mutations.map(m => m.body.archived), [true,true,false,true,true]);
@@ -164,8 +201,9 @@ try {
     await touchPage.goto(`${base}/?session=${id}`);
     await touchPage.getByText("Complete answer remains available", {exact:true}).waitFor();
     await touchPage.getByRole("button", {name:messages["sidebar.show"], exact:true}).tap();
-    const picker = touchPage.getByRole("combobox", {name:messages["sidebar.sessionListScope"], exact:true});
-    await picker.selectOption("archived");
+    const mobilePanel = filters(touchPage, messages);
+    await mobilePanel.scope("archived");
+    await mobilePanel.close();
     await row(touchPage).waitFor();
     await touchPage.mouse.move(385, 400);
     await row(touchPage).hover(); // Reveal with a pointer, then validate the touch target.
@@ -176,7 +214,8 @@ try {
     await restoreButton.tap();
     await row(touchPage).waitFor({state:"detached"});
     assert.equal(archivedIds.has(id), false);
-    await picker.selectOption("active");
+    await mobilePanel.scope("active");
+    await mobilePanel.close();
     await row(touchPage).waitFor();
     await touchPage.mouse.move(385, 400);
     await row(touchPage).hover();

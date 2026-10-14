@@ -1412,6 +1412,7 @@ export function AppShell() {
     <>
       <SessionSidebar
         onOpenTasks={openTasks}
+        onFocusSessionPanel={handleFocusSessionPanel}
         selectedSessionId={selectedSession?.id ?? null}
         onSelectSession={handleSelectSession}
         onNewSession={handleNewSession}
@@ -2178,6 +2179,8 @@ export function AppShell() {
         <div style={{ display: "flex", alignItems: "center", position: "relative", borderBottom: "1px solid var(--border)", height: "calc(36px + env(safe-area-inset-top))", paddingTop: "env(safe-area-inset-top)" }}>
           <button
             onClick={handleSidebarToggle}
+            aria-controls="session-sidebar"
+            aria-expanded={sidebarOpen}
              title={sidebarOpen ? translate("sidebar.hide") : translate("sidebar.show")}
              aria-label={sidebarOpen ? translate("sidebar.hide") : translate("sidebar.show")}
             style={{

@@ -9,6 +9,48 @@ import { createJiti } from "jiti";
 const jiti = createJiti(import.meta.url);
 
 const base = process.env.E2E_BASE_URL || "http://127.0.0.1:30141";
+const en = Object.values(await jiti.import("../lib/i18n/messages/en.ts"))[0].messages;
+const filters = (p, messages = en) => {
+  const label = key => messages[`sidebar.${key}`];
+  const dialog = p.getByRole("dialog", {name:label("searchFilters"), exact:true});
+  const open = async () => {
+    if (p.viewportSize().width <= 640) {
+      await p.waitForFunction(() => !document.getElementById("session-sidebar")?.classList.contains("sidebar-mobile-pending"));
+      if (await p.locator('#session-sidebar').evaluate(element => element.classList.contains("sidebar-closed"))) await p.getByRole("button",{name:label("show"),exact:true}).click();
+      await p.waitForFunction(() => Math.abs(document.getElementById("session-sidebar").getBoundingClientRect().left) < 1);
+    }
+    if (!await dialog.isVisible()) await p.getByRole("button", {name:label("searchFilters"), exact:true}).click();
+    const back = dialog.getByRole("button", {name:label("filtersBack"), exact:true});
+    if (await back.isVisible()) await back.click();
+    await dialog.getByRole("searchbox", {name:label("contentSearch"), exact:true}).waitFor();
+  };
+  const taskOptions = async (query = "") => {
+    await open();
+    await dialog.getByRole("button", {name:label("conditionTask"), exact:true}).click();
+    await dialog.getByRole("searchbox", {name:label("taskSearch"), exact:true}).fill(query);
+    return dialog.getByRole("listbox", {name:label("taskFilter"), exact:true});
+  };
+  return {
+    open, taskOptions,
+    close: async () => { if (await dialog.isVisible()) await dialog.getByRole("button", {name:label("closeFilters"), exact:true}).click(); },
+    chooseTask: async (id, query = "") => {
+      const options = await taskOptions(query);
+      const option = id === "unlinked"
+        ? options.getByRole("option", {name:label("unlinkedTask"), exact:true})
+        : options.locator(`[data-task-option="${id}"]`);
+      await option.click();
+      await dialog.getByRole("searchbox", {name:label("contentSearch"), exact:true}).waitFor();
+    },
+    clearTask: async () => { await open(); await dialog.getByRole("button", {name:label("clearTaskFilter"), exact:true}).click(); },
+    scope: async value => {
+      await open();
+      await dialog.getByRole("button", {name:label("conditionArchive"), exact:true}).click();
+      await dialog.locator(`[data-archive-option="${value}"]`).click();
+      await dialog.getByRole("searchbox", {name:label("contentSearch"), exact:true}).waitFor();
+    },
+    body: async query => { await open(); await dialog.getByRole("searchbox", {name:label("contentSearch"), exact:true}).fill(query); },
+  };
+};
 const evidence = await mkdtemp(join(tmpdir(), "pi-web-sidebar-task-tree-"));
 const ids = { a: "11111111-1111-4111-8111-111111111111", b: "22222222-2222-4222-8222-222222222222", empty: "33333333-3333-4333-8333-333333333333" };
 const project = { cwd: "/fixtures/alpha", projectRoot: "/fixtures/alpha", projectKey: "alpha" };
@@ -53,6 +95,9 @@ await context.route("**/api/**", async route => {
 try {
   await page.goto(`${base}/?cwd=${encodeURIComponent(project.cwd)}`, { waitUntil: "networkidle" });
   await page.getByText("Conversation 8", {exact:true}).waitFor();
+  const panel = filters(page);
+  await panel.open();
+  await panel.close();
   await page.getByRole("button", {name:"Settings", exact:true}).click();
   const treeSwitch = page.getByRole("switch", {name:"Group conversations by task", exact:true});
   await treeSwitch.waitFor({timeout:5000});
@@ -79,25 +124,24 @@ try {
   await page.keyboard.press("ArrowLeft");
   assert.match(await page.evaluate(() => document.activeElement.dataset.sidebarRow), /^task:/);
   const before = page.url();
-  const search = page.getByRole("searchbox", {name:"Search tasks", exact:true});
-  const filter = page.getByRole("combobox", {name:"Filter by task", exact:true});
-  await search.fill("needle in description");
-  await filter.selectOption(ids.empty);
+  await panel.chooseTask(ids.empty, "needle in description");
+  await panel.close();
   assert.equal(page.url(), before, "task choice never navigates the current chat");
   await page.getByText("No conversations in this task and session scope.", {exact:true}).waitFor();
-  await page.getByRole("button", {name:"Clear task filter", exact:true}).click();
-  await search.fill("Acceptance phrase");
-  assert.equal(await filter.locator(`option[value="${ids.empty}"]`).count(), 1, "completion criteria are searchable");
-  assert.equal(await filter.locator(`option[value="${ids.a}"]`).count(), 0, "nonmatching tasks leave search choices");
-  await search.fill("");
-  await filter.selectOption("unlinked");
+  await panel.clearTask();
+  const options = await panel.taskOptions("Acceptance phrase");
+  assert.equal(await options.locator(`[data-task-option="${ids.empty}"]`).count(), 1, "completion criteria are searchable");
+  assert.equal(await options.locator(`[data-task-option="${ids.a}"]`).count(), 0, "nonmatching tasks leave search choices");
+  await panel.chooseTask("unlinked");
+  await panel.close();
   await page.getByText("Conversation 8", {exact:true}).waitFor();
   assert.equal(await page.getByText("Conversation 1", {exact:true}).count(), 0, "owned sessions are never unlinked");
-  await filter.selectOption(ids.a);
+  await panel.chooseTask(ids.a);
+  await panel.close();
   catalogFails = true;
   await page.evaluate(() => window.dispatchEvent(new Event("pi-web:tasks-changed")));
   await page.getByText("Could not refresh tasks. Existing results may be out of date.", {exact:false}).waitFor();
-  assert.equal(await filter.inputValue(), ids.a, "failure preserves selection and ownership snapshot");
+  assert.match(await page.locator("[data-sidebar-filter-summary]").innerText(), /Task Alpha/, "failure preserves selection and ownership snapshot");
   await group("Task Alpha").waitFor();
   catalogFails = false;
   await page.getByRole("button", {name:"Reload tasks", exact:true}).click();
@@ -107,21 +151,21 @@ try {
   await page.getByText("Conversation 6", {exact:true}).waitFor();
   assert.equal(await group("Task Alpha").count(), 0, "tree off restores original flat current-project list");
   assert.equal(await page.getByText("Conversation 7", {exact:true}).count(), 0, "task filter survives turning tree off");
-  await page.getByRole("button", {name:"Clear task filter", exact:true}).click();
+  await panel.clearTask();
+  await panel.close();
   await page.getByText("Conversation 8", {exact:true}).waitFor();
-  await filter.selectOption(ids.a);
-  await page.getByRole("button", {name:"Search conversations", exact:true}).click();
-  await page.getByRole("searchbox", {name:"Search all conversations...", exact:true}).fill("body needle");
+  await panel.chooseTask(ids.a);
+  await panel.body("body needle");
   await page.waitForTimeout(500);
   assert.equal(searches.at(-1)?.taskId, ids.a, "body search sends task scope before backend caps");
-  await filter.selectOption(ids.b);
+  await panel.chooseTask(ids.b);
   await page.waitForTimeout(500);
   assert.equal(searches.at(-1)?.taskId, ids.b, "same text refetches when task changes");
-  await page.getByRole("button", {name:"Clear task filter", exact:true}).click();
+  await panel.clearTask();
   await page.waitForTimeout(500);
   assert.equal(searches.at(-1)?.taskId, undefined, "clearing returns to global body search");
-  await page.getByRole("searchbox", {name:"Search all conversations...", exact:true}).fill("");
-  await page.getByRole("button", {name:"Search conversations", exact:true}).click();
+  await panel.body("");
+  await panel.close();
   await page.getByRole("button", {name:"Settings", exact:true}).click();
   await page.getByRole("switch", {name:"Show all projects", exact:true}).click();
   await treeSwitch.click();
@@ -156,11 +200,13 @@ try {
   await page.keyboard.press("Escape");
   await page.getByRole("button", {name:"Show more (3)", exact:true}).waitFor();
   assert.equal(await page.getByText("Conversation 6", {exact:true}).count(), 0, "tree off restores project-level five preview");
-  await filter.selectOption(ids.a);
+  await panel.chooseTask(ids.a);
+  await panel.close();
   await projectRow.click();
   assert.equal(await page.getByText("No conversations in this task and session scope.", {exact:true}).count(), 0, "collapsing a project does not make the filtered task empty");
   await projectRow.click();
-  await page.getByRole("button", {name:"Clear task filter", exact:true}).click();
+  await panel.clearTask();
+  await panel.close();
   const peer = await context.newPage();
   peer.on("pageerror", error => errors.push(error.message));
   await peer.goto(`${base}/?cwd=${encodeURIComponent(project.cwd)}`, {waitUntil:"networkidle"});
@@ -170,10 +216,12 @@ try {
   await peer.getByRole("button", {name:"Task Alpha", exact:true}).waitFor();
   await peer.close();
   await projectRow.click();
-  await filter.selectOption("unlinked");
+  await panel.chooseTask("unlinked");
+  await panel.close();
   await page.getByText("Conversation 8", {exact:true}).waitFor({timeout:5000});
   assert.equal(await projectRow.getAttribute("aria-expanded"), "true", "unlinked choice reveals its containing project");
-  await page.getByRole("button", {name:"Clear task filter", exact:true}).click();
+  await panel.clearTask();
+  await panel.close();
   await page.reload({waitUntil:"networkidle"});
   await page.getByRole("button", {name:"Show more (1)", exact:true}).click();
   await page.getByText("Conversation 6", {exact:true}).click();
@@ -183,19 +231,21 @@ try {
   await page.keyboard.press("Alt+ArrowLeft");
   await page.waitForFunction(() => document.activeElement?.dataset.sidebarRow?.startsWith("session:task-chat-6:task:"));
   assert.match(page.url(), /session=task-chat-6/, "reveal does not navigate");
-  await filter.selectOption(ids.b);
+  await panel.chooseTask(ids.b);
+  await panel.close();
   await page.getByRole("button", {name:"Settings", exact:true}).click();
   await treeSwitch.click();
   await page.keyboard.press("Escape");
   await page.keyboard.press("Alt+ArrowLeft");
   await page.waitForFunction(() => document.activeElement?.dataset.sidebarRow === "session:task-chat-6");
-  assert.equal(await filter.inputValue(), "", "flat-mode reveal clears incompatible task filter");
-  await filter.selectOption(ids.a);
+  assert.equal(await page.locator("[data-sidebar-filter-summary]").count(), 0, "flat-mode reveal clears incompatible task filter");
+  await panel.chooseTask(ids.a);
+  await panel.close();
   await page.locator("textarea.chat-input-textarea").fill("/clone");
   await page.locator("textarea.chat-input-textarea").press("Enter");
   await page.waitForURL(/session=clone-chat/);
   await page.locator('[data-sidebar-row="session:clone-chat"]').waitFor({timeout:5000});
-  assert.equal(await filter.inputValue(), ids.a, "inherited copy appears under its task without a wake event");
+  assert.match(await page.locator("[data-sidebar-filter-summary]").innerText(), /Task Alpha/, "inherited copy appears under its task without a wake event");
   assert.deepEqual(unexpected, []);
   assert.deepEqual(errors, []);
   console.log("PASS: task tree, five-family preview, keyboard/reveal, task search/filter, scoped body requests, failures, compatibility, persistence and cross-tab setting sync");
@@ -225,28 +275,33 @@ try {
     await matrix.goto(`${base}/?session=task-chat-1`, {waitUntil:"networkidle"});
     const sidebarToggle = matrix.getByRole("button", {name:locale.messages["sidebar.show"], exact:true});
     if (await sidebarToggle.isVisible()) await sidebarToggle.click();
-    const filterM = matrix.getByRole("combobox", {name:locale.messages["sidebar.taskFilter"], exact:true});
-    await filterM.waitFor();
-    assert.equal(await filterM.locator(`option[value="${ids.a}"]`).count(), 1);
-    assert.equal(await filterM.locator(`option[value="${betaId}"]`).count(), 1, "same titles remain distinct by task ID and project path");
+    const panelM = filters(matrix, locale.messages);
+    const optionsM = await panelM.taskOptions();
+    assert.equal(await optionsM.locator(`[data-task-option="${ids.a}"]`).count(), 1);
+    assert.equal(await optionsM.locator(`[data-task-option="${betaId}"]`).count(), 1, "same titles remain distinct by task ID and project path");
+    await panelM.close();
     assert.equal(await matrix.getByText("Hidden subagent", {exact:true}).count(), 0, "subagent never becomes a standalone tree row");
-    await filterM.selectOption(ids.b);
-    const sessionScope = matrix.getByRole("combobox", {name:locale.messages["sidebar.sessionListScope"], exact:true});
-    await sessionScope.selectOption("archived");
+    await panelM.chooseTask(ids.b);
+    await panelM.scope("archived");
+    await panelM.close();
     await matrix.getByText("Conversation 7", {exact:true}).waitFor();
-    await sessionScope.selectOption("active");
+    await panelM.scope("active");
+    await panelM.close();
     await matrix.getByText(locale.messages["sidebar.emptyTask"], {exact:true}).waitFor();
     sessions[6].archived = false;
     await matrix.reload({waitUntil:"networkidle"});
     if (await sidebarToggle.isVisible()) await sidebarToggle.click();
-    await filterM.selectOption(ids.b);
+    await panelM.chooseTask(ids.b);
+    await panelM.close();
     await matrix.getByText("Conversation 7", {exact:true}).waitFor();
     await matrix.getByText(locale.messages["sidebar.taskArchived"], {exact:true}).waitFor();
-    await filterM.selectOption("unlinked");
+    await panelM.chooseTask("unlinked");
+    await panelM.close();
     await matrix.getByText("Conversation 8", {exact:true}).waitFor();
     assert.equal(await matrix.getByText("Conversation 7", {exact:true}).count(), 0, "archived task's active session is still owned");
     assert.equal(await matrix.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, "390px has no horizontal overflow");
-    await filterM.selectOption(legacyTaskId);
+    await panelM.chooseTask(legacyTaskId);
+    await panelM.close();
     await matrix.getByText(locale.messages["sidebar.contextualTaskRoot"], {exact:true}).waitFor();
     await matrix.getByText("Conversation 1", {exact:true}).waitFor();
     const legacyGroup = matrix.getByRole("button", {name:"Legacy child task", exact:true});
@@ -269,15 +324,20 @@ try {
     localStorage.setItem("pi-web:sidebar-view", JSON.stringify({mode:"all", collapsedProjects:[]}));
   });
   await nested.goto(`${base}/?cwd=${encodeURIComponent(project.cwd)}`, {waitUntil:"networkidle"});
-  await nested.getByRole("combobox", {name:"Filter by task", exact:true}).selectOption(legacyTaskId);
+  const nestedPanel = filters(nested);
+  await nestedPanel.chooseTask(legacyTaskId);
+  await nestedPanel.close();
   const contextRoot = nested.locator('[data-sidebar-row="session:task-chat-6"]');
   await contextRoot.waitFor();
   await contextRoot.locator('[aria-label="Agent running…"]').waitFor();
   await contextRoot.click();
   await nested.waitForURL(/session=task-chat-6/);
   await nested.keyboard.press("Alt+ArrowLeft");
+  // The clicked row already owns focus before AppShell's requestAnimationFrame
+  // reveal runs. Wait for its scope reset, not that pre-existing focus alone.
+  await nested.locator("[data-sidebar-filter-summary]").waitFor({state:"detached"});
   await nested.waitForFunction(() => document.activeElement?.dataset.sidebarRow === "session:task-chat-6");
-  assert.equal(await nested.getByRole("combobox", {name:"Filter by task", exact:true}).inputValue(), "", "reveal uses resulting unfiltered projection, not the old filtered row");
+  assert.equal(await nested.locator("[data-sidebar-filter-summary]").count(), 0, "reveal uses resulting unfiltered projection, not the old filtered row");
   await nested.close();
   assert.deepEqual(unexpected, []);
   assert.deepEqual(errors, []);

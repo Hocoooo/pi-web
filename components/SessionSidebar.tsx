@@ -20,7 +20,7 @@ import { useSidebarView } from "@/hooks/useSidebarView";
 import { useSidebarTasks } from "@/hooks/useSidebarTasks";
 import { buildSidebarFilteredRows, buildSidebarTaskRows, sidebarTaskKey, taskFilteredFamilyRows } from "@/lib/sidebar-task-rows";
 import { taskOwnersForSessions } from "@/lib/task-membership";
-import { SidebarTaskFilter } from "./SidebarTaskFilter";
+import { SidebarFilterSummary, SidebarSearchControls } from "./SidebarSearchControls";
 import { SidebarTaskGroup } from "./SidebarTaskGroup";
 import { setSidebarProjectCollapsed } from "@/lib/sidebar-view-preference";
 import { buildSidebarProjectRows, type SidebarProjectRow } from "@/lib/sidebar-project-rows";
@@ -224,6 +224,7 @@ function sessionListUrl(summary: boolean, force: boolean): string {
 
 interface Props {
   onOpenTasks?: (taskId?: string) => void;
+  onFocusSessionPanel?: (panel: "sidebar" | "chat") => void;
   selectedSessionId: string | null;
   onSelectSession: (session: SessionInfo, isRestore?: boolean, entryId?: string, blockIndex?: number) => void;
   onNewSession?: (sessionId: string, cwd: string) => void;
@@ -502,7 +503,7 @@ function PiWebTitle() {
   );
 }
 
-export function SessionSidebar({ onOpenTasks, selectedSessionId, onSelectSession, onNewSession, onNewChat, chatWorkspaceCwd: chatWorkspaceCwdProp, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onOpenTerminal, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionsChange }: Props) {
+export function SessionSidebar({ onOpenTasks, onFocusSessionPanel, selectedSessionId, onSelectSession, onNewSession, onNewChat, chatWorkspaceCwd: chatWorkspaceCwdProp, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onOpenTerminal, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionsChange }: Props) {
   const [sessionMenu, setSessionMenu] = useState<SessionContextMenuState | null>(null);
   const closeSessionMenu = useCallback(() => setSessionMenu(null), []);
   const { t } = useI18n();
@@ -585,7 +586,8 @@ export function SessionSidebar({ onOpenTasks, selectedSessionId, onSelectSession
   const [fileSearchOpen, setFileSearchOpen] = useState(false);
   const [sessionSearchOpen, setSessionSearchOpen] = useState(false);
   const [sessionSearchQuery, setSessionSearchQuery] = useState("");
-  const sessionSearchActive = sessionSearchOpen && Boolean(sessionSearchQuery.trim());
+  const sessionSearchActive = Boolean(sessionSearchQuery.trim());
+  const resetSearchFilters = useCallback(() => {setSessionSearchQuery(""); setTaskFilter(null); setArchiveScope("active");}, []);
   const [changesCount, setChangesCount] = useState(0);
   const [changesCollapsed, setChangesCollapsed] = useState(true);
   const [explorerRefreshDone, setExplorerRefreshDone] = useState(false);
@@ -1618,22 +1620,11 @@ export function SessionSidebar({ onOpenTasks, selectedSessionId, onSelectSession
               </svg>
               {t("sidebar.new")}
             </button>
-            <button
-              type="button"
-              onClick={() => {
-                setSessionSearchOpen((open) => !open);
-                setWtDropdownOpen(false);
-              }}
-              title={t("sidebar.toggleSessionSearch")}
-              aria-label={t("sidebar.toggleSessionSearch")}
-              aria-expanded={sessionSearchOpen}
-              aria-controls="session-search-input"
-              className={`flex h-[32px] w-[32px] shrink-0 cursor-pointer items-center justify-center rounded-[7px] border border-border hover:bg-bg-selected focus-visible:outline-2 focus-visible:outline-accent ${sessionSearchOpen ? "bg-bg-selected text-accent" : "bg-bg-hover text-text-muted"}`}
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <circle cx="11" cy="11" r="7" /><path d="m20 20-4-4" />
-              </svg>
-            </button>
+            <SidebarSearchControls open={sessionSearchOpen} onOpenChange={setSessionSearchOpen}
+              filters={{query:sessionSearchQuery, taskId:taskFilter, archive:archiveScope}} onQuery={setSessionSearchQuery}
+              onTask={chooseTaskFilter} onArchive={setArchiveScope} onReset={resetSearchFilters}
+              tasks={tasks ?? null} projectKey={showAllProjects ? null : selectedProject?.key ?? null} archivedCount={archivedCount}
+              loading={taskState.loading} failed={taskState.failed} onReload={() => void taskState.reload()} onDetails={id => onOpenTasks?.(id)} onFocusPanel={onFocusSessionPanel} />
           </div>
         </div>
 
@@ -1838,26 +1829,6 @@ export function SessionSidebar({ onOpenTasks, selectedSessionId, onSelectSession
         </div>
         )}
 
-        {sessionSearchOpen && (
-          <input
-            id="session-search-input"
-            type="search"
-            autoFocus
-            value={sessionSearchQuery}
-            maxLength={200}
-            aria-label={t("sidebar.searchSessions")}
-            placeholder={t(taskFilter ? "sidebar.searchTaskConversations" : "sidebar.searchSessions")}
-            onChange={(event) => setSessionSearchQuery(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Escape") {
-                event.stopPropagation();
-                setSessionSearchQuery("");
-              }
-            }}
-            className="mt-[6px] block h-[29px] w-full min-w-0 rounded-[7px] border border-border bg-bg px-[10px] text-xs text-text focus:outline-2 focus:outline-accent"
-          />
-        )}
-
         {/* Worktree switcher — shown only for git projects at a checkout top
             level (repo subdirs keep their own project identity, so switching
             from them would jump projects). Rendered whenever the selected cwd
@@ -1865,7 +1836,7 @@ export function SessionSidebar({ onOpenTasks, selectedSessionId, onSelectSession
             switching between worktrees of one project keeps the row mounted
             instead of flickering while data refetches: all worktrees of a
             project share the same list anyway. */}
-        {!showAllProjects && !sessionSearchOpen && showWorktreeSwitcher && (() => {
+        {!showAllProjects && showWorktreeSwitcher && (() => {
           if (!worktreeState) return null;
           const showWtFilter = worktreeState.worktrees.length >= 8;
           const visibleWorktrees = showWtFilter && wtFilter.trim()
@@ -2173,7 +2144,7 @@ export function SessionSidebar({ onOpenTasks, selectedSessionId, onSelectSession
             </div>
           );
         })()}
-        {!showAllProjects && !sessionSearchOpen && inactiveWorktreeSelector && (
+        {!showAllProjects && inactiveWorktreeSelector && (
           <button
             type="button"
             aria-disabled="true"
@@ -2224,24 +2195,14 @@ export function SessionSidebar({ onOpenTasks, selectedSessionId, onSelectSession
           overflow: "hidden",
         }}
       >
-        <SidebarTaskFilter tasks={tasks ?? null} projectKey={showAllProjects ? null : selectedProject?.key ?? null}
-          selectedId={taskFilter} onSelect={chooseTaskFilter} loading={taskState.loading} failed={taskState.failed}
-          onReload={() => void taskState.reload()} onDetails={id => onOpenTasks?.(id)} />
-        <div className="shrink-0 px-3 py-2">
-          <select aria-label={t("sidebar.sessionListScope")} value={archiveScope}
-            onChange={event => setArchiveScope(event.target.value as SessionArchiveScope)}
-            className="h-[30px] w-full min-w-0 cursor-pointer rounded-[7px] border border-border bg-bg-panel px-2 text-xs text-text focus:outline-2 focus:outline-accent">
-            <option value="active">{t("sidebar.activeSessions")}</option>
-            <option value="archived">{t("sidebar.archivedSessions", { count: archivedCount })}</option>
-          </select>
-          {archiveFailure && <div role="alert" className="mt-2 text-xs text-red-400">
-            {t("sidebar.sessionArchiveFailed")}
-            <button type="button" disabled={archivingSessionId !== null}
-              className="ml-2 cursor-pointer underline disabled:opacity-50"
-              onClick={() => void changeSessionArchive(archiveFailure.session, archiveFailure.archived)}>{t("sidebar.retryArchive")}</button>
-          </div>}
-        </div>
-        <SessionSearch open={sessionSearchOpen} query={sessionSearchQuery} archiveScope={archiveScope} archiveVersion={archiveFingerprint}
+        <SidebarFilterSummary filters={{query:sessionSearchQuery, taskId:taskFilter, archive:archiveScope}} tasks={tasks ?? null} onReset={resetSearchFilters} />
+        {taskState.failed && !sessionSearchOpen && <div role="alert" className="px-3 py-2 text-xs text-red-400">{t("sidebar.tasksUnavailable")} <button type="button" className="underline" onClick={() => void taskState.reload()}>{t("sidebar.tasksReload")}</button></div>}
+        {archiveFailure && <div role="alert" className="px-3 py-2 text-xs text-red-400">
+          {t("sidebar.sessionArchiveFailed")}
+          <button type="button" disabled={archivingSessionId !== null} className="ml-2 cursor-pointer underline disabled:opacity-50"
+            onClick={() => void changeSessionArchive(archiveFailure.session, archiveFailure.archived)}>{t("sidebar.retryArchive")}</button>
+        </div>}
+        <SessionSearch open={sessionSearchActive} query={sessionSearchQuery} archiveScope={archiveScope} archiveVersion={archiveFingerprint}
           taskId={taskFilter} taskVersion={taskState.membershipVersion} selectedSessionId={selectedSessionId} onSelectSession={handleSelectSessionFromList}>
         <div
           ref={listScrollRef}

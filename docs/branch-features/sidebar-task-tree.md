@@ -1,5 +1,7 @@
 # F38 — 项目 → Task → 对话的可选侧栏层级与任务检索
 
+当前检索/筛选呈现由 [F39 统一入口](sidebar-search-filters.md) 接管：不再常驻 Task/归档下拉，面板关闭仍保持筛选与正文结果；本合同的树、归属和搜索范围不变。
+
 固定开发起点：`4e7e720`（feature/task-dashboard）。本合同记录用户确认的产品行为；任务仍是 [GLOSSARY](../../GLOSSARY.md) 定义的管理归属，不是执行或共享上下文。
 
 ## 目的、入口与默认值
@@ -16,7 +18,7 @@
 2. **分组身份。** 用 task UUID、服务端 projectKey 和结构化组合 key，不以标题或路径 basename 去重。未归属会话进入“未关联任务”；Task 归档不移除其仍在日常范围的会话。空 Task 平时不占满树，但可通过搜索选择，显示任务节点、零对话说明和详情入口；all 范围补出其没有 session 的项目。
 3. **会话族。** 持续隐藏 subagent 独立行。没有显式归属的 subagent 跟随最近显式拥有者的祖先，fork 不通过父来源继承显示归属；显式 child owner 优先。这仅是显示/搜索投影，不写 owner。历史跨任务族可在多个 Task 下显示同一上下文根行；非本组拥有的根明确标注“为关联的子代理显示主对话”，活动/选中标记仅聚合本组成员。点击仍打开原根对话，全文结果可直接打开真正匹配的后代。孤儿/循环不会被提升为树根。
 4. **折叠与预览。** Task 默认折叠，当前选择所属 Task 在初次就绪、切换选择、owner 改变或开启树时揭示一次；普通数据刷新不反复展开手动折叠的 Task。展开后默认五个会话族根，更多/收起独立于 Task 折叠；未关联组相同。按组成员最新活动排序，Task 组按最近族活动排序、未关联组最后。Task 折叠/更多状态只在组件内存，刷新重置；项目折叠仍沿用 F03 持久偏好。Task 展开不能修改旧项目更多状态，关闭树恢复原项目预览。
-5. **任务搜索与选择。** 搜索标题、说明、完成标准（trim、大小写不敏感字面包含），复用 F23 `taskMatchesText`；不搜索原始对话、标签、归档报告。下拉候选按当前项目范围，all 标注项目路径；已归档 Task 带标记但仍可选。选择仅筛选左侧，不切换聊天、不修改关系/状态，不写 savedViews。选中 Task 或未关联组连同包含的项目自动展开，有明确清除入口；空态按折叠前的匹配族集合判断，不能把折叠误报为空。已有选择即使不匹配新的关键词/项目仍保留可见，不能静默放宽。
+5. **任务搜索与选择。** 搜索标题、说明、完成标准（trim、大小写不敏感字面包含），复用 F23 `taskMatchesText`；不搜索原始对话、标签、归档报告。面板的任务列表候选按当前项目范围，all 标注项目路径；已归档 Task 带标记但仍可选。选择仅筛选左侧，不切换聊天、不修改关系/状态，不写 savedViews。选中 Task 或未关联组连同包含的项目自动展开，有明确清除入口；空态按折叠前的匹配族集合判断，不能把折叠误报为空。已有选择即使不匹配新的关键词/项目仍保留可见，不能静默放宽。
 6. **正文搜索。** 已选择 Task 时添加 `taskId`，选择未关联时添加 `taskId=unlinked`；清除后恢复原全局检索。服务端先解析完整 owner/祖先，再交集对话归档 scope，再执行原 500 文件/30 结果/3 秒扫描限制。任务不存在 404、task store 无法读 503，均不退回全局。相同关键词切换任务、归属变化或归档变化会重搜；迟到/取消结果不得覆盖当前条件。不把全局截断结果拿到客户端后过滤。
 7. **归档与错误。** Task 与 Session 归档独立。归档范围控制会话可见性，不推导 Task owner；计数使用当前项目/Task 会话族集合。读取失败保留旧完整目录、选择和结果，并提示可能过期及 Reload；初次目录失败时回退既有项目列表并提示错误，任务选择不可用。session refreshKey（含复制/fork）/focus/online/visibility/tasks-changed 校准不自动重绑、恢复、归档或重试报告。不存在跨文件事务快照承诺。
 8. **键盘与虚拟化。** 项目、Task、session、各自更多行进入同一固定 54px 行模型，逻辑导航不限挂载窗口。Right 展开/进入下一层，Left 收起/回父 Task/项目；Home/End/Enter 继续工作，局部输入/IME/菜单优先。Alt+Left 揭示选中族及其 Task/更多，必要时清除不兼容的任务筛选，不改变当前聊天。非树的旧键盘/预览行为保持。
@@ -30,7 +32,7 @@
 - [task-view](../../lib/task-view.ts)：任务文本匹配与看板共用，不新增另一套字段规则。
 - [useSidebarTasks](../../hooks/useSidebarTasks.ts)：一个目录快照、取消过期请求、错误保留和显式重读；不是 N+1 归属查询。
 - [sidebar-task-rows](../../lib/sidebar-task-rows.ts)、[sidebar-project-rows](../../lib/sidebar-project-rows.ts)、[sidebar-keyboard](../../lib/sidebar-keyboard.ts)：分组/稳定 key/preview/导航。
-- [SessionSidebar](../../components/SessionSidebar.tsx)、[SidebarTaskFilter](../../components/SidebarTaskFilter.tsx)、[SidebarTaskGroup](../../components/SidebarTaskGroup.tsx)、[SessionSearch](../../components/SessionSearch.tsx)：过滤、节点、选择揭示及正文范围。
+- [SessionSidebar](../../components/SessionSidebar.tsx)、[SidebarSearchControls](../../components/SidebarSearchControls.tsx)、[SidebarTaskGroup](../../components/SidebarTaskGroup.tsx)、[SessionSearch](../../components/SessionSearch.tsx)：过滤、节点、选择揭示及正文范围。
 - [SettingsPanel](../../components/SettingsPanel.tsx)、[sidebar-view-preference](../../lib/sidebar-view-preference.ts)：已有设置区扩展与跨标签偏好。
 - [en](../../lib/i18n/messages/en.ts)、[zh-CN](../../lib/i18n/messages/zh-CN.ts)、[zh-TW](../../lib/i18n/messages/zh-TW.ts)：三语言一致。
 

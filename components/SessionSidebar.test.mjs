@@ -1,9 +1,15 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { registerHooks } from "node:module";
 import test from "node:test";
 import { createJiti } from "jiti";
 import ts from "typescript";
 
+// CSS is a bundler artifact. Browser acceptance exercises the actual stylesheet.
+registerHooks({ load(url, context, nextLoad) {
+  if (!url.endsWith("/SidebarSearchControls.module.css")) return nextLoad(url, context);
+  return {format:"module", shortCircuit:true, source:"export default new Proxy({}, {get:(_, key)=>String(key)});"};
+} });
 const jiti = createJiti(import.meta.url, { jsx: { runtime: "automatic" }, tsconfigPaths: true });
 const { getSessionListIndices } = await jiti.import("./SessionSidebar.tsx");
 

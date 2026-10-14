@@ -7,7 +7,7 @@
 
 ## Sidebar task tree (F38)
 
-General → Sidebar places the opt-in `Group conversations by task` switch beside the existing all-projects switch, using the same ConfigSwitch and browser-only `sidebar-view-preference`. No new view/section or server setting: missing `taskTree` remains off, toggles apply immediately and sync same-origin tabs. Turning off removes only the intermediate Task layer; task search/filter remains available. See [F38](../branch-features/sidebar-task-tree.md); task UI preferences are not Task membership or model configuration.
+General → Sidebar places the opt-in `Group conversations by task` switch beside the existing all-projects switch, using the same ConfigSwitch and browser-only `sidebar-view-preference`. No new view/section or server setting: missing `taskTree` remains off, toggles apply immediately and sync same-origin tabs. Turning off removes only the intermediate Task layer; task search/filter remains available through [F39's unified toolbar popover/sheet](../branch-features/sidebar-search-filters.md), not permanent selects. The contextual filter UI is not a Settings pane; its condition controls do not alter the Task-tree browser preference. See [F38](../branch-features/sidebar-task-tree.md); task UI preferences are not Task membership or model configuration.
 
 ## Task-board column settings
 

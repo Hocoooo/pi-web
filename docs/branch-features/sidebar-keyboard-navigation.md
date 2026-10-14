@@ -1,5 +1,9 @@
 # 侧边栏键盘导航与面板切换
 
+## F39 检索面板
+
+[统一入口](sidebar-search-filters.md)按需打开，Escape仅在面板内capture、IME候选优先；桌面焦点离开或更高弹窗接管时关闭下层浮层，不清条件。返回/选项切页保持有效焦点，reset后按钮disabled也不逃离Tab循环。Task子页ArrowDown进入选项、Up/Down/Home/End/Enter选择；手机modal约束焦点。普通关闭不清查询，Alt+Left仍是原明确的回树/揭示行为，可清正文关键词；手机sheet局部桥接原AppShell回调，Alt+Right收起sheet/drawer并保留筛选，不放宽其他modal的global guard。跨640px关闭面板，隐藏入口回退可见侧栏开关。新Portal不应误停止Agent，旧列表行与虚拟键盘模型不变。
+
 ## F38 Task 行扩展
 
 [可选任务树](sidebar-task-tree.md)添加 `task` / `task-more` 行，继续同一 54px 扁平虚拟窗口。项目 Right 进入 Task，Task Right 展开/进入对话，session Left 回 Task、Task Left 收起再回项目。行 key 使用 Task ID+projectKey 结构化组合，历史跨任务族根也能区分。Alt+Left 揭示当前选择所属 Task/更多并聚焦族根，必要时清除不兼容任务筛选；不改变聊天，不改旧项目更多状态。输入、IME、内联动作优先级不变；关闭树保留原导航。浏览器 `e2e/sidebar-task-tree.mjs` 覆盖三层、刷新、手动折叠与正文检索状态；原旧源码断言不替代浏览器验证。
