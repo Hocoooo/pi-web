@@ -1,5 +1,12 @@
 # 全项目侧边栏
 
+## 子目录会话导航回归
+
+- benchmark 等通过 API 在仓库子目录创建的会话仍保留该子目录的独立项目身份；Git 返回的 worktree 列表不表示这些 worktree 属于子目录项目。
+- `SessionSidebar.projectFor` 仅在缓存来源 cwd 的 `isTopLevel` 为 true 时，将其项目身份用于列表中的其他 worktree。精确 cwd 仍使用服务端身份；顶层 worktree 间的无会话目录切换保持原行为。
+- 显式从子目录会话点击仓库根目录旧会话时，不得被旧 worktree 缓存触发的 `onCwdChange` 清空选择和 `?session=`。
+- 回归：`node --test components/SessionSidebar.project-identity.test.mjs` 覆盖 Windows/POSIX、子目录自身身份与顶层 sibling；`E2E_BASE_URL=<当前源码服务> node e2e/sidebar-subdirectory-navigation.mjs` 用隔离 API fixtures 覆盖点击与刷新，故意延迟新 worktree 响应，不修改真实会话。
+
 ## 目的、用户价值与范围
 
 在一个会话列表中查看多个项目及其运行/未读状态，减少反复切换项目选择器。本契约用于修改侧边栏模式、项目分组、偏好存储或 rebase 相关代码时。

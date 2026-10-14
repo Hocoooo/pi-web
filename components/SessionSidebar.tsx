@@ -916,9 +916,12 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     if (worktreeState && worktreeState.forCwd === cwd) {
       return projectSelection(worktreeState.projectRoot, worktreeState.projectKey);
     }
-    // Any path in the loaded worktree list belongs to that project — covers
-    // worktrees without sessions, so switching to them keeps the row mounted.
-    if (worktreeState?.worktrees.some((w) => w.path === cwd)) {
+    // Only a top-level cwd shares its identity with the listed worktrees.
+    // Git also lists these from subdirectories, whose project identity is
+    // intentionally separate. Reusing that identity would undo an explicit
+    // click on a repository session before its worktree request completes.
+    // Retain the shortcut for top-level siblings without sessions.
+    if (worktreeState?.isTopLevel && worktreeState.worktrees.some((w) => w.path === cwd)) {
       return projectSelection(worktreeState.projectRoot, worktreeState.projectKey);
     }
     const match = allSessions.find((session) => (
