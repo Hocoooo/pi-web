@@ -117,6 +117,8 @@ export const enLocale: LocalePlugin = {
     "tasks.linkSessions": "Link existing chats",
     "tasks.linkSelected": "Link selected chats",
     "tasks.refreshSessions": "Refresh chats",
+    "tasks.showMoreSessions": "Show more ({count})",
+    "tasks.showFewerSessions": "Show fewer",
     "tasks.sessionActions": "Chat actions",
     "tasks.removeSession": "Remove",
     "tasks.removeSessionHint": "Remove from this task without deleting the chat",

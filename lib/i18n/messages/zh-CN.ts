@@ -119,6 +119,8 @@ export const zhCNLocale: LocalePlugin = {
     "tasks.linkSessions": "关联已有对话",
     "tasks.linkSelected": "关联所选对话",
     "tasks.refreshSessions": "刷新对话",
+    "tasks.showMoreSessions": "展开更多（{count} 个）",
+    "tasks.showFewerSessions": "收起更多",
     "tasks.sessionActions": "对话操作",
     "tasks.removeSession": "移除",
     "tasks.removeSessionHint": "从此任务移除，不删除对话",

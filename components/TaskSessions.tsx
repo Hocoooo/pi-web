@@ -1,12 +1,14 @@
 "use client";
 
-import { useCallback, useContext, useEffect, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useId, useRef, useState } from "react";
 import { TaskPanelNavigation } from "./task-panel-navigation";
 import { TaskSessionMenu } from "./TaskSessionMenu";
 import Link from "next/link";
 import { useI18n } from "@/hooks/useI18n";
 import { TASK_SESSION_BATCH_LIMIT, type TaskRecord, type TaskRequest, type TaskSessionInfo, type TaskSessionsResult, type TaskSessionActivity, type TaskRelationRequest } from "@/lib/task-types";
 import styles from "./TaskDashboard.module.css";
+
+const TASK_SESSION_PREVIEW_LIMIT = 5;
 
 export function TaskSessions({ task, active = true, currentSessionId, disabled, onLink, onRemove, newOperationId, runningIds, sessionActivity }: {
   active?: boolean;
@@ -20,6 +22,9 @@ export function TaskSessions({ task, active = true, currentSessionId, disabled, 
   const { t } = useI18n();
   const navigate = useContext(TaskPanelNavigation);
   const [linking, setLinking] = useState(false);
+  // Dashboard caches one keyed inspector per task; expansion stays task-local.
+  const [expanded, setExpanded] = useState(false);
+  const listId = useId();
   const [data, setData] = useState<TaskSessionsResult | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -74,8 +79,9 @@ export function TaskSessions({ task, active = true, currentSessionId, disabled, 
       {error && <div role="alert" className={styles.error}>{error}</div>}
       {data && <>
         {data.linked.length === 0 && <p className={styles.hint}>{t("tasks.noLinkedSessions")}</p>}
-        <ul className={styles.sessionList} aria-label={t("tasks.linkedSessions")}>
-          {data.linked.map((session) => <li key={session.id}>
+        <ul id={listId} className={styles.sessionList} aria-label={t("tasks.linkedSessions")}>
+          {/* Keep hidden rows mounted so collapse cannot discard an exact removal retry. */}
+          {data.linked.map((session, index) => <li key={session.id} hidden={!expanded && index >= TASK_SESSION_PREVIEW_LIMIT}>
             <div className={styles.sessionInfo}>
             <div className={styles.sessionTitleRow}>
             {session.missing ? <span>{session.id}</span> : <Link prefetch={false} href={`/?session=${encodeURIComponent(session.id)}`} onClick={event => {
@@ -88,13 +94,17 @@ export function TaskSessions({ task, active = true, currentSessionId, disabled, 
             <span className={styles.sessionState} data-working={runningIds?.has(session.id) || undefined}>{hint(session)}</span>
             {task.project && session.cwd && session.cwd !== task.project.cwd && <p className={styles.sessionPath} title={session.cwd}>{session.cwd}</p>}
             </div>
-            <TaskSessionMenu key={`${session.id}:${removalIntent}`} session={session} taskId={task.id} active={active} disabled={disabled || loading}
+            <TaskSessionMenu key={`${session.id}:${removalIntent}`} session={session} taskId={task.id} active={active && (expanded || index < TASK_SESSION_PREVIEW_LIMIT)} disabled={disabled || loading}
               newOperationId={newOperationId} onRemove={async request => {
                 try { await onRemove(request); setError(null); }
                 catch (cause) { setError((cause as Error).message); throw cause; }
               }} />
           </li>)}
         </ul>
+        {data.linked.length > TASK_SESSION_PREVIEW_LIMIT && <button type="button" className={`${styles.quietButton} ${styles.sessionListToggle}`}
+          aria-expanded={expanded} aria-controls={listId} onClick={() => setExpanded(value => !value)}>
+          {expanded ? t("tasks.showFewerSessions") : t("tasks.showMoreSessions", { count: data.linked.length - TASK_SESSION_PREVIEW_LIMIT })}
+        </button>}
         {linking && <><p className={styles.hint}>{t("tasks.linkPolicy")}</p><fieldset disabled={disabled || loading}>
           <legend>{t("tasks.linkSessions")}</legend>
           {data.candidates.length === 0 && <p>{t("tasks.noCandidates")}</p>}

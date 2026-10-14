@@ -77,7 +77,9 @@
 .dashboard button.smallIconButton { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 28px; height: 28px; min-height: 28px; padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--text-muted); }
 .sessionList { list-style: none; padding: 0; margin: 6px 0 0; }
 .sessionList li { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.sessionList li[hidden] { display: none; }
 .sessionList li:last-child { border-bottom: 0; }
+.dashboard button.sessionListToggle { display: block; width: 100%; margin-top: 6px; }
 .sessionInfo { flex: 1; min-width: 0; }
 .sessionMenuContainer { position: relative; flex: none; }
 .sessionMenu { position: absolute; top: calc(100% + 4px); right: 0; z-index: 3; min-width: 140px; padding: 6px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-panel); color: var(--text); box-shadow: 0 8px 24px #0004; font-size: 13px; }

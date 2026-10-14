@@ -15,6 +15,21 @@
 - `components/AppShell*.test.mjs`、`components/ChatWindow*.test.mjs`、`components/TaskDashboard.navigation.test.mjs`、`lib/i18n/*.test.mjs`：导航、草稿、删除后新 composer、三语言及其既有回归；任务直达只消费最新读取的结果，失败可重试、缺失目标明确提示、普通 mutation 失败不被自动刷新抹掉。当前合计 79 项通过。
 - `e2e/task-dashboard-panel.mjs`：真实浏览器/隔离 task store，session 目录与关系为合成响应；默认多对话列表、任务归属直达（含关闭期间在另一标签页新增的任务）、详情仅“移除”菜单（键盘/IME/Escape/Tab/点外部/隐藏后关闭/失败与丢响应精确重试/窄屏主题）、解除/归档、关联失败提示保留、读取失败为未知、旧 URL 拒绝与重新打开保留草稿、Escape/IME/焦点、关闭停止加载、三语言×浅深色390px、零共享请求/零 Agent 写请求。任务编辑/移动/归档使用真实临时 store；不替代服务端 scope/CAS/SDK 测试。
 
+## 关联对话五条预览回归
+
+执行 `env -u NODE_OPTIONS node e2e/task-session-previews.mjs`（需已安装 Playwright Chromium；无 Next 服务要求）。测试使用真实 TaskPanel、TaskDashboard、TaskSessions、TaskSessionMenu 与 CSS；只替代 Next URL context 和 API 数据，全部网络被拦截，零用户数据写入/SDK/模型调用。
+
+三语言 × 桌面 1100px/窄屏 390px 覆盖：
+
+- 0/1/4/5/6/20 边界，默认五条、剩余数量、展开全部/收起，总数和原 API 顺序不变。
+- Enter/空格切换、`aria-expanded`/`aria-controls`、按钮焦点保留，隐藏行离开可访问树，展开/收起零任务请求。
+- 两任务展开状态独立，切任务、收详情、关浮层/重开保持状态；完整页面刷新恢复默认五条。
+- 隐藏的当前/运行中对话不自动展开，完整卡片运行数保留；缺失行仍能展开查看/移除。
+- 第六条移除失败后，折叠/重展开/切任务仍使用完全相同的请求 UUID 与 CAS；缺失行移除使用真实非零关系版本，减到五条按钮消失。
+- 普通关联、刷新保持展开状态和可见条目数，会话切换不发送 Agent 写请求、不主动折叠，三语言两种宽度无横向溢出或浏览器错误。
+
+fixture 不替代服务端 scope/CAS/SDK 专项测试，不覆盖生产部署、真实 provider、Safari/iOS/Windows 真机或极端列表规模。此脚本为独立专项入口，不由 `npm run test:e2e` 自动调用。
+
 ## F35 一次性联动归档回归
 
 - `lib/task-session-archive.test.mjs`：真实 SDK/临时 board+sidecar，固定范围、多级族/跨任务双向确认、owner ABA/迟到成员、缺失/未落盘/非UUID/孤儿跳过、部分失败/pending/重启确认、恢复任务栅栏和不覆盖后来的手动会话恢复。
