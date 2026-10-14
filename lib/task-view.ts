@@ -1,4 +1,4 @@
-import { compareTaskPriority, isTaskColumnId, isTaskLabel, isTaskPriority, type TaskBoard, type TaskFilter, type TaskRecord, type TaskSort } from "./task-types";
+import { compareTaskPriority, isTaskColumnId, isTaskLabel, isTaskPriority, type TaskBoard, type TaskDetails, type TaskFilter, type TaskRecord, type TaskSort } from "./task-types";
 
 export const emptyTaskFilter = (): TaskFilter => ({ text: "", project: null, columnIds: [], priorities: [], labels: [], activity: "all" });
 export function isTaskSort(value: unknown): value is TaskSort { return value === "manual" || value === "priority" || value === "updated"; }
@@ -20,11 +20,15 @@ export function taskActivity(task: TaskRecord, runningIds: ReadonlySet<string> |
   if (runningIds === null || stale) return "unknown";
   return task.sessionIds.some((id) => runningIds.has(id)) ? "working" : "idle";
 }
+/** Shared browser-safe literal task text matching for board and sidebar projections. */
+export function taskMatchesText(task: Pick<TaskDetails, "title" | "description" | "completionCriteria">, query: string): boolean {
+  const text = query.trim().toLowerCase();
+  return !text || [task.title, task.description, task.completionCriteria].some(field => field.toLowerCase().includes(text));
+}
 /** Fail closed on removed/unknown column IDs. 14 can consume this without dropping the condition. */
 export function projectTaskView(board: TaskBoard, filter: TaskFilter, sort: TaskSort, runningIds: ReadonlySet<string> | null, stale = false): { tasks: TaskRecord[]; invalid: boolean } {
   if (!validTaskFilter(filter) || !isTaskSort(sort) || filter.columnIds.some((id) => !board.columns.some((column) => column.id === id))) return { tasks: [], invalid: true };
-  const text = filter.text.trim().toLowerCase();
-  const tasks = board.tasks.filter((task) => (!text || [task.title, task.description, task.completionCriteria].some((field) => field.toLowerCase().includes(text)))
+  const tasks = board.tasks.filter((task) => taskMatchesText(task, filter.text)
     && (filter.project === null || (task.project?.projectKey ?? null) === filter.project.key)
     && (!filter.columnIds.length || filter.columnIds.includes(task.columnId))
     && (!filter.priorities.length || filter.priorities.includes(task.priority))

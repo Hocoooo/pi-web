@@ -17,6 +17,11 @@ import { useI18n } from "@/hooks/useI18n";
 import { useResizablePanel } from "@/hooks/useResizablePanel";
 import { useScrollbarVisibility } from "@/hooks/useScrollbarVisibility";
 import { useSidebarView } from "@/hooks/useSidebarView";
+import { useSidebarTasks } from "@/hooks/useSidebarTasks";
+import { buildSidebarFilteredRows, buildSidebarTaskRows, sidebarTaskKey, taskFilteredFamilyRows } from "@/lib/sidebar-task-rows";
+import { taskOwnersForSessions } from "@/lib/task-membership";
+import { SidebarTaskFilter } from "./SidebarTaskFilter";
+import { SidebarTaskGroup } from "./SidebarTaskGroup";
 import { setSidebarProjectCollapsed } from "@/lib/sidebar-view-preference";
 import { buildSidebarProjectRows, type SidebarProjectRow } from "@/lib/sidebar-project-rows";
 import { sidebarKeyboardAction, sidebarRowKey } from "@/lib/sidebar-keyboard";
@@ -218,7 +223,7 @@ function sessionListUrl(summary: boolean, force: boolean): string {
 }
 
 interface Props {
-  onOpenTasks?: () => void;
+  onOpenTasks?: (taskId?: string) => void;
   selectedSessionId: string | null;
   onSelectSession: (session: SessionInfo, isRestore?: boolean, entryId?: string, blockIndex?: number) => void;
   onNewSession?: (sessionId: string, cwd: string) => void;
@@ -511,6 +516,37 @@ export function SessionSidebar({ onOpenTasks, selectedSessionId, onSelectSession
   const sidebarView = useSidebarView();
   const showAllProjects = sidebarView.mode === "all";
   const [expandedProjects, setExpandedProjects] = useState<string[]>([]);
+  const taskState = useSidebarTasks(refreshKey);
+  const tasks = taskState.catalog?.tasks;
+  const [taskFilter, setTaskFilter] = useState<string | null>(null);
+  const [expandedTasks, setExpandedTasks] = useState<Set<string>>(() => new Set());
+  const [expandedTaskPreviews, setExpandedTaskPreviews] = useState<Set<string>>(() => new Set());
+  const taskTree = Boolean(sidebarView.taskTree) && tasks !== undefined;
+  const chooseTaskFilter = (id: string | null) => {
+    setTaskFilter(id);
+    const task = tasks?.find(task => task.id === id);
+    if (task) {
+      const projectKey = task.project?.projectKey ?? CHAT_WORKSPACE_KEY;
+      setExpandedTasks(current => new Set(current).add(sidebarTaskKey(projectKey, task.id)));
+      if (showAllProjects) setSidebarProjectCollapsed(projectKey, false);
+    } else if (id === "unlinked" && tasks) {
+      const unlinkedProjects = new Set(taskFilteredFamilyRows(allSessions, tasks, "unlinked").map(row => workspaceKeyOf(row.family.root)));
+      setExpandedTasks(current => {
+        const next = new Set(current);
+        for (const projectKey of unlinkedProjects) next.add(sidebarTaskKey(projectKey, null));
+        return next;
+      });
+      if (showAllProjects) for (const projectKey of unlinkedProjects) setSidebarProjectCollapsed(projectKey, false);
+    }
+  };
+  const toggleTaskGroup = (key: string, expanded: boolean, preview = false) => {
+    const update = (current: Set<string>) => {
+      const next = new Set(current);
+      if (expanded) next.add(key); else next.delete(key);
+      return next;
+    };
+    (preview ? setExpandedTaskPreviews : setExpandedTasks)(update);
+  };
   // Tracked in a ref only: the version is compared against the polled value to
   // decide whether the list needs reloading, and no render reads it.
   const sessionListVersionRef = useRef<number | null>(null);
@@ -1255,6 +1291,21 @@ export function SessionSidebar({ onOpenTasks, selectedSessionId, onSelectSession
     [allSessions, runningSessionIds, unreadSessionIds],
   );
 
+  const taskGroupActivity = useMemo(() => {
+    const counts = new Map<string, { running: number; unread: number }>();
+    if (!tasks || !taskTree) return counts;
+    const owners = taskOwnersForSessions(tasks, allSessions);
+    for (const session of allSessions) {
+      if (Boolean(session.archived) !== (archiveScope === "archived")) continue;
+      const key = sidebarTaskKey(workspaceKeyOf(session), owners.get(session.id) ?? null);
+      const count = counts.get(key) ?? { running: 0, unread: 0 };
+      if (runningSessionIds.has(session.id)) count.running++;
+      if (unreadSessionIds.has(session.id)) count.unread++;
+      counts.set(key, count);
+    }
+    return counts;
+  }, [allSessions, tasks, taskTree, archiveScope, runningSessionIds, unreadSessionIds]);
+
   // Any activity in a project other than the one currently selected — shown as
   // a dot on the (collapsed) selector button so it is visible without opening
   // the dropdown.
@@ -1301,8 +1352,15 @@ export function SessionSidebar({ onOpenTasks, selectedSessionId, onSelectSession
   const scopedSessions = useMemo(() => sessionsInArchiveScope(allSessions, archiveScope), [allSessions, archiveScope]);
   const sessionFamilies = useMemo(() => listSessionFamilies(filteredSessions)
     .filter(family => Boolean(family.root.archived) === (archiveScope === "archived")), [filteredSessions, archiveScope]);
-  const archivedCount = useMemo(() => listSessionFamilies(showAllProjects ? allSessions : filteredSessions)
-    .filter(family => family.root.archived).length, [showAllProjects, allSessions, filteredSessions]);
+  const taskFamilies = useMemo(() => tasks && taskFilter ? taskFilteredFamilyRows(allSessions, tasks, taskFilter).map(row => row.family) : null,
+    [allSessions, tasks, taskFilter]);
+  const taskMatchCount = useMemo(() => (taskFamilies ?? []).filter(family => Boolean(family.root.archived) === (archiveScope === "archived")
+    && (showAllProjects || !selectedProject || workspaceKeyOf(family.root) === selectedProject.key)).length,
+  [taskFamilies, archiveScope, showAllProjects, selectedProject]);
+  const archivedCount = useMemo(() => {
+    const families = taskFamilies ?? listSessionFamilies(allSessions);
+    return families.filter(family => family.root.archived && (showAllProjects || !selectedProject || workspaceKeyOf(family.root) === selectedProject.key)).length;
+  }, [showAllProjects, allSessions, selectedProject, taskFamilies]);
   const activeProjectKey = selectedProject?.key;
   const activeProjectRoot = selectedProject?.root;
   const projectRows = useMemo(() => showAllProjects ? buildSidebarProjectRows(
@@ -1311,9 +1369,24 @@ export function SessionSidebar({ onOpenTasks, selectedSessionId, onSelectSession
     activeProjectKey && activeProjectRoot ? { key: activeProjectKey, root: activeProjectRoot } : null,
     expandedProjects,
   ) : [], [showAllProjects, scopedSessions, sidebarView.collapsedProjects, activeProjectKey, activeProjectRoot, expandedProjects]);
-  const listRows = useMemo<SidebarProjectRow[]>(() => showAllProjects
-    ? projectRows
-    : sessionFamilies.map((family) => ({ kind: "session", family })), [showAllProjects, projectRows, sessionFamilies]);
+  const listRows = useMemo<SidebarProjectRow[]>(() => taskTree && tasks ? buildSidebarTaskRows(allSessions, tasks, {
+    allProjects: showAllProjects, activeProject: selectedProject, archived: archiveScope === "archived",
+    collapsedProjects: sidebarView.collapsedProjects, expandedTasks, expandedPreviews: expandedTaskPreviews, taskFilter,
+  }) : tasks && taskFilter ? buildSidebarFilteredRows(allSessions, tasks, taskFilter, {
+    allProjects: showAllProjects, activeProject: selectedProject, archived: archiveScope === "archived",
+    collapsedProjects: sidebarView.collapsedProjects, expandedProjects,
+  }) : showAllProjects ? projectRows : sessionFamilies.map((family) => ({ kind: "session", family })),
+  [taskTree, tasks, allSessions, showAllProjects, selectedProject, archiveScope, sidebarView.collapsedProjects, expandedTasks, expandedTaskPreviews, expandedProjects, taskFilter, projectRows, sessionFamilies]);
+
+  // Reveal once when selection/ownership changes, not on ordinary refreshes.
+  const selectedTaskKey = useMemo(() => {
+    const session = allSessions.find(item => item.id === selectedSessionId);
+    if (!session || !tasks) return null;
+    return sidebarTaskKey(workspaceKeyOf(session), taskOwnersForSessions(tasks, allSessions).get(session.id) ?? null);
+  }, [allSessions, tasks, selectedSessionId]);
+  useEffect(() => {
+    if (taskTree && selectedTaskKey) setExpandedTasks(current => new Set(current).add(selectedTaskKey));
+  }, [taskTree, selectedTaskKey, selectedSessionId]);
 
   // Selection via URL/search/another panel should reveal its project, while
   // manually collapsing the active project must not immediately reopen it.
@@ -1327,7 +1400,7 @@ export function SessionSidebar({ onOpenTasks, selectedSessionId, onSelectSession
     setDropdownOpen(false);
     setWtDropdownOpen(false);
     closeSessionMenu();
-  }, [showAllProjects, archiveScope, closeSessionMenu]);
+  }, [showAllProjects, archiveScope, taskFilter, taskTree, closeSessionMenu]);
 
   const rowKeys = useMemo(() => listRows.map(sidebarRowKey), [listRows]);
   const tabStopKey = rowKeys.includes(keyboardRowKey ?? "") ? keyboardRowKey : rowKeys[0];
@@ -1348,15 +1421,26 @@ export function SessionSidebar({ onOpenTasks, selectedSessionId, onSelectSession
       const family = listSessionFamilies(showAllProjects ? allSessions : filteredSessions)
         .find(({ root, subagents }) => root.id === selectedSessionId || subagents.some((session) => session.id === selectedSessionId));
       if (family) setArchiveScope(family.root.archived ? "archived" : "active");
+      const owner = family && tasks ? taskOwnersForSessions(tasks, allSessions).get(selectedSessionId ?? family.root.id) ?? null : null;
+      const clearingTaskFilter = Boolean(family && tasks && taskFilter && taskFilter !== (owner ?? "unlinked"));
+      if (clearingTaskFilter) setTaskFilter(null);
       if (family && showAllProjects) {
         const projectKey = workspaceKeyOf(family.root);
         setSidebarProjectCollapsed(projectKey, false);
         // The selected family may be outside the project's five-row preview.
-        if (!listRows.some((row) => row.kind === "session" && row.family.root.id === family.root.id)) {
+        if (!taskTree && (clearingTaskFilter || !listRows.some((row) => row.kind === "session" && row.family.root.id === family.root.id))) {
           setExpandedProjects((current) => current.includes(projectKey) ? current : [...current, projectKey]);
         }
       }
-      const key = family ? `session:${family.root.id}` : rowKeys[0] ?? "";
+      let key = family ? `session:${family.root.id}` : rowKeys[0] ?? "";
+      if (family && tasks) {
+        if (taskTree) {
+          const taskKey = sidebarTaskKey(workspaceKeyOf(family.root), owner);
+          setExpandedTasks(current => new Set(current).add(taskKey));
+          setExpandedTaskPreviews(current => new Set(current).add(taskKey));
+          key = `session:${family.root.id}:task:${taskKey}`;
+        }
+      }
       setKeyboardRowKey(key);
       setPendingFocusKey(key);
     };
@@ -1422,12 +1506,17 @@ export function SessionSidebar({ onOpenTasks, selectedSessionId, onSelectSession
     event.stopPropagation();
     if (action.kind === "focus") requestRowFocus(action.index);
     else if (action.kind === "activate") {
-      if (listRows[index].kind === "more") requestRowFocus(index);
+      if (listRows[index].kind === "more" || listRows[index].kind === "task-more") requestRowFocus(index);
       target.click();
     }
     else if (action.kind === "expand") {
       const row = listRows[index];
       if (row.kind === "project") setSidebarProjectCollapsed(row.project.key, !action.expanded);
+      if (row.kind === "task") toggleTaskGroup(row.taskKey, action.expanded);
+      if (row.kind === "task-more") {
+        toggleTaskGroup(row.taskKey, action.expanded, true);
+        requestRowFocus(index);
+      }
       if (row.kind === "more") {
         setExpandedProjects((current) => action.expanded
           ? [...current.filter((key) => key !== row.project.key), row.project.key]
@@ -1757,7 +1846,7 @@ export function SessionSidebar({ onOpenTasks, selectedSessionId, onSelectSession
             value={sessionSearchQuery}
             maxLength={200}
             aria-label={t("sidebar.searchSessions")}
-            placeholder={t("sidebar.searchSessions")}
+            placeholder={t(taskFilter ? "sidebar.searchTaskConversations" : "sidebar.searchSessions")}
             onChange={(event) => setSessionSearchQuery(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Escape") {
@@ -2135,6 +2224,9 @@ export function SessionSidebar({ onOpenTasks, selectedSessionId, onSelectSession
           overflow: "hidden",
         }}
       >
+        <SidebarTaskFilter tasks={tasks ?? null} projectKey={showAllProjects ? null : selectedProject?.key ?? null}
+          selectedId={taskFilter} onSelect={chooseTaskFilter} loading={taskState.loading} failed={taskState.failed}
+          onReload={() => void taskState.reload()} onDetails={id => onOpenTasks?.(id)} />
         <div className="shrink-0 px-3 py-2">
           <select aria-label={t("sidebar.sessionListScope")} value={archiveScope}
             onChange={event => setArchiveScope(event.target.value as SessionArchiveScope)}
@@ -2149,7 +2241,8 @@ export function SessionSidebar({ onOpenTasks, selectedSessionId, onSelectSession
               onClick={() => void changeSessionArchive(archiveFailure.session, archiveFailure.archived)}>{t("sidebar.retryArchive")}</button>
           </div>}
         </div>
-        <SessionSearch open={sessionSearchOpen} query={sessionSearchQuery} archiveScope={archiveScope} archiveVersion={archiveFingerprint} selectedSessionId={selectedSessionId} onSelectSession={handleSelectSessionFromList}>
+        <SessionSearch open={sessionSearchOpen} query={sessionSearchQuery} archiveScope={archiveScope} archiveVersion={archiveFingerprint}
+          taskId={taskFilter} taskVersion={taskState.membershipVersion} selectedSessionId={selectedSessionId} onSelectSession={handleSelectSessionFromList}>
         <div
           ref={listScrollRef}
           tabIndex={listRows.length === 0 ? 0 : -1}
@@ -2185,9 +2278,9 @@ export function SessionSidebar({ onOpenTasks, selectedSessionId, onSelectSession
             {error}
           </div>
         )}
-        {!loading && !error && listRows.length === 0 && (
+        {!loading && !error && (taskFilter && !taskTree ? taskMatchCount === 0 : listRows.length === 0) && (
           <div style={{ padding: "16px 14px", color: "var(--text-muted)", fontSize: 12 }}>
-            {t(archiveScope === "archived" ? "sidebar.noArchivedSessions" : "sidebar.noSessions")}
+            {t(taskFilter && taskFilter !== "unlinked" ? "sidebar.emptyTask" : archiveScope === "archived" ? "sidebar.noArchivedSessions" : "sidebar.noSessions")}
           </div>
         )}
         {listRows.length > 0 && (
@@ -2253,23 +2346,29 @@ export function SessionSidebar({ onOpenTasks, selectedSessionId, onSelectSession
                   </button>
                 );
               }
+              if (row.kind === "task" || row.kind === "task-more") return <SidebarTaskGroup key={sidebarRowKey(row)} row={row} index={index}
+                nested={showAllProjects} tabIndex={tabStopKey === sidebarRowKey(row) ? 0 : -1}
+                onToggle={() => toggleTaskGroup(row.taskKey, row.kind === "task" ? row.collapsed : !row.expanded, row.kind === "task-more")}
+                onDetails={id => onOpenTasks?.(id)}
+                activity={row.kind === "task" ? showProjectActivity(taskGroupActivity.get(row.taskKey), t) : undefined} />;
               const family = row.family;
-              const familySessions = [family.root, ...family.subagents];
+              const familySessions = [family.root, ...family.subagents].filter(member => !row.memberIds || row.memberIds.includes(member.id));
               const displaySession = family.latestModified === family.root.modified
                 ? family.root
                 : { ...family.root, modified: family.latestModified };
               // Bubble blur after the input's save handler before unpinning the row.
               return (
                 <div
-                  key={family.root.id}
+                  key={sidebarRowKey(row)}
                   onFocus={() => setFocusedSessionId(family.root.id)}
                   onBlur={() => setFocusedSessionId(null)}
-                  style={{ position: "absolute", top: index * SESSION_LIST_ITEM_HEIGHT, left: showAllProjects ? 12 : 0, right: 0 }}
+                  style={{ position: "absolute", top: index * SESSION_LIST_ITEM_HEIGHT, left: row.taskKey ? (showAllProjects ? 24 : 12) : showAllProjects ? 12 : 0, right: 0 }}
                 >
                   <SessionItem
                     rowKey={sidebarRowKey(row)}
                     tabIndex={tabStopKey === sidebarRowKey(row) ? 0 : -1}
                     session={displaySession}
+                    contextLabel={row.contextualRoot ? t("sidebar.contextualTaskRoot") : undefined}
                     isSelected={familySessions.some((session) => session.id === selectedSessionId)}
                     isRunning={familySessions.some((session) => runningSessionIds.has(session.id))}
                     isUnread={familySessions.some((session) => unreadSessionIds.has(session.id))}
@@ -2607,6 +2706,7 @@ function SessionItem({
   onOpenMenu,
   depth = 0,
   hasChildren = false,
+  contextLabel,
   collapsed = false,
   onToggleCollapse,
 }: {
@@ -2624,6 +2724,7 @@ function SessionItem({
   onOpenMenu?: (menu: SessionContextMenuState) => void;
   depth?: number;
   hasChildren?: boolean;
+  contextLabel?: string;
   collapsed?: boolean;
   onToggleCollapse?: () => void;
 }) {
@@ -2900,8 +3001,8 @@ function SessionItem({
               ) : (
                 <span title={session.modified}>{formatRelativeTime(session.modified, locale)}</span>
               )}
-              <span>
-                {session.detailsPending ? "…" : t("sidebar.messagesCount", { count: session.messageCount })}
+              <span style={contextLabel ? { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } : undefined} title={contextLabel}>
+                {contextLabel ?? (session.detailsPending ? "…" : t("sidebar.messagesCount", { count: session.messageCount }))}
               </span>
               {session.isWorktree && session.branch && (
                 <span

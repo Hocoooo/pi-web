@@ -1,14 +1,17 @@
 import { getRecentProjects, type RecentProject } from "./project-groups";
 import { listSessionFamilies, type SessionFamily } from "./session-family";
 import type { SessionInfo } from "./types";
+import type { TaskCatalogEntry } from "./task-catalog-types";
 import { workspaceKeyOf } from "./workspace-memory";
 
 export const PROJECT_SESSION_PREVIEW_LIMIT = 5;
 
 export type SidebarProjectRow =
   | { kind: "project"; project: RecentProject; collapsed: boolean }
-  | { kind: "session"; family: SessionFamily }
-  | { kind: "more"; project: RecentProject; expanded: boolean; remaining: number };
+  | { kind: "session"; family: SessionFamily; taskKey?: string; memberIds?: readonly string[]; contextualRoot?: boolean }
+  | { kind: "more"; project: RecentProject; expanded: boolean; remaining: number }
+  | { kind: "task"; project: RecentProject; task: TaskCatalogEntry | null; taskKey: string; collapsed: boolean; count: number }
+  | { kind: "task-more"; project: RecentProject; taskKey: string; expanded: boolean; remaining: number };
 
 /** Flat, fixed-height rows share one virtualized scroll surface. */
 export function buildSidebarProjectRows(

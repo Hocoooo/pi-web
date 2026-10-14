@@ -22,7 +22,8 @@ const sessions = [
 await page.route("**/api/**", async (route) => {
   const url = new URL(route.request().url());
   let data = {};
-  if (url.pathname === "/api/sessions") data = { sessions, sessionListVersion: 1, runningSessionIds: [], completionNotificationSuppressedSessionIds: [] };
+  if (url.pathname === "/api/tasks/catalog") data = { tasks: [] };
+  else if (url.pathname === "/api/sessions") data = { sessions, sessionListVersion: 1, runningSessionIds: [], completionNotificationSuppressedSessionIds: [] };
   else if (url.pathname === "/api/models") data = { models: [], modelList: [] };
   else if (url.pathname === "/api/agent/running") data = { runningSessionIds: [], sessionListVersion: 1 };
   else if (url.pathname === "/api/home") data = { home: "/home/test" };

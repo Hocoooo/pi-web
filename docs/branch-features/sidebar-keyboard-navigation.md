@@ -1,5 +1,9 @@
 # 侧边栏键盘导航与面板切换
 
+## F38 Task 行扩展
+
+[可选任务树](sidebar-task-tree.md)添加 `task` / `task-more` 行，继续同一 54px 扁平虚拟窗口。项目 Right 进入 Task，Task Right 展开/进入对话，session Left 回 Task、Task Left 收起再回项目。行 key 使用 Task ID+projectKey 结构化组合，历史跨任务族根也能区分。Alt+Left 揭示当前选择所属 Task/更多并聚焦族根，必要时清除不兼容任务筛选；不改变聊天，不改旧项目更多状态。输入、IME、内联动作优先级不变；关闭树保留原导航。浏览器 `e2e/sidebar-task-tree.mjs` 覆盖三层、刷新、手动折叠与正文检索状态；原旧源码断言不替代浏览器验证。
+
 ## 目的、用户价值与范围
 
 让用户不依赖鼠标，在虚拟化会话列表中定位/打开会话，并在侧边栏与输入框间切换焦点。修改全局快捷键、行 key、虚拟窗口、项目/更多行或删除确认时使用本契约。聊天区内部 Alt+Up/Down 与空白会话自动聚焦单独见[输入框与消息区焦点导航](chat-focus-navigation.md)。

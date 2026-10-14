@@ -7,11 +7,13 @@ import type { SessionInfo } from "@/lib/types";
 import type { SessionSearchResponse } from "@/lib/session-search";
 import type { SessionArchiveScope } from "@/lib/session-archive-view";
 
-export function SessionSearch({ open, query, children, archiveScope = "active", archiveVersion = "", selectedSessionId, onSelectSession }: {
+export function SessionSearch({ open, query, children, archiveScope = "active", archiveVersion = "", taskId = null, taskVersion = "", selectedSessionId, onSelectSession }: {
   open: boolean;
   query: string;
   archiveScope?: SessionArchiveScope;
   archiveVersion?: string;
+  taskId?: string | null;
+  taskVersion?: string;
   children: ReactNode;
   selectedSessionId: string | null;
   onSelectSession: (session: SessionInfo, entryId?: string, blockIndex?: number) => void;
@@ -19,7 +21,7 @@ export function SessionSearch({ open, query, children, archiveScope = "active", 
   const { t, locale } = useI18n();
   const [state, setState] = useState<{ key: string; response?: SessionSearchResponse; failed?: boolean }>({ key: "" });
   const search = query.trim();
-  const searchKey = JSON.stringify([search, archiveScope, archiveVersion]);
+  const searchKey = JSON.stringify([search, archiveScope, archiveVersion, taskId, taskId ? taskVersion : ""]);
   const response = state.key === searchKey ? state.response : undefined;
   const failed = state.key === searchKey && state.failed;
 
@@ -31,7 +33,7 @@ export function SessionSearch({ open, query, children, archiveScope = "active", 
     setState({ key: searchKey });
     const timer = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/sessions/search?${new URLSearchParams({ q: search, archive: archiveScope })}`, { signal: controller.signal });
+        const res = await fetch(`/api/sessions/search?${new URLSearchParams({ q: search, archive: archiveScope, ...(taskId ? { taskId } : {}) })}`, { signal: controller.signal });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json() as SessionSearchResponse;
         if (!controller.signal.aborted) setState({ key: searchKey, response: data });
@@ -43,7 +45,7 @@ export function SessionSearch({ open, query, children, archiveScope = "active", 
       clearTimeout(timer);
       controller.abort();
     };
-  }, [open, search, archiveScope, searchKey]);
+  }, [open, search, archiveScope, searchKey, taskId]);
 
   return !open || !search ? children : (
     <div className="min-h-20 flex-1 overflow-y-auto" aria-busy={!response && !failed}>

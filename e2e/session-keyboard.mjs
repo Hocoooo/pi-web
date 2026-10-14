@@ -21,6 +21,7 @@ try {
       mutations.push({ method: request.method(), path: url.pathname });
       return json({ ok: true });
     }
+    if (url.pathname === "/api/tasks/catalog") return json({ tasks: [] });
     if (url.pathname === "/api/sessions") return json({ sessions, sessionListVersion: 1 });
     if (url.pathname.startsWith("/api/sessions/")) {
       const info = sessions.find((session) => session.id === url.pathname.split("/")[3]);

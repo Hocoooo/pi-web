@@ -1,7 +1,9 @@
 import type { SidebarProjectRow } from "./sidebar-project-rows";
 
 export function sidebarRowKey(row: SidebarProjectRow): string {
-  return row.kind === "session" ? `session:${row.family.root.id}` : `${row.kind}:${row.project.key}`;
+  if (row.kind === "session") return `session:${row.family.root.id}${row.taskKey ? `:task:${row.taskKey}` : ""}`;
+  if (row.kind === "task" || row.kind === "task-more") return `${row.kind}:${row.taskKey}`;
+  return `${row.kind}:${row.project.key}`;
 }
 
 export type SidebarKeyboardAction =
@@ -25,14 +27,19 @@ export function sidebarKeyboardAction(rows: readonly SidebarProjectRow[], index:
       if (row.collapsed) return { kind: "expand", expanded: true };
       if (rows[index + 1] && rows[index + 1].kind !== "project") return { kind: "focus", index: index + 1 };
     }
-    if (row.kind === "more" && !row.expanded) return { kind: "expand", expanded: true };
+    if (row.kind === "task") {
+      if (row.collapsed) return { kind: "expand", expanded: true };
+      if (rows[index + 1] && ["session", "task-more"].includes(rows[index + 1].kind)) return { kind: "focus", index: index + 1 };
+    }
+    if ((row.kind === "more" || row.kind === "task-more") && !row.expanded) return { kind: "expand", expanded: true };
   }
   if (key === "ArrowLeft") {
     if (row.kind === "project" && !row.collapsed) return { kind: "expand", expanded: false };
-    if (row.kind === "more" && row.expanded) return { kind: "expand", expanded: false };
+    if (row.kind === "task" && !row.collapsed) return { kind: "expand", expanded: false };
+    if ((row.kind === "more" || row.kind === "task-more") && row.expanded) return { kind: "expand", expanded: false };
     if (row.kind !== "project") {
       for (let parent = index - 1; parent >= 0; parent--) {
-        if (rows[parent].kind === "project") return { kind: "focus", index: parent };
+        if (rows[parent].kind === "project" || (row.kind !== "task" && rows[parent].kind === "task")) return { kind: "focus", index: parent };
       }
     }
   }

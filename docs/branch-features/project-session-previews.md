@@ -1,5 +1,9 @@
 # 项目会话预览：默认五个会话族
 
+## F38 Task 层例外
+
+开启[可选任务树](sidebar-task-tree.md)时，为避免项目总共五根隐藏整个 Task，预览改为**每个展开的 Task / 未关联组五族**；current/all 都适用，更多状态独立于项目更多。关树恢复本文原有规则，Task/正文检索不受预览截断。Alt+Left 在 Task 模式只揭示 Task/Task 更多，不污染项目更多内存状态；既有 `sidebar-view.mjs` 和 `session-keyboard.mjs` 已补空目录 fixture 验证关闭兼容。以下描述为 Task 层关闭时的项目预览契约。
+
 ## 目的、用户价值与范围
 
 在[全项目侧边栏](all-projects-sidebar.md)中限制每个项目初始占用的纵向空间，同时允许按项目展开全部会话。修改五条限制、会话排序、子代理归组、更多/收起按钮或选择揭示逻辑时使用本契约。
