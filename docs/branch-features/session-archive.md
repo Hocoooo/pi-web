@@ -6,7 +6,7 @@
 
 ## F38 Task 树/检索交点
 
-[可选侧栏任务树](sidebar-task-tree.md)始终先解析完整 owner/子代理祖先，再按本合同的 active/archived 对话范围显示；Task.archived 不隐藏会话、不改 owner，也不能将其会话标为未关联。SessionSearch 可带 UUID/unlinked taskId，在后端扫描限额前交集完整 membership 与归档状态；缺失/坏任务返回错误不放宽全局。任务归属及归档条件变化使同一关键词重读，取消迟到响应；关闭 Task 层仍保留筛选。侧栏折叠、任务检索、目录重读不触发归档/恢复/报告或模型。
+[可选侧栏任务树](sidebar-task-tree.md)始终先解析完整 owner/子代理祖先，再按本合同的 active/archived 对话范围显示；Task.archived 不隐藏会话、不改 owner，也不能将其会话标为未关联。SessionSearch 可带 UUID/unlinked taskId，在后端扫描限额前交集完整 membership 与归档状态；缺失/坏任务返回错误不放宽全局。任务归属及归档条件变化使同一关键词重读，取消迟到响应；关闭 Task 层仍保留筛选。侧栏折叠、任务检索、目录重读不触发归档/恢复/报告或模型。没有任何任务的项目在日常/归档范围都沿用原列表/项目五族预览，不合成未关联任务节点；有任务与否按完整目录和 owner 投影判断，不能因归档筛选暂时无会话而改变。
 
 ## 目的与范围
 

@@ -2,7 +2,7 @@
 
 ## F38 Task 层例外
 
-开启[可选任务树](sidebar-task-tree.md)时，为避免项目总共五根隐藏整个 Task，预览改为**每个展开的 Task / 未关联组五族**；current/all 都适用，更多状态独立于项目更多。关树恢复本文原有规则，Task/正文检索不受预览截断。Alt+Left 在 Task 模式只揭示 Task/Task 更多，不污染项目更多内存状态；既有 `sidebar-view.mjs` 和 `session-keyboard.mjs` 已补空目录 fixture 验证关闭兼容。以下描述为 Task 层关闭时的项目预览契约。
+开启[可选任务树](sidebar-task-tree.md)时，**仅有任务的项目**改为每个展开的 Task / 未关联组五族，避免项目总共五根隐藏整个 Task；current/all 都适用，更多状态独立于项目更多，Task 更多/收起行及文字与 session 左对齐。**没有任何任务的项目沿用本文原有规则**：current 不截断、all 项目五族及项目更多，不生成未关联任务节点。关树同样恢复原有规则，Task/正文检索不受预览截断。Alt+Left 对有任务项目只揭示 Task/Task 更多，不污染项目更多；无任务项目则沿用项目更多揭示。`e2e/sidebar-task-tree.mjs` 覆盖混合项目与回退焦点，既有 `sidebar-view.mjs` 和 `session-keyboard.mjs` 的空目录 fixture 验证原有兼容。以下描述为 Task 层关闭或项目无任务时的项目预览契约。
 
 ## 目的、用户价值与范围
 

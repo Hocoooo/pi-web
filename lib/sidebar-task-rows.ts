@@ -39,6 +39,15 @@ export function taskFilteredFamilyRows(sessions: readonly SessionInfo[], tasks: 
     .sort((a, b) => b.family.latestModified.localeCompare(a.family.latestModified));
 }
 
+/** Catalog membership (including empty/archived tasks) determines whether a
+ * project gets a Task layer. Retain historical cross-project explicit owners. */
+export function sidebarTaskProjectKeys(tasks: readonly TaskCatalogEntry[], sessions: readonly SessionInfo[]): Set<string> {
+  const keys = new Set(tasks.map(task => task.project?.projectKey ?? CHAT_WORKSPACE_KEY));
+  const owners = taskOwnersForSessions(tasks, sessions);
+  for (const session of sessions) if (owners.has(session.id)) keys.add(workspaceKeyOf(session));
+  return keys;
+}
+
 type ProjectOptions = { allProjects: boolean; activeProject: RecentProject | null; archived: boolean; collapsedProjects: readonly string[] };
 
 /** Tree-off filtering projects full families first, rather than deleting middle
@@ -64,9 +73,10 @@ export function buildSidebarFilteredRows(sessions: readonly SessionInfo[], tasks
 /** Explicit owner maps always precede archive/Task/project filters. Historical
  * cross-task families can provide a labeled contextual root in several groups. */
 export function buildSidebarTaskRows(sessions: readonly SessionInfo[], tasks: readonly TaskCatalogEntry[], options: ProjectOptions & {
-  expandedTasks: ReadonlySet<string>; expandedPreviews: ReadonlySet<string>; taskFilter: string | null;
+  expandedTasks: ReadonlySet<string>; expandedPreviews: ReadonlySet<string>; expandedProjects: readonly string[]; taskFilter: string | null;
 }): SidebarProjectRow[] {
   const owners = taskOwnersForSessions(tasks, sessions);
+  const taskProjects = sidebarTaskProjectKeys(tasks, sessions);
   const taskById = new Map(tasks.map(task => [task.id, task]));
   const sessionsByProject = projectSessions(sessions);
   const projects = getRecentProjects(sessions.filter(session => Boolean(session.archived) === options.archived));
@@ -95,6 +105,15 @@ export function buildSidebarTaskRows(sessions: readonly SessionInfo[], tasks: re
     const collapsed = options.collapsedProjects.includes(project.key);
     if (options.allProjects) rows.push({kind:"project", project, collapsed});
     if (options.allProjects && collapsed) continue;
+    if (!taskProjects.has(project.key)) {
+      // No synthetic "unlinked Task" layer: current shows all families; all
+      // projects retain their original five-family preview and more state.
+      const group = groups.get(null) ?? [];
+      const expanded = options.expandedProjects.includes(project.key);
+      rows.push(...(!options.allProjects || expanded ? group : group.slice(0, PROJECT_SESSION_PREVIEW_LIMIT)));
+      if (options.allProjects && group.length > PROJECT_SESSION_PREVIEW_LIMIT) rows.push({kind:"more", project, expanded, remaining:group.length - PROJECT_SESSION_PREVIEW_LIMIT});
+      continue;
+    }
     for (const group of groups.values()) group.sort((a, b) => b.family.latestModified.localeCompare(a.family.latestModified));
     const sorted = [...groups].sort(([a, af], [b, bf]) => {
       if (a === null) return 1;

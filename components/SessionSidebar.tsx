@@ -18,7 +18,7 @@ import { useResizablePanel } from "@/hooks/useResizablePanel";
 import { useScrollbarVisibility } from "@/hooks/useScrollbarVisibility";
 import { useSidebarView } from "@/hooks/useSidebarView";
 import { useSidebarTasks } from "@/hooks/useSidebarTasks";
-import { buildSidebarFilteredRows, buildSidebarTaskRows, sidebarTaskKey, taskFilteredFamilyRows } from "@/lib/sidebar-task-rows";
+import { buildSidebarFilteredRows, buildSidebarTaskRows, sidebarTaskKey, sidebarTaskProjectKeys, taskFilteredFamilyRows } from "@/lib/sidebar-task-rows";
 import { taskOwnersForSessions } from "@/lib/task-membership";
 import { SidebarFilterSummary, SidebarSearchControls } from "./SidebarSearchControls";
 import { SidebarTaskGroup } from "./SidebarTaskGroup";
@@ -1371,9 +1371,10 @@ export function SessionSidebar({ onOpenTasks, onFocusSessionPanel, selectedSessi
     activeProjectKey && activeProjectRoot ? { key: activeProjectKey, root: activeProjectRoot } : null,
     expandedProjects,
   ) : [], [showAllProjects, scopedSessions, sidebarView.collapsedProjects, activeProjectKey, activeProjectRoot, expandedProjects]);
+  const taskProjects = useMemo(() => sidebarTaskProjectKeys(tasks ?? [], allSessions), [tasks, allSessions]);
   const listRows = useMemo<SidebarProjectRow[]>(() => taskTree && tasks ? buildSidebarTaskRows(allSessions, tasks, {
     allProjects: showAllProjects, activeProject: selectedProject, archived: archiveScope === "archived",
-    collapsedProjects: sidebarView.collapsedProjects, expandedTasks, expandedPreviews: expandedTaskPreviews, taskFilter,
+    collapsedProjects: sidebarView.collapsedProjects, expandedTasks, expandedPreviews: expandedTaskPreviews, expandedProjects, taskFilter,
   }) : tasks && taskFilter ? buildSidebarFilteredRows(allSessions, tasks, taskFilter, {
     allProjects: showAllProjects, activeProject: selectedProject, archived: archiveScope === "archived",
     collapsedProjects: sidebarView.collapsedProjects, expandedProjects,
@@ -1383,9 +1384,9 @@ export function SessionSidebar({ onOpenTasks, onFocusSessionPanel, selectedSessi
   // Reveal once when selection/ownership changes, not on ordinary refreshes.
   const selectedTaskKey = useMemo(() => {
     const session = allSessions.find(item => item.id === selectedSessionId);
-    if (!session || !tasks) return null;
+    if (!session || !tasks || !taskProjects.has(workspaceKeyOf(session))) return null;
     return sidebarTaskKey(workspaceKeyOf(session), taskOwnersForSessions(tasks, allSessions).get(session.id) ?? null);
-  }, [allSessions, tasks, selectedSessionId]);
+  }, [allSessions, tasks, selectedSessionId, taskProjects]);
   useEffect(() => {
     if (taskTree && selectedTaskKey) setExpandedTasks(current => new Set(current).add(selectedTaskKey));
   }, [taskTree, selectedTaskKey, selectedSessionId]);
@@ -1426,22 +1427,21 @@ export function SessionSidebar({ onOpenTasks, onFocusSessionPanel, selectedSessi
       const owner = family && tasks ? taskOwnersForSessions(tasks, allSessions).get(selectedSessionId ?? family.root.id) ?? null : null;
       const clearingTaskFilter = Boolean(family && tasks && taskFilter && taskFilter !== (owner ?? "unlinked"));
       if (clearingTaskFilter) setTaskFilter(null);
+      const familyHasTaskTree = Boolean(family && taskTree && taskProjects.has(workspaceKeyOf(family.root)));
       if (family && showAllProjects) {
         const projectKey = workspaceKeyOf(family.root);
         setSidebarProjectCollapsed(projectKey, false);
         // The selected family may be outside the project's five-row preview.
-        if (!taskTree && (clearingTaskFilter || !listRows.some((row) => row.kind === "session" && row.family.root.id === family.root.id))) {
+        if (!familyHasTaskTree && (clearingTaskFilter || !listRows.some((row) => row.kind === "session" && row.family.root.id === family.root.id))) {
           setExpandedProjects((current) => current.includes(projectKey) ? current : [...current, projectKey]);
         }
       }
       let key = family ? `session:${family.root.id}` : rowKeys[0] ?? "";
-      if (family && tasks) {
-        if (taskTree) {
-          const taskKey = sidebarTaskKey(workspaceKeyOf(family.root), owner);
-          setExpandedTasks(current => new Set(current).add(taskKey));
-          setExpandedTaskPreviews(current => new Set(current).add(taskKey));
-          key = `session:${family.root.id}:task:${taskKey}`;
-        }
+      if (family && familyHasTaskTree) {
+        const taskKey = sidebarTaskKey(workspaceKeyOf(family.root), owner);
+        setExpandedTasks(current => new Set(current).add(taskKey));
+        setExpandedTaskPreviews(current => new Set(current).add(taskKey));
+        key = `session:${family.root.id}:task:${taskKey}`;
       }
       setKeyboardRowKey(key);
       setPendingFocusKey(key);

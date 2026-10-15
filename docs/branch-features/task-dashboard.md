@@ -2,7 +2,7 @@
 
 ## F38 只读侧栏投影
 
-[可选项目→Task→对话树与检索](sidebar-task-tree.md)消费本合同同一持久任务，新增轻量 `/api/tasks/catalog` 字段白名单，不改变 v7/schema/CAS/receipt，不启用旧共享/执行入口。用 `readTaskStore` 不创建/迁移/锁定文件；区别于原 list 的 `withTaskStore` 初始化语义。先完整 owner 再展示筛选，任务正文搜索截断前限范围；管理写操作仍走原 API，详情仍在原 TaskPanel。Settings 默认关闭，只控制 Task 中间层，关树保留任务检索。
+[可选项目→Task→对话树与检索](sidebar-task-tree.md)消费本合同同一持久任务，新增轻量 `/api/tasks/catalog` 字段白名单，不改变 v7/schema/CAS/receipt，不启用旧共享/执行入口。用 `readTaskStore` 不创建/迁移/锁定文件；区别于原 list 的 `withTaskStore` 初始化语义。先完整 owner 再展示筛选，任务正文搜索截断前限范围；管理写操作仍走原 API，详情仍在原 TaskPanel。Settings 默认关闭，只控制 Task 中间层，关树保留任务检索。开启后没有任何任务的项目仍沿用原会话列表/项目预览，不生成未关联任务节点；空/已归档任务与历史明确 owner 投影仍计入有任务项目，筛选不改变该判断。此显示回退不写任务或关系。
 
 ## 当前范围：session 管理
 

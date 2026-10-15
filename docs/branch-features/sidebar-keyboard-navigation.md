@@ -6,7 +6,7 @@
 
 ## F38 Task 行扩展
 
-[可选任务树](sidebar-task-tree.md)添加 `task` / `task-more` 行，继续同一 54px 扁平虚拟窗口。项目 Right 进入 Task，Task Right 展开/进入对话，session Left 回 Task、Task Left 收起再回项目。行 key 使用 Task ID+projectKey 结构化组合，历史跨任务族根也能区分。Alt+Left 揭示当前选择所属 Task/更多并聚焦族根，必要时清除不兼容任务筛选；不改变聊天，不改旧项目更多状态。输入、IME、内联动作优先级不变；关闭树保留原导航。浏览器 `e2e/sidebar-task-tree.mjs` 覆盖三层、刷新、手动折叠与正文检索状态；原旧源码断言不替代浏览器验证。
+[可选任务树](sidebar-task-tree.md)添加 `task` / `task-more` 行，继续同一 54px 扁平虚拟窗口。项目 Right 进入 Task，Task Right 展开/进入对话，session Left 回 Task、Task Left 收起再回项目。行 key 使用 Task ID+projectKey 结构化组合，历史跨任务族根也能区分。Alt+Left 揭示当前选择所属 Task/更多并聚焦族根，必要时清除不兼容任务筛选；不改变聊天，不改旧项目更多状态。输入、IME、内联动作优先级不变；关闭树保留原导航。无任务项目不插入 Task 行，使用原 session key；Left 直接回项目，Alt+Left 在 all 模式按原项目更多状态揭示预览外族，不构造不存在的 Task 后缀。浏览器 `e2e/sidebar-task-tree.mjs` 覆盖三层、刷新、手动折叠、正文检索与混合项目回退揭示；原旧源码断言不替代浏览器验证。
 
 ## 目的、用户价值与范围
 

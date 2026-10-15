@@ -2,6 +2,22 @@
 
 实现契约：[sidebar-task-tree.md](../branch-features/sidebar-task-tree.md)。固定起点 `4e7e720`；用户确认 HTTP 与浏览器两个测试入口，未新增私有函数测试 seam。
 
+## 2026-10-15：无任务项目回退与更多行对齐
+
+本轮基点 `a2b37fa`。只调整侧栏显示和焦点；不改 Task/Session API、归档入口、任务关系或持久数据。
+
+- Red：新几何断言复现 Task 更多/收起行与 session 不同级；修正缩进后，新混合项目 fixture 复现无任务项目仍有合成未关联 Task。
+- Green：无任务项目 current 全量直列、all 原五族/项目更多；混合有任务项目仍保留 Task 树。覆盖项目折叠、归档/未关联/具体 Task 筛选、空目录、刷新后 Alt+Left 揭示第七族与 Left 回项目。补空且归档 Task 的新增/选择/移除，确认最后一个 Task 移除后实时回退。
+- 对齐：current/all 的 Task 更多/收起按钮边界和文字分别与 session 行/标题做真实 DOM 几何比较；390px en/zh-CN/zh-TW 同样通过。
+- `E2E_BASE_URL=http://127.0.0.1:30142 node e2e/sidebar-task-tree.mjs`：通过；无真实 API 写入、Agent 或模型调用。
+- 原回归 `e2e/sidebar-view.mjs`、`e2e/session-keyboard.mjs`、`e2e/sidebar-search-filters.mjs`、`e2e/session-archive.mjs`：全部通过。
+- 定向 Node：tasks/catalog、sessions/search、sidebar-project-rows、sidebar-keyboard、sidebar-view-preference、session-family、SessionSidebar 与 project-identity 共 **53 条通过，0 失败、0 跳过**。
+- `node_modules/.bin/tsc --noEmit`、`npm run lint`、`git diff --check`：通过。
+- 截图：本地临时目录 `pi-web-sidebar-task-tree-ozfT3b`，新增 `task-less-all.png` / `task-less-current.png`；已查看同一 fixture 上一轮的两种布局截图。临时文件不作为永久工件保证。
+- fixture 校准：多项目新增页必须覆盖 cwd validate/worktrees 的原 alpha 固定响应，否则 current 会被校验回 alpha，导致错误的会话缺失超时；本轮已修正 fixture，不改变生产项目身份逻辑。
+
+复用已验证 cwd 为当前源码的 `30142` dev 进程；没有新开/重启服务、生产 build、全局安装或发布。既有安装脚本相关工作区修改保持原样。本轮未跑全量 `npm test`；Safari/iOS16.2、Windows 真机及生产链路未验。以下保留 F38 初次交付历史，不代表本轮重新执行全量。
+
 ## Red → Green
 
 - HTTP 目录：缺少新 route 时 red；实现 decoder-only 只读 allowlist 后 4/4。
