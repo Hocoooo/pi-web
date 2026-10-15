@@ -81,7 +81,8 @@ const confirm = review.getByRole("button", { name: "Archive task and session fam
 const consent = review.getByRole("checkbox");
 async function openTask() {
   await page.getByRole("button", { name: "Task dashboard", exact: true }).click();
-  await dialog.getByRole("combobox", { name: "Task list", exact: true }).selectOption("all");
+  await dialog.getByRole("combobox", { name: "Task list", exact: true }).click();
+  await dialog.getByRole("option", { name: "All tasks", exact: true }).click();
   await dialog.getByRole("button", { name: "Archive fixture task", exact: true }).click();
 }
 async function openReview() { await archive.click(); await review.getByText("Shared family root", { exact: true }).waitFor(); }

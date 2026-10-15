@@ -26,7 +26,16 @@
 .toolbar > button { background: transparent; color: var(--text-muted); border-color: transparent; }
 .toolbar > button[aria-expanded="true"] { background: var(--bg-selected); color: var(--text); }
 .toolbarSpacer { flex: 1; }
-.dashboard .toolbar > select { width: auto; max-width: 180px; padding: 6px 9px; background: transparent; }
+.archiveScope { position: relative; min-width: 0; max-width: 100%; }
+.dashboard .archiveScopeTrigger { display: flex; align-items: center; gap: 10px; max-width: 100%; padding: 6px 9px; background: transparent; }
+.archiveScopeTrigger > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.archiveScopeTrigger > svg { flex: none; color: var(--text-muted); }
+.dashboard .archiveScopeTrigger[aria-expanded="true"] { background: var(--bg-selected); }
+.archiveScopeList { position: absolute; top: calc(100% + 4px); right: 0; z-index: 6; width: max-content; min-width: 100%; max-width: calc(100vw - 48px); padding: 5px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-panel); color: var(--text); box-shadow: 0 8px 24px #0004; }
+.dashboard .archiveScopeList button { display: flex; align-items: center; justify-content: space-between; gap: 16px; width: 100%; padding: 8px 10px; border: 0; border-radius: 4px; background: transparent; color: inherit; text-align: left; }
+.dashboard .archiveScopeList button[data-highlighted] { background: var(--bg-hover); }
+.archiveScopeList button[aria-selected="true"] { font-weight: 600; }
+.archiveScopeList button > span:last-child { flex: none; width: 12px; color: var(--accent); }
 .chatActions { position: relative; color: var(--text-muted); }
 .chatActions summary { cursor: pointer; padding: 7px; }
 .chatActions > div { position: absolute; top: 100%; right: 0; z-index: 6; width: min(320px, calc(100vw - 80px)); min-width: 0; overflow-wrap: anywhere; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-panel); box-shadow: 0 8px 30px #0003; display: grid; gap: 6px; }
@@ -127,5 +136,6 @@
 .inspector h2.detailTitle { font-size: 18px; font-weight: 600; line-height: 1.4; color: var(--text); margin: 0 0 16px; }
 .inspector section > section { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border); }
 .inspector summary { cursor: pointer; font-size: 13px; }
+@media (max-width: 760px) { .archiveScopeList { left: 0; right: auto; } }
 @media (pointer: coarse) { .dashboard button, .dashboard summary { min-height: 40px; } .dashboard button.smallIconButton { width: 40px; height: 40px; min-height: 40px; } }
 @media (max-width: 760px) { .backdrop { padding: 12px; } .panel { height: calc(100dvh - 24px); border-radius: 12px; } .header { padding: 16px; gap: 8px; } .header h1 { font-size: 16px; } .toolbar { padding: 0 12px 12px; gap: 4px; } .toolbarSpacer { display: none; } .content { padding: 14px; } .board { grid-auto-columns: minmax(240px, 78vw); } .filterBasics { grid-template-columns: repeat(2, minmax(0, 1fr)); } .filterBasics > label:first-child { grid-column: 1 / -1; } .filterAdvanced { grid-template-columns: minmax(0, 1fr); } .viewControls { padding: 12px; } .footer { padding: 8px 14px; } .dashboard input, .dashboard textarea, .dashboard select { font-size: 16px; } .inspector { padding: 16px; } .inspectorHeader { top: -16px; margin: -16px -16px 20px; padding: 10px 16px; } }

@@ -19,7 +19,7 @@
 - 归档范围是独立的页面投影，不写进05保存的六条件；打开旧保存视图仍保留全部stable conditions，包括未来删除列ID的fail-closed，不静默删条件扩大结果。02/06/07草稿仍按task ID停放；隐藏/恢复不自动rebase。
 - 详情可继续只读历史、编辑资料及确认知识；发布后来版本不会自动恢复。归档任务的准备/开始与新的AI整理要求先恢复。用户仍可显式移列/调序归档任务；14[安全删列](task-column-removal.md)全量包含归档任务，原样保持archiveflag/revision/receipt与09pending，不自动restore/检查busy或调用Stop/AI。14已分别父resolved，不与12互代执行证据。
 - 成功响应后才反馈归档/恢复；后端busy、冲突、存储/网络错误可见。不因失败自动恢复、停止或发送。未知网络/存储结果保留原UUID/base/目标值及“精确重试”；online/focus/手动refresh只同步权威板，不能抹去未确认错误或假报成功。两页旧CAS冲突需重读并显式选择新意图。
-- 原生按钮/select支持键盘及触摸，390px无水平溢出；三语言文案齐全。归档按钮不依据可能陈旧的UI busy徽标提前宣布成功，后端重新裁决。
+- 任务范围选择器使用应用主题的 combobox/listbox（`TaskArchiveScopeSelect`），展开选项也跟随松夜等当前外观，不使用系统原生 select 弹层；支持键盘、IME 保护、触摸与仅关闭列表的 Escape，390px 无水平溢出。默认范围/归档数量/保存视图语义不变，三语言文案沿用原有键。详见[看板主题与验收](task-dashboard.md#任务范围选择器的主题)，专项回归 `e2e/task-dashboard-appearance.mjs`。归档按钮不依据可能陈旧的UI busy徽标提前宣布成功，后端重新裁决。
 
 ## 同一个store与独立archive CAS
 

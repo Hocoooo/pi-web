@@ -214,9 +214,11 @@ async function runScenario(name, viewport, colorScheme = "light") {
       await inspector.getByRole("button", { name: `${t("tasks.archive.restore")}: ${first.title}`, exact: true }).waitFor();
       assert.equal(await button(inspector, "tasks.start").isDisabled(), true);
       await inspector.getByRole("button", { name: `${t("tasks.archive.restore")}: ${first.title}`, exact: true }).click();
-      await closeTask(); await label(dialog, "tasks.archive.list").selectOption("all");
+      await closeTask(); await label(dialog, "tasks.archive.list").click();
+      await dialog.getByRole("option", { name: t("tasks.archive.all"), exact: true }).click();
       await dialog.locator(`[data-task-card="${long.id}"]`).getByText(t("tasks.archive.archived"), { exact: true }).waitFor();
-      await label(dialog, "tasks.archive.list").selectOption("active");
+      await label(dialog, "tasks.archive.list").click();
+      await dialog.getByRole("option", { name: t("tasks.archive.active"), exact: true }).click();
     });
     await step("context-current-passive-markdown", async () => {
       await openTask(first.title);

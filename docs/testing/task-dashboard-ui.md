@@ -1,5 +1,13 @@
 # 任务看板 UI 检查记录
 
+## 当前：任务范围下拉框跟随外观
+
+任务工具栏日常任务／已归档（数量）／全部任务改为应用内主题列表，而非由浏览器/系统绘制的原生 select 弹层。`TaskArchiveScopeSelect.tsx` 复用主题变量，保留原范围投影、归档数量与本地化文案；不改任务存储或归档流程。
+
+`E2E_BASE_URL=http://127.0.0.1:30142 node e2e/task-dashboard-appearance.mjs` 已通过 **5 种外观（含松夜 pine）×1440px/390px 共 10 组**浏览器检查：弹层背景/文字/边框的实际计算色与当前主题一致、选中项/归档数量、三种范围切换、方向键/Home/End/Enter/空格、Escape 不关闭看板、IME、Tab/外部点击、焦点保留和看板关闭重开不残留列表。窄屏列表不越过视口；逐组保存截图，已复核松夜桌面/窄屏外观。测试拦截全部 API，仅使用临时任务数据，零任务/Agent/设置写请求。
+
+当前面板 `e2e/task-dashboard-panel.mjs` 与一次性联动归档 `e2e/task-session-archive.mjs` 回归通过；前者补齐归档产生 report ID 后的只读空报告响应 fixture，报告本身不在此面板套件验收范围；后者改用 combobox/listbox 操作，不再调用原生 `selectOption`。旧 `e2e/task-dashboard-ui.mjs` 仅同步范围选择器定位，仍属于下文历史范围，不声称整套重跑通过。浏览器复用 checkout 的既有 30142 开发服务，不重启 30141 的全局安装版、不运行 build/install；未验证 Safari/iOS/Windows 真机与屏幕阅读器。
+
 ## 当前：session 管理模式
 
 当前范围以 [F31](../branch-features/task-session-management.md)和[管理模式测试说明](task-session-management.md)为准。`e2e/task-dashboard-panel.mjs` 已更新并通过：关联对话默认展开、所属任务直达（含默认隐藏的归档任务）、解除/改绑/归档、失败读取显示未知及恢复、旧准备 URL 明确提示且重新打开保留草稿、无共享请求/Agent 写请求；保留浮层/编辑/移动/聊天草稿/Escape/IME/焦点/旧路由，并覆盖英文/简体/繁体×浅深色390px。关联响应为合成 fixture，不替代后台 scope/CAS 回归。另补跨标签页新建任务后的直达与关联失败提示保留回归；AppShell/ChatWindow/TaskDashboard 导航/i18n 定向 79 项通过。

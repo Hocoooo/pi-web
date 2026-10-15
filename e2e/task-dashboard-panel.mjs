@@ -94,6 +94,8 @@ await context.route("**/api/**", async route => {
     "/api/home": { home: root }, "/api/models": { models: [], modelList: [], defaultModel: null },
     "/api/web-auth": { enabled: false }, "/api/subagents/settings": { enabled: false },
     "/api/tasks/sessions": { sessions: [] },
+    // Report rendering is outside this panel fixture; archive now creates report IDs.
+    "/api/task-reports": { reports: [], latestSuccessfulReportId: null },
     "/api/cwd/browse": { path: root, parentPath: null, directories: [] },
   };
   return route.fulfill({ json: fixtures[url.pathname] ?? {} });

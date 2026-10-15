@@ -12,6 +12,7 @@ import { TaskProjectField } from "./TaskProject";
 import { TaskDetails, type TaskEditDraft } from "./TaskDetails";
 import { TaskInspector } from "./TaskInspector";
 import { TaskArchivePreview } from "./TaskArchivePreview";
+import { TaskArchiveScopeSelect } from "./TaskArchiveScopeSelect";
 import { useI18n } from "@/hooks/useI18n";
 import { useTheme } from "@/hooks/useTheme";
 import { TASK_TEXT_LIMITS, type TaskBoard, type TaskColumnId, type TaskRecord, type TaskRequest, type TaskMovePosition, type TaskMutationResult, type TaskSessionsResult, type TaskRelationRequest, type TaskSessionActivity, type TaskSort, type TaskArchivePreview as ArchivePreview } from "@/lib/task-types";
@@ -414,11 +415,8 @@ export function TaskDashboard({ active = true, onClose, currentSessionId = null,
         <button type="button" disabled={disabled || !board} onClick={() => setConfiguringColumns(!configuringColumns)} aria-expanded={configuringColumns}>{t("tasks.columnsSettings")}</button>
         <button type="button" disabled={disabled} onClick={() => void reload()}>{t("tasks.refresh")}</button>
         <div className={styles.toolbarSpacer} />
-        {board && <select aria-label={t("tasks.archive.list")} value={archiveScope} disabled={disabled} onChange={event => setArchiveScope(event.target.value as typeof archiveScope)}>
-          <option value="active">{t("tasks.archive.active")}</option>
-          <option value="archived">{t("tasks.archive.archived")} ({board.tasks.filter(task => task.archived).length})</option>
-          <option value="all">{t("tasks.archive.all")}</option>
-        </select>}
+        {board && <TaskArchiveScopeSelect value={archiveScope} archivedCount={board.tasks.filter(task => task.archived).length}
+          disabled={disabled} active={active} onChange={setArchiveScope} />}
         {currentSessionId && <details ref={chatActionsRef} className={styles.chatActions} onKeyDown={event => {
           if (event.key === "Escape" && event.currentTarget.open && !event.nativeEvent.isComposing && event.keyCode !== 229) {
             event.preventDefault(); event.stopPropagation(); event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus();
