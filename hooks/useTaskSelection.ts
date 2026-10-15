@@ -21,19 +21,21 @@ async function request<T>(body: object): Promise<T> {
   return data as T;
 }
 
-/** A task is management metadata. Only an explicit preselection participates in
+/** A task is management metadata. Only a selected/inherited task participates in
  * creation; ordinary prompts never read the task store. ChatWindow remounts per draft. */
-export function useTaskSelection(sessionId: RefObject<string | null>, cwd: string | null) {
+export function useTaskSelection(sessionId: RefObject<string | null>, cwd: string | null, initialTask: TaskPickerItem | null = null) {
   const [isOpen, setOpen] = useState(false);
   const [snapshot, setSnapshot] = useState<PickerSnapshot | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [pendingTask, setPendingTask] = useState<TaskPickerItem | null>(null);
+  const [pendingTask, setPendingTask] = useState<TaskPickerItem | null>(initialTask);
   const [bindingError, setBindingError] = useState<string | null>(null);
-  const pending = useRef<TaskPickerItem | null>(null);
+  const pending = useRef<TaskPickerItem | null>(initialTask);
   const pendingWrite = useRef<SelectionWrite | null>(null);
   const choiceWrite = useRef<{sessionId: string; target: string | null; request: SelectionWrite} | null>(null);
   const loadGeneration = useRef(0);
   const syncFlight = useRef<Promise<void> | null>(null);
+  const choiceFlight = useRef<Promise<void> | null>(null);
+  const choiceGeneration = useRef(0);
   useEffect(() => () => { loadGeneration.current++; }, []);
   const close = useCallback(() => { loadGeneration.current++; setOpen(false); }, []);
   const open = useCallback(async () => {
@@ -67,7 +69,7 @@ export function useTaskSelection(sessionId: RefObject<string | null>, cwd: strin
     catch (cause) { setBindingError(cause instanceof Error ? cause.message : String(cause)); throw cause; }
     finally { syncFlight.current = null; }
   }, []);
-  const choose = useCallback(async (task: TaskPickerItem | null) => {
+  const applyChoice = useCallback(async (task: TaskPickerItem | null) => {
     const inFlight = syncFlight.current;
     // A choice during creation must observe the completed binding's owner.
     if (inFlight) await inFlight.catch(() => {});
@@ -99,5 +101,37 @@ export function useTaskSelection(sessionId: RefObject<string | null>, cwd: strin
     pending.current = null; pendingWrite.current = null; choiceWrite.current = null; setPendingTask(task); setBindingError(null);
     window.dispatchEvent(new Event("pi-web:tasks-changed"));
   }, [sessionId, snapshot]);
-  return {isOpen, snapshot, loadError, pendingTask, bindingError, selectedId: snapshot?.relation ? snapshot.relation.sourceTaskId : pendingTask?.id ?? null, open, close, choose, syncPending};
+  const choose = useCallback(async (task: TaskPickerItem | null) => {
+    choiceGeneration.current++;
+    const flight = applyChoice(task);
+    choiceFlight.current = flight;
+    try { await flight; }
+    finally {
+      choiceGeneration.current++;
+      if (choiceFlight.current === flight) choiceFlight.current = null;
+    }
+  }, [applyChoice]);
+  // /new takes one snapshot, never a live link to the source session. Read the
+  // real owner rather than the last picker snapshot (which may be stale).
+  const taskForNewSession = useCallback(async (): Promise<TaskPickerItem | null> => {
+    for (;;) {
+      const generation = choiceGeneration.current;
+      await choiceFlight.current?.catch(() => {});
+      await syncFlight.current?.catch(() => {});
+      if (generation !== choiceGeneration.current) continue;
+      const id = sessionId.current;
+      if (!id) return pending.current;
+      const current = await request<PickerSnapshot>({action: "task-picker", sessionId: id});
+      if (generation !== choiceGeneration.current) continue;
+      if (!current.relation) throw new Error("Session relationship unavailable. Try /new again.");
+      const owner = current.relation.sourceTaskId;
+      // A real owner wins over a retained, failed initial selection. An unbound
+      // warm composer can still carry its explicit pending choice into /new.
+      if (!owner) return pending.current;
+      const task = current.tasks.find(item => item.id === owner);
+      if (!task) throw new Error("Current task is no longer available for this session.");
+      return task;
+    }
+  }, [sessionId]);
+  return {isOpen, snapshot, loadError, pendingTask, bindingError, selectedId: snapshot?.relation ? snapshot.relation.sourceTaskId : pendingTask?.id ?? null, open, close, choose, syncPending, taskForNewSession};
 }

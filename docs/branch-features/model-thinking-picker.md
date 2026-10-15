@@ -45,6 +45,12 @@
 
 [原视频附件](video-attachments.md)不改变两步选择、首次发送同步、默认星号或 busy 规则，不自动切模型/provider。能力要求精确 provider/model/origin/源协议与 SDK auth，不能凭显示名称判断。有效上下文有视频时，不支持组合的普通 Send 在 SDK 接受前拒绝并恢复文字/PNG；显式切回后再 Send 可继续原 owner，出口仍逐请求重验。`node e2e/video-modes.mjs` 覆盖项目/无项目、普通/Chat-only、新首发与已有续问；真实网关首问与复杂组合隔离证据的区别见[验收摘要](video-attachments-acceptance.md)。
 
+## `/new` 的一次性继承（F09）
+
+`/new` 沿用当前已确认的 provider/model 和具体等级（包括 `off`），作为新 draft 的显式启动选择；模型/等级的 React state 与创建 override ref 必须一起初始化。`auto` 仍不是 RPC 等级；无法取得具体值时不发 `auto`。来源设置加载/切换中拒绝复制乐观值并提示重试；后续旧会话改设置不影响新会话。不写全局默认，不复制历史；切项目或其他入口新建不沿用。首次发送与提前初始化继续遵守第 9 条，不重复 `set_model` 把继承 `high` 重置为默认值。
+
+验证：`node e2e/new-session-inheritance.mjs` 覆盖真实整页导航与启动参数；`node e2e/model-first-prompt.mjs` 额外验证 seed 初始化及提前创建后，真实 SDK 的测试 provider 首次请求仍为 `high`，默认仍为 `medium`。均不调用外部 provider。
+
 ## 报告专用设置复用（F36，01 阶段）
 
 通用设置的 [F36 任务归档报告](task-archive-report.md)复用两步 picker 的目标能力、取消、保存互斥及错误保留，但确认只写全局报告选择；不提供聊天默认星号、不执行 RPC，也不套用来源聊天的忙碌保护。报告尚未生成，能力/保存测试不替代实际报告请求等级验证。

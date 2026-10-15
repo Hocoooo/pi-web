@@ -59,7 +59,7 @@ interface Props {
   onRestoreUnconfirmedSubmission?: () => Promise<void>;
   restoringSubmission?: boolean;
   onAbort: () => void;
-  onNewSession?: (cwd: string) => void;
+  onNewSession?: (cwd: string) => void | Promise<void>;
   onOpenTaskPicker?: () => void;
   onSteer?: (message: string, images?: AttachedImage[], video?: VideoReference) => void | Promise<void>;
   onFollowUp?: (message: string, images?: AttachedImage[], video?: VideoReference) => void | Promise<void>;
@@ -1092,6 +1092,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   }, [thinkingDropdownOpen, builtinCommandPending, isStreaming, isCompacting, modelSwitching]);
 
   const runBuiltinCommand = useCallback(async (msg: string): Promise<boolean> => {
+    if (builtinCommandPendingRef.current) return true;
     if ((video || videoBlocked) && msg.startsWith("/")) { setVideoError(t("chat.videoQuestionOnly")); return true; }
     if (msg === "/task" && onOpenTaskPicker) {
       // Navigation only; retain attachments for the next actual prompt.
@@ -1100,15 +1101,21 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       return true;
     }
     if (msg === "/new" && cwd && onNewSession) {
-      // Clear the source draft before navigation; never send or carry its attachments.
-      clearInput();
-      onNewSession(cwd);
+      builtinCommandPendingRef.current = true;
+      setBuiltinCommandPending(true);
+      try {
+        // Clear before navigation; metadata inheritance never carries attachments.
+        clearInput();
+        await onNewSession(cwd);
+      } finally {
+        builtinCommandPendingRef.current = false;
+        setBuiltinCommandPending(false);
+      }
       return true;
     }
     if (!msg.startsWith("/") || !onBuiltinCommand) return false;
     // Settings commands must never become prompts, even with attached images.
     if (attachedImages.length && !isSettingsSlashCommand(msg)) return false;
-    if (builtinCommandPendingRef.current) return true;
     builtinCommandPendingRef.current = true;
     setBuiltinCommandPending(true);
     try {

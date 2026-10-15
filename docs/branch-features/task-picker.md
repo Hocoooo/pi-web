@@ -13,7 +13,7 @@
 - 默认列出同项目未归档任务，展示名称和状态，当前归属有标记。可勾选显示归档任务；当前归属已归档时自动显示它。空搜索包含“不关联任务”；搜索无匹配和读取失败有不同提示。
 - 选择、取消后返回 composer；原草稿、附件和后台执行不受关联操作影响。失败保留弹窗及错误，可重复相同选择重试，或重新加载任务后选择。
 - 点击归属按钮也打开选择器；已关联任务旁的独立“任务详情”按钮仍打开原任务面板。归属读取失败仍显示未知，不能误报为未关联。
-- 尚无真实 session 时，仅将预选保存在当前 composer 内存；不为选择任务创建 Agent 或写 JSONL。聊天栏显示单行“预选任务”；切项目/另开会话会清除的说明放在选择器内，不常驻聊天区。新 draft、切目录、页面刷新不承诺保留预选；普通 `/new` 不继承，既有 fork/copy 归属继承不改。
+- 尚无真实 session 时，仅将预选保存在当前 composer 内存；不为选择任务创建 Agent 或写 JSONL。聊天栏显示单行“预选任务”；选择器内说明 `/new` 沿用，切项目或其他入口新建会清除，不常驻聊天区。F09 `/new` 用 draft 专属的一次性 seed 自动继承已有 session 的权威任务归属或空白 composer 的预选，不要求用户重选；不复制任务文字或旧历史。其他新 draft、切目录、页面刷新不承诺保留预选，既有 fork/copy 归属继承不改。
 
 ## 简洁 UI 与既有风格
 
@@ -26,6 +26,7 @@
 
 ## 生命周期与失败处理
 
+- `/new` 的 `taskForNewSession` 等待在途选择/初始写入，读取期间发生新选择则重读；已有 session 读真实 owner，不拿旧 picker 快照猜测；真实 owner 优先于残留的失败预选，只有真实 ID 尚未绑定时才可沿用 composer 的 pending 选择。等待中的初始关联失败不使 `/new` 丢失预选。读取失败留在来源会话并显示错误，来源卸载后不导航；无任务保持无任务，归档任务可沿用且不改归档状态。继承预选复用下述正常关联路径。
 - 使用正常 `ensureNewSession` 创建流程；取得真实 ID 后再按真实 session 的权威项目范围重新验证并关联。首次 prompt、bash 或会提升空白会话身份的内置命令在复用已创建 ID 时也先落实显式预选。
 - 命令发现/System 面板等提前初始化 session 时同样落实预选。没有预选的普通发送不访问任务存储，不因其损坏/不可用而被阻断。
 - 创建和任务存储不是跨文件原子事务。关联失败保留真实 session ID、预选和草稿，显示“会话已创建但关联失败”；重试复用原 ID，不重复发送 prompt。用户可重新选择“不关联任务”继续普通聊天。
@@ -67,13 +68,14 @@
 ```bash
 node e2e/task-picker.mjs
 node e2e/task-session-selection.mjs
+node e2e/new-session-inheritance.mjs
 node --experimental-strip-types --test app/api/tasks/picker.test.mjs app/api/tasks/sessions.test.mjs lib/task-relations.test.mjs
 # 复用健康 checkout dev；所有 /api/** 被 fixture 截获，不访问用户数据
 node e2e/task-picker-page.mjs
 node e2e/task-dashboard-panel.mjs
 ```
 
-- UI：运行中 `/task` 的键盘选择、取消/IME、当前项、归档、错误重试、内置/自定义状态区分及慢保存焦点约束；全页面桌面/390px（触屏模拟）×浅深主题的命令、按钮改绑、草稿/焦点、新建清预选、长名称/缩小视口、零任务面板请求/零 Agent 写请求。正常弹窗无恢复按钮，聊天栏不显示长预选说明。组件 fixture 显式打包并加载 CSS module；可用 `TASK_UI_ARTIFACT_DIR=/tmp/task-ui node e2e/task-picker-page.mjs` 输出完整页面截图。
+- UI：运行中 `/task` 的键盘选择、取消/IME、当前项、归档、错误重试、内置/自定义状态区分及慢保存焦点约束；全页面桌面/390px（触屏模拟）×浅深主题的命令、按钮改绑、草稿/焦点、`/new` 沿用预选且不创建运行时、其他新建入口清预选、长名称/缩小视口、零任务面板请求/零 Agent 写请求。正常弹窗无恢复按钮，聊天栏不显示长预选说明。组件 fixture 显式打包并加载 CSS module；可用 `TASK_UI_ARTIFACT_DIR=/tmp/task-ui node e2e/task-picker-page.mjs` 输出完整页面截图。
 - HTTP：真实 route/store、隔离 agent-dir，cwd/session 权威范围、归档、严格字段、缺失 session、窄响应、关联/冲突/改绑/解除/精确重试。
 - 生命周期：真实 hook/composer + 模拟 HTTP/SSE，新建预选、提前创建、关联失败恢复与 ID 复用、普通聊天与任务库解耦、初始化期间改选、失败后改选（含响应丢失）、bash 重试。
 - 同时回归模型/思考选择器、首次 prompt 设置、原任务面板详情入口、三语言文案、类型检查和局部 lint。

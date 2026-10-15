@@ -16,7 +16,7 @@ const { outputFiles } = await build({absWorkingDir: root, bundle: true, write: f
     window.EventSource = class { readyState = 1; constructor() {queueMicrotask(() => this.onmessage?.({data: JSON.stringify({type:"connected"})}));} close() {this.readyState = 2;} };
     function App() {
       const input = useRef(null);
-      const chat = useAgentSession({session: null, newSessionCwd: "/project", newSessionDraftKey: "task-draft", chatInputRef: input});
+      const chat = useAgentSession({session: null, newSessionCwd: "/project", newSessionDraftKey: "task-draft", chatInputRef: input, newSessionSeed: window.newSessionSeed});
       window.chat = chat;
       const selection = chat.taskSelection;
       const close = () => {selection.close(); requestAnimationFrame(() => input.current?.focusComposer());};
@@ -34,8 +34,9 @@ const browser = await chromium.launch({headless: true});
 const task = {id: "11111111-1111-4111-8111-111111111111", title: "Login API", status: "Todo", revision: 1, archived: false};
 const otherTask = {...task, id: "33333333-3333-4333-8333-333333333333", title: "Billing API"};
 const sessionId = "22222222-2222-4222-8222-222222222222";
-async function run(name, arrange) {
+async function run(name, arrange, seed) {
   const page = await browser.newPage();
+  await page.addInitScript(value => {window.newSessionSeed = value;}, seed);
   const state = {created: 0, owner: null, prompts: [], bashes: [], taskRequests: [], failLink: false, failTasks: false, expectedOwner: task.id};
   await page.route("http://task-session.test/**", async route => {
     const path = new URL(route.request().url()).pathname;
@@ -48,7 +49,11 @@ async function run(name, arrange) {
       if (state.failTasks || body.action === "link" && state.failLink) return route.fulfill({status: 503, json: {error: "Task storage unavailable"}});
       if (body.action === "link" && state.loseLinkReply) {state.owner = body.id; return route.fulfill({status: 503, json: {error: "Link reply lost"}});}
       if (body.action === "task-picker") data = {tasks: [task, otherTask], relation: body.sessionId ? {sessionId, sourceTaskId: state.owner, generation: 0, updateRevision: 0} : null};
-      else if (body.action === "link") {if (state.linkGate) {state.linkStarted(); await state.linkGate;} state.owner = body.id; data = {};}
+      else if (body.action === "link") {
+        if (state.linkGate) {state.linkStarted(); await state.linkGate;}
+        if (state.failLink) return route.fulfill({status: 503, json: {error: "Task storage unavailable"}});
+        state.owner = body.id; data = {};
+      }
       else if (body.action === "change-session-relation") {state.owner = body.targetTaskId; data = {};}
       else throw new Error(`Unexpected task action ${body.action}`);
     } else if (path === "/api/agent/new") {state.created++; data = {sessionId};}
@@ -76,6 +81,44 @@ async function run(name, arrange) {
   } finally {await page.close();}
 }
 try {
+  const inherited = {model: null, thinkingLevel: null, task};
+  await run("an inherited task binds during early runtime initialization without opening a picker", async ({page, state}) => {
+    assert.equal(await page.getByLabel("Selected task").textContent(), "Login API");
+    await page.evaluate(() => window.chat.loadSlashCommands());
+    assert.equal(state.owner, task.id); assert.equal(state.created, 1);
+    assert.deepEqual(state.prompts, []);
+  }, inherited);
+  await run("a user can clear the inherited task before the first prompt", async ({page, state}) => {
+    await page.getByRole("button", {name: "Choose task", exact: true}).click();
+    await page.getByRole("option", {name: /No task/}).click();
+    await page.getByRole("dialog").waitFor({state: "detached"});
+    state.expectedOwner = null;
+    await page.evaluate(() => window.chat.handleSend("Unassociated"));
+    assert.equal(state.owner, null); assert.equal(state.created, 1);
+    assert.deepEqual(state.prompts, [{type: "prompt", message: "Unassociated"}]);
+  }, inherited);
+  await run("/new reads the real owner instead of a retained failed preselection", async ({page, state, choose}) => {
+    await choose(); state.failLink = true;
+    await page.evaluate(() => window.chat.loadSlashCommands().catch(() => {}));
+    state.failLink = false; state.owner = otherTask.id;
+    const seed = await page.evaluate(() => window.chat.getNewSessionSeed());
+    assert.equal(seed.task.id, otherTask.id);
+    assert.equal(state.owner, otherTask.id); assert.equal(state.created, 1);
+    assert.deepEqual(state.prompts, []);
+  });
+  await run("/new retains a task when an in-flight initial binding fails", async ({page, state, choose}) => {
+    await choose();
+    let release;
+    state.linkGate = new Promise(resolve => {release = resolve;});
+    const started = new Promise(resolve => {state.linkStarted = resolve;});
+    const warming = page.evaluate(() => window.chat.loadSlashCommands().catch(() => {}));
+    await started;
+    const inheriting = page.evaluate(() => window.chat.getNewSessionSeed());
+    state.failLink = true; release();
+    const [, seed] = await Promise.all([warming, inheriting]);
+    assert.equal(seed.task.id, task.id);
+    assert.equal(state.created, 1); assert.deepEqual(state.prompts, []);
+  });
   await run("new chat preselection creates no Agent and binds before its first prompt", async ({page, state, choose}) => {
     await choose();
     assert.equal(state.created, 0);

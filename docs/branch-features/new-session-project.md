@@ -2,7 +2,7 @@
 
 ## 任务预选交点
 
-[F32 `/task`](task-picker.md)提供独立于项目 picker 的任务选择器，只展示当前权威项目的任务（无项目聊天对应无项目任务）。预选保存在当前 ChatWindow/composer 内存，不为选择创建 Agent。切换目录或另开新会话沿用 draft/remount 路径并清除该预选，界面事先提示；聊天草稿仍按本文件迁移规则处理。真实 session 创建后依据其权威项目再次验证，不能由任务选择器暗中改 cwd。
+[F32 `/task`](task-picker.md)提供独立于项目 picker 的任务选择器，只展示当前权威项目的任务（无项目聊天对应无项目任务）。预选保存在当前 ChatWindow/composer 内存，不为选择创建 Agent。切换目录或通过其他入口另开新会话沿用 draft/remount 路径并清除该预选；F09 `/new` 是明确例外，会把当前任务和模型/等级作为新 draft 专属的一次性 seed 自动沿用，界面事先提示。切项目会清 seed，不能把旧任务带入另一范围；聊天草稿仍按本文件迁移规则处理。真实 session 创建后依据其权威项目再次验证，不能由任务选择器暗中改 cwd。
 
 ## 独立聊天交点
 
@@ -35,7 +35,7 @@
 8. **保持新会话身份。** 在侧边栏同步前写 `activeProjectKeyRef`，更新 active/new cwd 和 draft ID，递增 `sessionKey` 重新挂载聊天；不按目标项目的 last-open 记忆恢复旧 session。URL 替换为 `?cwd=<encoded cwd>`，聊天哨兵则为 `?chat=1`（均无 session 参数、不滚动），刷新可据此回到新会话目标，但不保证草稿持久化。
 9. **清理上下文。** 切项目清空文件 tabs、活动文件、系统提示/工具信息，关闭右面板和顶部活动面板，防止展示旧项目内容。此路径不专门关闭侧边栏。两种 sidebar 模式都挂载选择器，切换模式不影响它的可见性，也不主动清空已有草稿或改 cwd。
 10. **创建边界。** 仅切目录不会创建会话或发送提示；下一次 `ensureNewSession` 请求 `/api/agent/new` 使用新的 `newSessionCwd`。不要强化成“只有第一条消息才能创建”：既有 System/Tools 等非 prompt 初始化路径也可 ensure/promote 新会话。
-11. **`/new` 交互区别。** 完整 `/new`（trim 后完全相等）在可用 cwd/回调下导航到当前聊天 cwd 的空白新会话，先清源文字/图片；它不携带当前草稿，且通过 `handleNewSession(..., false)` 不恢复 parked 草稿。更换项目则携带草稿。侧边栏新建默认仍可恢复该 cwd 的 parked 草稿。带参数 `/new ...` 不是此导航入口。
+11. **`/new` 交互区别。** 完整 `/new`（trim 后完全相等）在可用 cwd/回调下导航到当前聊天 cwd 的空白新会话，先清源文字/图片；它沿用当前已确认模型、思考等级与任务归属，但不携带当前草稿，且通过 `handleNewSession(..., false)` 不恢复 parked 草稿。更换项目则携带草稿。侧边栏新建默认仍可恢复该 cwd 的 parked 草稿。带参数 `/new ...` 不是此导航入口。
 
 ## 实现地图
 

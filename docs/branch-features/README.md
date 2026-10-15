@@ -28,6 +28,10 @@ F31 详情关联对话默认预览前五个，超过五个提供更多/收起；
 - 后续在本分支引入的新能力也应登记；定制被上游等价吸收时，更新实现与验收依据，不可仅因 diff 消失便删除保护性说明。
 - `demo/` 是上游静态演示实现，本轮文档描述主应用，不承诺定制功能已同步到演示站点。
 
+## `/new` 延续当前工作配置与任务
+
+F09 `/new` 现在以一次性、draft 专属 seed 自动沿用当前已确认 provider/model、具体 thinking level（含 `off`）和任务归属/空白预选。新 composer 无需重选任务；正常创建后经权威项目校验/CAS 关联，再发首次 prompt/bash。不带历史/附件、不注入共享上下文、不改全局默认或原会话；读取失败停留来源并报错，关联失败保留真实 ID/草稿供重试。其他新建入口、切项目和刷新不继承这份内存 seed。契约见 F02/F05/F09/F30/F31/F32；新增 `e2e/new-session-inheritance.mjs`，复用 task-picker-page/task-session-selection/model-first-prompt 的整页与实际 SDK 测试 provider 边界，不代表外部 provider/生产平台验收。
+
 ## 最新上游整合
 
 - 2026-10-08：个人分支的 27 个提交重放到 `origin/main` 的 `cf3ebfb`（Pi Web 0.10.0 / SDK 1.0.0）；详见 [整合记录](rebase-0.10.0.md)。
@@ -45,7 +49,7 @@ F31 详情关联对话默认预览前五个，超过五个提供更多/收起；
 | F06 | [侧栏键盘导航与面板切换](sidebar-keyboard-navigation.md) | Alt+左右切换面板，虚拟化列表可键盘到达，删除需确认 | useKeyboardShortcuts、sidebar-keyboard、SessionSidebar |
 | F07 | [复制会话 ID](session-id-copy.md) | 从会话菜单获得真实 ID，而非标题、文件路径或 entry ID | SessionSidebar |
 | F08 | [输入框与消息区焦点导航](chat-focus-navigation.md) | Alt+上下切换且不跳阅读位置；空白会话加载后聚焦 | ChatInput、ChatWindow、CSS |
-| F09 | [`/new` 空白会话命令](new-session-command.md) | 当前 cwd 新建空白 composer，不发送命令、不带附图、不打断原会话 | ChatInput、ChatWindow、AppShell |
+| F09 | [`/new` 空白会话命令](new-session-command.md) | 当前 cwd 空白 composer，自动沿用模型/思考等级/同一任务；不带历史/附图、不改默认、不打断原会话，其他新建入口不继承 | ChatInput、ChatWindow、AppShell、useAgentSession、useTaskSelection |
 | F10 | [下一轮提示词建议](next-prompt-suggestions.md) | 可配置独立建议请求；Tab 只采纳草稿，绝不自动发送 | next-cue 路由、ChatWindow、ChatInput、SettingsPanel |
 | F11 | [桌面文件操作与 Explorer 复用](desktop-file-actions.md) | 浏览/复制/系统打开文件，授权边界与 Windows 标签页复用 | LocalFileLink、desktop-files、windows-explorer、desktop API |
 | F12 | [开发服务输出断管保护](dev-stdio-guard.md) | 仅忽略 stdout/stderr EPIPE，避免日志递归，不吞其他错误 | bin/stdio-guard、package scripts |

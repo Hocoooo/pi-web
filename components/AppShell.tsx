@@ -7,6 +7,7 @@ import { averagePerformance } from "@/lib/message-performance";
 import { SessionSidebar } from "./SessionSidebar";
 import { CHAT_WORKSPACE_KEY } from "@/lib/session-kind";
 import { ChatWindow } from "./ChatWindow";
+import type { NewSessionSeed } from "@/hooks/useAgentSession";
 import type { ChatScrollPosition } from "@/lib/chat-scroll-position";
 import { FileViewer } from "./FileViewer";
 import { TabBar, type Tab } from "./TabBar";
@@ -166,6 +167,7 @@ export function AppShell() {
   const [newSessionCwd, setNewSessionCwd] = useState<string | null>(null);
   const [chatWorkspaceCwd, setChatWorkspaceCwd] = useState<string | null>(null);
   const [newSessionDraftId, setNewSessionDraftId] = useState("initial");
+  const [newSessionSeed, setNewSessionSeed] = useState<{draftKey: string; value: NewSessionSeed} | null>(null);
   const activeNewSessionDraftKeyRef = useRef<string | null>(null);
   const [initialCwdStatus, setInitialCwdStatus] = useState<"idle" | "validating" | "ready" | "error">(
     () => initialNavigation.requestedCwd ? "validating" : "idle",
@@ -586,6 +588,9 @@ export function AppShell() {
   // Guards the async workspace restore so a slow response from an earlier
   // switch cannot resurrect a session into a project the user already left.
   const workspaceRestoreTokenRef = useRef(0);
+  // Unlike restore invalidation, this changes only when chat navigation starts;
+  // promoting a source draft to its real session ID is not a newer user intent.
+  const chatNavigationIntentRef = useRef(0);
 
   const invalidateWorkspaceRestore = useCallback(() => {
     workspaceRestoreTokenRef.current += 1;
@@ -774,6 +779,7 @@ export function AppShell() {
     }
     // Close any session that belongs to a different project — it no longer
     // matches the selected project directory.
+    chatNavigationIntentRef.current++;
     setPreparedTaskToken(null);
     const previousDraftKey = activeNewSessionDraftKeyRef.current;
     if (previousDraftKey && currentFreshCwd) {
@@ -815,6 +821,7 @@ export function AppShell() {
   }, [activeCwd, activeFileTabId, invalidateWorkspaceRestore, newSessionCwd, router, selectedSession, restoreWorkspaceContext]);
 
   const handleSelectSession = useCallback((session: SessionInfo, isRestore = false, entryId?: string, blockIndex?: number) => {
+    chatNavigationIntentRef.current++;
     setSearchTarget(entryId ? { sessionId: session.id, entryId, blockIndex } : null);
     // Restoring an old prepared URL must not silently convert it into a send.
     if (!isRestore) setPreparedTaskToken(null);
@@ -878,6 +885,8 @@ export function AppShell() {
   }, [activeCwd, activeFileTabId, invalidateWorkspaceRestore, router, isMobile, newSessionCwd, selectedSession]);
 
   const handleNewSession = useCallback((sessionId: string, cwd: string, restoreParkedDraft = true, independentChat = cwd === chatWorkspaceCwd) => {
+    chatNavigationIntentRef.current++;
+    setNewSessionSeed(null);
     setPreparedTaskToken(null);
     invalidateWorkspaceRestore();
     const draftKey = `new:${sessionId}:${cwd}`;
@@ -897,6 +906,19 @@ export function AppShell() {
     if (isMobile) setSidebarOpen(false);
     router.replace(independentChat ? "?chat=1" : `?cwd=${encodeURIComponent(cwd)}`, { scroll: false });
   }, [chatWorkspaceCwd, invalidateWorkspaceRestore, router, isMobile]);
+
+  const handleNewSessionCommand = useCallback(async (cwd: string, prepare: () => Promise<NewSessionSeed | null>) => {
+    // Register the intent before reading metadata: a later asynchronous task
+    // navigation must win even while the source ChatWindow is still mounted.
+    invalidateWorkspaceRestore();
+    const navigationIntent = ++chatNavigationIntentRef.current;
+    const taskIntent = taskNavigationIntentRef.current;
+    const seed = await prepare();
+    if (!seed || navigationIntent !== chatNavigationIntentRef.current || taskIntent !== taskNavigationIntentRef.current) return;
+    const draftId = `command-${Date.now()}`;
+    handleNewSession(draftId, cwd, false);
+    setNewSessionSeed({draftKey: `new:${draftId}:${cwd}`, value: seed});
+  }, [handleNewSession, invalidateWorkspaceRestore]);
 
   const navigateTaskChat = useCallback(async (href: string) => {
     const intent = ++taskNavigationIntentRef.current;
@@ -927,6 +949,8 @@ export function AppShell() {
 
   const handleNewSessionProjectChange = useCallback((cwd: string, projectKey: string) => {
     if (selectedSession || cwd === (newSessionCwd ?? activeCwd)) return;
+    chatNavigationIntentRef.current++;
+    setNewSessionSeed(null);
     setPreparedTaskToken(null);
     invalidateWorkspaceRestore();
     const draftId = crypto.randomUUID();
@@ -2586,8 +2610,9 @@ export function AppShell() {
               newSessionCwd={effectiveNewSessionCwd}
               independentChat={independentChat}
               newSessionDraftKey={newSessionDraftKey}
+              newSessionSeed={newSessionSeed?.draftKey === newSessionDraftKey ? newSessionSeed.value : undefined}
               onNewSessionProjectChange={handleNewSessionProjectChange}
-              onNewSession={(cwd) => handleNewSession(`command-${Date.now()}`, cwd, false)}
+              onNewSession={handleNewSessionCommand}
               onAgentEnd={handleAgentEnd}
                 onSessionTitleChange={handleSessionTitleChange}
               onAttentionNeeded={handleAttentionNeeded}

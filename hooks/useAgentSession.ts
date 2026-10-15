@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo, useReducer } from "react";
 import { useTaskSelection } from "./useTaskSelection";
+import type { TaskPickerItem } from "@/components/TaskPicker";
 import type {
   AgentMessage,
   BlockingExtensionUiRequest,
@@ -183,6 +184,8 @@ export interface UseAgentSessionOptions {
   newSessionCwd: string | null;
   independentChat?: boolean;
   newSessionDraftKey: string | null;
+  /** One-shot /new snapshot, scoped to this draft by AppShell. */
+  newSessionSeed?: NewSessionSeed;
   onAgentEnd?: () => void;
   onSessionTitleChange?: (sessionId: string, title: string, autoTitleEnabled: boolean, sessionListVersion?: number) => void;
   onAttentionNeeded?: (request: BlockingExtensionUiRequest) => void;
@@ -204,6 +207,12 @@ export interface UseAgentSessionOptions {
 
 export type ThinkingLevelOption = "auto" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 type ConcreteThinkingLevel = Exclude<ThinkingLevelOption, "auto">;
+
+export interface NewSessionSeed {
+  model: { provider: string; modelId: string } | null;
+  thinkingLevel: ConcreteThinkingLevel | null;
+  task: TaskPickerItem | null;
+}
 
 function asConcreteThinkingLevel(value?: string | null): ConcreteThinkingLevel | null {
   if (!value || value === "auto") return null;
@@ -337,6 +346,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   } = opts;
 
   const isNew = session === null && newSessionCwd !== null;
+  const initialSeed = isNew ? opts.newSessionSeed : undefined;
 
   const [data, setData] = useState<SessionData | null>(null);
   const titleEventVersionRef = useRef(0);
@@ -358,10 +368,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [modelScopeWarnings, setModelScopeWarnings] = useState<string[]>([]);
   const [modelThinkingLevels, setModelThinkingLevels] = useState<Record<string, string[]>>({});
   const [modelThinkingLevelMaps, setModelThinkingLevelMaps] = useState<Record<string, Record<string, string | null>>>({});
-  const [newSessionModel, setNewSessionModel] = useState<SelectedModel | null>(null);
+  const [newSessionModel, setNewSessionModel] = useState<SelectedModel | null>(initialSeed?.model ?? null);
   const [newSessionDefaultModel, setNewSessionDefaultModel] = useState<SelectedModel | null>(null);
   const [toolPreset, setToolPreset] = useState<ToolPreset>(CONFIGURED_TOOL_PRESET);
-  const [newSessionThinkingLevel, setNewSessionThinkingLevel] = useState<ConcreteThinkingLevel | null>(null);
+  const [newSessionThinkingLevel, setNewSessionThinkingLevel] = useState<ConcreteThinkingLevel | null>(initialSeed?.thinkingLevel ?? null);
   const [newSessionDefaultThinkingLevel, setNewSessionDefaultThinkingLevel] = useState<ConcreteThinkingLevel | null>(null);
   const [savedDefaultThinkingLevel, setSavedDefaultThinkingLevel] = useState<ConcreteThinkingLevel | null>(null);
   const [currentThinkingOverride, setCurrentThinkingOverride] = useState<ConcreteThinkingLevel | null>(null);
@@ -424,8 +434,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const treeNavigationVersionRef = useRef(0);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const ensuringNewSessionRef = useRef<Promise<string | null> | null>(null);
-  const taskSelection = useTaskSelection(sessionIdRef, session?.cwd ?? newSessionCwd);
-  const { syncPending: syncPendingTask } = taskSelection;
+  const taskSelection = useTaskSelection(sessionIdRef, session?.cwd ?? newSessionCwd, initialSeed?.task);
+  const { syncPending: syncPendingTask, taskForNewSession } = taskSelection;
   // The command list as last loaded, and the get_commands request under way, if
   // any. A bare /mcp reads them to tell whose /mcp it is (handleBuiltinSlashCommand).
   // The generation moves on with every request and every clear, and only a request
@@ -435,8 +445,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const slashCommandsLoadRef = useRef<Promise<SlashCommandInfo[] | null> | null>(null);
   const slashCommandsGenerationRef = useRef(0);
   const newSessionPromotedRef = useRef(false);
-  const newSessionModelOverrideRef = useRef<SelectedModel | null>(null);
-  const thinkingLevelOverrideRef = useRef<ConcreteThinkingLevel | null>(null);
+  const newSessionModelOverrideRef = useRef<SelectedModel | null>(initialSeed?.model ?? null);
+  const thinkingLevelOverrideRef = useRef<ConcreteThinkingLevel | null>(initialSeed?.thinkingLevel ?? null);
   const thinkingLevelPinsRef = useRef<Record<string, string>>({});
   const defaultThinkingLevelRef = useRef<ConcreteThinkingLevel | null>(null);
   const promptRunIdRef = useRef(0);
@@ -540,6 +550,25 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     ? (newSessionThinkingLevel ?? newSessionDefaultThinkingLevel)
     : currentThinkingLevel ?? (data?.context.messages.length === 0 ? newSessionDefaultThinkingLevel : null);
   const composerDraftKey = session?.id ?? newSessionDraftKey ?? undefined;
+  const newSessionSettingsRef = useRef<Pick<NewSessionSeed, "model" | "thinkingLevel"> | null>(null);
+  newSessionSettingsRef.current = loading || modelSwitching ? null : {
+    model: displayModel,
+    // `off` is a concrete setting too, even when the ordinary display hides it.
+    thinkingLevel: isNew ? displayThinkingLevel
+      : currentThinkingOverride ?? liveThinkingLevel ?? asConcreteThinkingLevel(data?.context.thinkingLevel),
+  };
+  const getNewSessionSeed = useCallback(async (): Promise<NewSessionSeed | null> => {
+    // A runtime may already exist even if its initial task binding failed.
+    // Resolve the confirmed owner/pending choice below rather than losing it.
+    await ensuringNewSessionRef.current?.catch(() => {});
+    const task = await taskForNewSession();
+    if (!sessionHookMountedRef.current) return null;
+    const settings = newSessionSettingsRef.current;
+    if (!settings || modelSwitchPendingRef.current) {
+      throw new Error("Session settings are still loading or changing. Try /new again.");
+    }
+    return { ...settings, task };
+  }, [taskForNewSession]);
 
   const syncLiveModel = useCallback((state?: AgentStateResponse) => {
     setLiveModel(state?.model
@@ -3145,7 +3174,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     lastUserMsgRef, pendingScrollToUserRef, initialScrollDoneRef,
     // Actions
     restoreUnconfirmedSubmission,
-    handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
+    getNewSessionSeed, handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
     handleRecallQueue,
     handleBuiltinSlashCommand,

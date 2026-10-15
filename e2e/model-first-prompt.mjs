@@ -34,7 +34,7 @@ const { outputFiles } = await build({
     };
     function App() {
       window.chat = useAgentSession({
-        session: null, newSessionCwd: "/test-project", newSessionDraftKey: "test-draft",
+        session: null, newSessionCwd: "/test-project", newSessionDraftKey: "test-draft", newSessionSeed: window.newSessionSeed,
       });
       return <output data-testid="thinking">{window.chat.thinkingLevel}</output>;
     }
@@ -83,6 +83,7 @@ async function runCase(name, options, arrange) {
   await loader.reload();
   let wrapper;
   const page = await browser.newPage();
+  await page.addInitScript(seed => {window.newSessionSeed = seed;}, options.seed);
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.route("http://first-prompt.test/**", async (route) => {
@@ -152,6 +153,14 @@ async function runCase(name, options, arrange) {
 }
 
 try {
+  const inherited = {model: {provider: "test", modelId: "reasoning"}, thinkingLevel: "high", task: null};
+  await runCase("/new inherited settings reach the first real SDK provider request", {seed: inherited}, async ({page}) => {
+    assert.equal(await page.getByTestId("thinking").textContent(), "high");
+  });
+  await runCase("/new inherited high survives early runtime initialization", {seed: inherited}, async ({page, getState}) => {
+    await page.evaluate(() => window.chat.loadSlashCommands());
+    assert.equal((await getState()).thinkingLevel, "high");
+  });
   await runCase("pre-created runtime retains selected high on first prompt", {}, async ({ page, getState }) => {
     // Opening slash-command completion pre-creates a dormant runtime.
     await page.evaluate(() => window.chat.loadSlashCommands());
