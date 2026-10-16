@@ -28,6 +28,16 @@
 - 成功才导航到child；沿用AppShell的session列表刷新和任务页面重新读取，详情/count来自已提交关系。
   失败显示原入口错误notice/quote错误；不把已创建但未关联child显示成复制成功。
 
+## 视频引用与原生分支（视频01–09已独立 review / resolved）
+
+[F40 原视频附件](video-attachments.md)复用本功能三入口、SDK 创建以及 task intent/receipt/scope/生命周期，不改变任务复制业务。媒体仅随复制路径中实际继承、SDK 仍有效的 native user `piWebVideo`：`fork` 不含目标 user，`fork_branch` 包含目标 entry，`clone` 只取所选 leaf（包括非当前 leaf），不含兄弟历史。当前 SDK 保留 message entry ID 与嵌套视频 UUID/path/MIME，不按行号或同文问题猜 owner。压缩后 raw inactive 引用可留在副本，但只有有效 owners 出站。
+
+child 不复制/冻结视频文件、不授予路径权限；下次请求仍读取原路径当前 bytes，并重验 canonical/link/regular-file、模型/鉴权与预算。缺失的兄弟文件不影响，继承路径失权整次零出站。视频06的前端导航等待 ACK 与 canonical 历史，代次隔离迟到 history/paging/cache，pending 时不启动旧 leaf 分页；新分支追问完成必须 fresh GET，不另建分支框架或持久浏览位置。
+
+`lib/video-transport.test.mjs` 用真实 SDK/原生 Google final-fetch 与合成 SSE 覆盖三入口、兄弟/非当前 leaf、首视频前 fork、冷开/改文件/symlink 越界及实际压缩 clone；09组合继续验证 clone→模型拒绝/切回→AVI＋PNG Follow-up→Stop→显式消费/冷重开，不错绑兄弟 UUID、不重复或降级文字。`node e2e/video-branch.mjs` 挂载真实 ChatWindow/BranchNavigator，桌面/移动20阶段；实际消息 fork、composer `/clone` 与导航确认/正常分页，`fork_branch` 媒体归属另由 SDK 单测验证。任务复制 intent/CAS/receipt 与原生命周期保持，原 copy16项中的三项故障注入失败单列，不修改/skip，也不以视频绿色组代证。
+
+[公开验收摘要](video-attachments-acceptance.md)给出可执行命令、证据分层和未验边界。历史真实 MP4/AVI 网关首问不包含真实复制/队列付费组合；集成复跑同样是隔离 SDK/browser 验证，不冒称生产 Next/AppShell 或真实网关通过。
+
 ## 12归档交点（主已父验收resolved）
 
 主树idle复制不自动运行，child继承来源唯一关系，包括归档task；complete同board锁额外重查归档目标child的原生命周期（pending/UI/queue/compact/bash），忙child拒绝，不静默restore/abort/prompt。SDK已创建child的精确retry及未知结果人工检查合同不变；completed receipt仍确认原结果，不再造child或伪08选择。child首Send必须恢复owner。scope/source-owner CAS/07 provenance/08 native事实保持。共享guard与外部边界见[归档合同](task-archive.md)，不代表11重新验收或12父验收。

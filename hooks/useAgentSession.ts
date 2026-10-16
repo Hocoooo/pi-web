@@ -22,9 +22,9 @@ import {
   getSessionViewSnapshot,
   setSessionViewSnapshot,
 } from "@/lib/session-view-cache";
-import { clearDraft, getDraft, rekeyDraft, restoreDraftSubmission, type ChatDraft } from "@/lib/draft-store";
 import type { TaskStartSelection, TaskStartPreview } from "@/lib/task-types";
 import { rememberTaskSession } from "@/lib/task-start-client";
+import { clearDraft, getDraft, rekeyDraft, restoreDraftSubmission, type ChatDraft } from "@/lib/draft-store";
 import type { SettingChangeResult } from "@/lib/model-command";
 import { getPreferredToolPreset, setPreferredToolPreset } from "@/lib/tool-preset-preference";
 import { CONFIGURED_TOOL_PRESET, getPresetFromToolNames, getToolNamesForPreset, type ToolEntry, type ToolPreset } from "@/lib/tool-presets";

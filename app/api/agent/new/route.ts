@@ -27,12 +27,12 @@ export async function POST(req: Request) {
     const body = await req.json() as { cwd?: string; [key: string]: unknown };
     const { cwd, ...command } = body;
     commandType = typeof command.type === "string" ? command.type : undefined;
-    if (Object.hasOwn(body, "taskStart")) {
-      throw new Error("Task-start and shared context are suspended. Remove taskStart and use ordinary chat; manage task links separately. Nothing was sent.");
-    }
     validateVideoCommand(command);
     if (Object.hasOwn(command, "video") && command.type !== "prompt") {
       throw new Error("A new session accepts video only with a question prompt, not a standalone queue command. Nothing was sent.");
+    }
+    if (Object.hasOwn(body, "taskStart")) {
+      throw new Error("Task-start and shared context are suspended. Remove taskStart and use ordinary chat; manage task links separately. Nothing was sent.");
     }
     if (!cwd || typeof cwd !== "string") {
       return NextResponse.json({

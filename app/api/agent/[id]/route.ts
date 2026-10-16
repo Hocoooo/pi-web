@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { resolveSessionPath } from "@/lib/session-reader";
 import { startRpcSession, getRpcSession, setRpcSessionTools } from "@/lib/rpc-manager";
-import { validateVideoCommand } from "@/lib/video-attachments";
 import { SessionCopyError } from "@/lib/task-session-copy";
+import { validateVideoCommand } from "@/lib/video-attachments";
 
 // POST /api/agent/[id] - Send a command to an existing session
 export async function POST(
@@ -16,10 +16,10 @@ export async function POST(
   try {
     const body = await req.json() as { type: string; [key: string]: unknown };
     commandType = typeof body.type === "string" ? body.type : undefined;
+    validateVideoCommand(body);
     if (Object.hasOwn(body, "taskStart")) {
       throw new Error("Task-start and shared context are suspended. Remove taskStart and use ordinary chat; manage task links separately. Nothing was sent.");
     }
-    validateVideoCommand(body);
     const requestedToolNames = body.toolNames;
     if (
       requestedToolNames !== undefined

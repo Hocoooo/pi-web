@@ -4,6 +4,7 @@ import test from "node:test";
 import { readFile } from "node:fs/promises";
 import vm from "node:vm";
 import ts from "typescript";
+import { validateVideoCommand } from "../../../lib/video-attachments.ts";
 
 async function routes() {
   const calls = [], state = { existing: null, path: "/synthetic/session.jsonl", exists: true };
@@ -27,6 +28,7 @@ async function routes() {
       setRpcSessionTools: async (...args) => { calls.push(["set_tools", ...args]); return { sessionId: "real-id", recreated: true }; },
     },
     "@/lib/task-session-copy": { SessionCopyError: class SessionCopyError extends Error {} },
+    "@/lib/video-attachments": { validateVideoCommand },
   };
   const load = async path => {
     const source = await readFile(new URL(path, import.meta.url), "utf8");
