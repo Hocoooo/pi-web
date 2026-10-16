@@ -90,7 +90,7 @@ F09 `/new` 现在以一次性、draft 专属 seed 自动沿用当前已确认 pr
 
 ## 视频附件：01–09 全部已独立 review / resolved
 
-[F40](video-attachments.md)记录选择/拖入、上传、原生引用、恢复、重开/追问、压缩、分支/复制、队列/Stop/Recall 与会话模式/模型切换的稳定契约。精确 tapsvc，无别名/fallback、SDK 或全局配置修改。实际 SDK/Google final-fetch、mounted browser、历史真实 Next/AppShell MP4/AVI 各一次200严格分层；571项开发期有界回归不等于全量，任务复制原三项故障注入失败和一次未知根因恢复超时风险保留。[公开验收摘要与可执行命令](video-attachments-acceptance.md)不依赖本地 scratch、临时捕获或会话正文。
+[F40](video-attachments.md)记录选择/拖入、上传、原生引用、恢复、重开/追问、压缩、分支/复制、队列/Stop/Recall 与会话模式/模型切换的稳定契约。精确 tapsvc，无别名/fallback、SDK 或全局配置修改。实际 SDK/Google final-fetch、mounted browser、历史真实 Next/AppShell MP4/AVI 各一次200严格分层；571项开发期有界回归不等于全量；2026-10-16 Windows安装前复测在普通/隔离环境均为3,181项、3,115通过、0失败、66跳过。仅独立文件symlink检查按能力跳过，复制/冷重开/缺失零请求/修复追问与两入口junction越界拒绝继续验证，详见[平台修复](windows-test-portability.md#原生多视频分支安装前修复2026-10-16)。任务复制原三项故障注入失败属于历史记录，一次未知根因恢复超时风险仍保留。[公开验收摘要与可执行命令](video-attachments-acceptance.md)不依赖本地 scratch、临时捕获或会话正文。
 
 ## 交互原型（不代表生产功能）
 

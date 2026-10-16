@@ -2,6 +2,16 @@
 
 状态：视频01–09已于2026-10-15分别独立 review / resolved。实现契约见 [F40](video-attachments.md)。这是从本地票据/验收记录提炼的持久摘要，不保存私有路径、会话正文/ID、凭证、真实 payload、捕获 JSON、临时探针或调度日志。原本地 scratch 不属于提交内容；下列命令可在仓库中直接定位。
 
+## 2026-10-16：Windows 安装前测试修复
+
+在 `feature/gemini-native-video-input` 的 `ecd8067` 上按锁文件执行 `npm ci --include=dev` 后，定向复现8项失败：6项复制/重开混合测试及附件、`read_video` 各1项文件 symlink 测试均在创建链接时返回 EPERM。不是媒体传输逻辑失败，也没有通过放宽生产权限修复。
+
+- 复用 `fileSymlinkOrSkip`，仅 Windows 的 EPERM/EACCES/ENOTSUP/ENOSYS 能力错误跳过独立文件 symlink 检查，其他错误仍失败。6个混合测试不整体跳过：复制/冷重开、当前bytes/兄弟隔离、删除后零fetch以及修复后的显式追问均继续执行。
+- 附件与 `read_video` 各新增真实目录链接越界拒绝检查；Windows 使用 junction，POSIX 使用目录 symlink。它们不替代真正文件 symlink 的验证缺口。
+- 定向 `video-transport/video-queue/video-draft/context-usage`：154项，144通过、0失败、10跳过。普通环境及安装器 `buildEnvironment()` 的隔离 HOME/USERPROFILE/PI_CODING_AGENT_DIR/TEMP 环境分别执行完整 `npm test`，结果均为 **3,181项，3,115通过、0失败、66跳过、0取消**。
+- `tsc --noEmit`、`git diff --check` 通过；全仓 ESLint 0错误，保留两处既有 keyboard 生成 fixture unused-import 告警。8个文件链接检查是明确能力跳过，不算行为通过；其余平台/权限跳过也未计为通过。
+- 完整日志与 `results.json` 保留在 sibling `.pi-web-installs/<repo-key>/ecd8067-video-validation-reaFfR/`。没有更改生产代码、SDK、全局配置或使用测试跳过安装参数，也未发真实付费请求。这是源码安装前验证，后续安装器仍须对已提交HEAD独立执行测试、隔离生产构建及实际安装/服务核验。
+
 ## 2026-10-16：原生 Google 与真实 Pi Web 会话实测
 
 用户授权后，在当前源码开发服务中创建独立 Pi Web 会话，经真实 HTTP API、SDK 和 TapSVC 请求完成以下检查（没有mock模型响应）：
@@ -106,9 +116,9 @@ PI_OFFLINE=1 node --experimental-strip-types --test lib/task-session-copy.test.m
 
 ## 限制与保留风险
 
-- 20 MiB/file、完整32 MiB/request＋64 KiB余量是应用预算，不是网关极限。超限不删媒体/文字降级/自动压缩；无压力/全排列测试。
+- 当前20 MiB/file、完整120 MiB/request（含64 KiB封装余量）是应用预算，不是网关极限；01–09的32 MiB历史预算已由多视频扩展替代。超限不删媒体/文字降级/自动压缩；无压力/全排列测试。
 - 路径不是不可变资产，可修改、丢失、失权；复制 session 不复制文件。未发 draft/未知快照仅页面/模块内存，刷新/切走重开可丢；已发引用冷开不等于未发恢复保证。
 - 真实网关仅上述两个具体编码/尺寸/无音轨首问；长视频、音轨/同步、字幕/多轨、任意 codec/高分辨率、真实多轮/多视频/压缩/分支/复制/模型切换/队列/Stop/工具续轮/失败极限矩阵未验。Google源协议、无项目/Chat-only仅隔离验证。
 - 开发期 task-copy原16项为13 pass/3 fail，06 worker/reviewer已在未修改 HEAD 隔离快照复现：原agent POST structured relation failure、SDK创建后存储权限失败、runtime clone relation-write failure。不是通过、未修改/skip断言，也不由视频绿色组代证。
 - 08曾一次等待恢复文字超时，后续多轮未复现但根因仍未知；未宣称修复或纯环境。保留严格 draft/PNG断言。
-- 无本次新增付费网络、全量 npm test、生产 build/install、服务重启、最低 Node/跨平台/旧浏览器/OS原生文件对话框验收。SDK/final-fetch与Chromium/触屏模拟不替代这些边界。
+- 01–09历史集成轮没有新增付费网络、全量 npm test、生产 build/install、服务重启、最低 Node/跨平台/旧浏览器/OS原生文件对话框验收；后续真实请求及Windows全量单测结果分别见上文。SDK/final-fetch与Chromium/触屏模拟不替代其他未验边界。

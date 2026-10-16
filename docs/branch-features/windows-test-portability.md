@@ -71,6 +71,14 @@ Windows 无文件符号链接权限的检查是明确的验证缺口，需在允
 
 这不是浏览器/真实 provider 质量、Windows ACL、断电或 NFS 验收。安装器仍需对提交后 HEAD 独立运行隔离全量测试、生产构建、tarball 与实际进程验证；这两轮测试结果不能替代 F14 的安装/重启结果。
 
+## 原生多视频分支安装前修复（2026-10-16）
+
+`feature/gemini-native-video-input` 的 `ecd8067` 在 Windows/Node 24.19.0 上定向复现8项文件 symlink EPERM。`lib/video-transport.test.mjs` 复用既有 `fileSymlinkOrSkip`：6个 fork/fork_branch/clone × 分支测试只把文件链接阶段拆成独立子测试，复制/冷重开/当前bytes/兄弟隔离仍执行，另加缺失文件零fetch与修复后显式追问；附件和 `read_video` 的独立文件链接测试也仅按既有能力错误策略跳过。两入口新增真实目录链接越界拒绝，Windows 用 junction，不冒充文件链接覆盖。
+
+按锁文件 `npm ci --include=dev` 后，普通和安装器 `buildEnvironment()` 隔离环境的完整 `npm test` 结果一致：**3,181项，3,115通过、0失败、66跳过、0取消**。定向视频/队列/草稿/context-usage组154项，144通过、0失败、10跳过；8个文件 symlink 检查是明确的能力缺口，其他普通功能和 junction 断言没有整体跳过。`tsc --noEmit`、`git diff --check` 通过；全仓 ESLint 0错误、2个既有 keyboard 生成 fixture 告警。日志与摘要保留在 sibling `.pi-web-installs/<repo-key>/ecd8067-video-validation-reaFfR/`。
+
+生产代码/授权逻辑未变，未修改系统链接权限，未使用安装器测试跳过。文件 symlink 安全断言仍需允许该能力的 Windows 或非 Windows 环境补验；这两轮测试不是全局安装/服务重启成功证明，后续仍由F14独立核验。
+
 ## 维护与整合
 
 修改 fixture 必须保留原断言语义；MCP shutdown 或进程生命周期 API 改变时重新核对 cleanup helper。修改 installer temp 必须同步 F14、skill 与恢复指南，并验证运行时环境未被 build-only 环境污染。新源码文件继承 LF 策略；不得绕过 Git 属性让 source-contract 测试重新依赖操作者的 autocrlf 设置。

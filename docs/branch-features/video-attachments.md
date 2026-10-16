@@ -91,7 +91,7 @@ SDK ModelRuntime.getAuth 先解析 key；缺 key、解析到其他 origin 则零
 - [RPC](../../lib/rpc-manager.ts)、[pi-types](../../lib/pi-types.ts)、[types](../../lib/types.ts)、[new route](../../app/api/agent/new/route.ts)、[existing route](../../app/api/agent/[id]/route.ts)：薄接线/共享结构类型/启动前拒绝，normal/Chat-only 不漏校验。
 - [Picker](../../components/VideoAttachmentPicker.tsx)、[file-upload-client](../../lib/file-upload-client.ts)、[ChatInput](../../components/ChatInput.tsx)、[ChatWindow](../../components/ChatWindow.tsx)：共用上传/分类、门禁、draft/恢复与引用。
 - [hook](../../hooks/useAgentSession.ts)、[draft-store](../../lib/draft-store.ts)、[MessageView](../../components/MessageView.tsx)、[reader](../../lib/session-reader.ts)、[context route](../../app/api/sessions/[id]/context/route.ts)：原生展示、有效状态、分支读取隔离与内存恢复。三语言同步。
-- [合成夹具](../../lib/fixtures/video-attachments/README.md)及[自动/人工验收入口](video-attachments-acceptance.md)。修改同时维护[文件边界](../agents/files-and-access.md)、[模型契约](model-thinking-picker.md)、[会话说明](../agents/sessions.md)、[独立聊天](independent-chat.md)、[Headless](headless-rpc.md)与[索引](README.md)。
+- [合成夹具](../../lib/fixtures/video-attachments/README.md)及[自动/人工验收入口](video-attachments-acceptance.md)。Windows 文件 symlink 能力限制只影响独立链接测试；复制/冷重开、丢文件零请求、修复后追问继续执行，附件与 `read_video` 另测真实 junction 越界拒绝，不将跳过记为安全行为通过。平台策略见 [Windows 测试契约](windows-test-portability.md)。修改同时维护[文件边界](../agents/files-and-access.md)、[模型契约](model-thinking-picker.md)、[会话说明](../agents/sessions.md)、[独立聊天](independent-chat.md)、[Headless](headless-rpc.md)与[索引](README.md)。
 
 Rebase/SDK 升级必须复验 message_end 先于 appendMessage、请求投影 clone、native metadata、公开 enqueue/consume/clear、canonical projection 和 adapter onPayload 的可靠终止，以及最终 URL/鉴权/完整体积。不能整文件覆盖高交叉 hook/composer/RPC，不能把视频放普通 extension factory 漏掉 Chat-only。保留原 admission/Stop/整轮完成/草稿/设置与分支复制语义；不引入任务依赖。
 
