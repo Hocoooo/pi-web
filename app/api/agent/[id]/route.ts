@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { resolveSessionPath } from "@/lib/session-reader";
 import { startRpcSession, getRpcSession, setRpcSessionTools } from "@/lib/rpc-manager";
+import { validateVideoCommand } from "@/lib/video-attachments";
 
 // POST /api/agent/[id] - Send a command to an existing session
 export async function POST(
@@ -14,6 +15,7 @@ export async function POST(
   try {
     const body = await req.json() as { type: string; [key: string]: unknown };
     commandType = typeof body.type === "string" ? body.type : undefined;
+    validateVideoCommand(body);
     const requestedToolNames = body.toolNames;
     if (
       requestedToolNames !== undefined

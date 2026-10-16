@@ -50,6 +50,12 @@
 | F20 | [macOS 服务重启与运行诊断](macos-service-lifecycle.md) | 默认 Terminal 私有交接、显式用户级 LaunchAgent、独立 restart 命令；不转储环境、不自动授予权限，诊断失败不假报 verified | 安装器 mac-terminal/mac-launchagent、service-health API |
 
 | F21 | [每轮结束自动更新会话标题](automatic-session-titles.md) | 服务端整轮结束后台命名，保护手动标题；会话级开关、去重/过期保护与 next-cue 兼容 | auto-session-title、session-title、rpc-manager、会话 API、AppShell、useAgentSession |
+| F40 | [原视频附件（01–09 已 review / resolved）](video-attachments.md) | 单 MP4/AVI 共用上传/skip、原生引用、精确 tapsvc/SDK auth＋Google、20 MiB/完整32 MiB；失败恢复/未知不自动重发、有效上下文/压缩/分支/复制、原 SDK 队列/Stop/Recall、项目/无项目与 Chat-only | VideoAttachmentPicker、ChatInput/ChatWindow/MessageView、useAgentSession/draft-store、video-transport/input-binding、session-reader、agent routes |
+
+## 视频附件：01–09 全部已独立 review / resolved
+
+[F40](video-attachments.md)记录选择/拖入、上传、原生引用、恢复、重开/追问、压缩、分支/复制、队列/Stop/Recall 与会话模式/模型切换的稳定契约。精确 tapsvc，无别名/fallback、SDK 或全局配置修改。实际 SDK/Google final-fetch、mounted browser、历史真实 Next/AppShell MP4/AVI 各一次200严格分层；571项开发期有界回归不等于全量，任务复制原三项故障注入失败和一次未知根因恢复超时风险保留。[公开验收摘要与可执行命令](video-attachments-acceptance.md)不依赖本地 scratch、临时捕获或会话正文。
+
 
 ## 交互原型（不代表生产功能）
 

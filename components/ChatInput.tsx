@@ -12,6 +12,7 @@ import {
   rekeyDraft as rekeyStoredDraft,
   setDraft,
   type ChatDraftImage,
+  type ChatDraft,
 } from "@/lib/draft-store";
 import {
   MAX_ATTACHED_IMAGE_BYTES,
@@ -26,6 +27,8 @@ import { getMarkdownListContinuation } from "@/lib/markdown-list-continuation";
 import { isBareMcpCommand, isBuiltinMcpCommand } from "@/lib/mcp-command";
 import { FolderIcon, getFileIcon } from "./FileIcons";
 import { ImagePreview } from "./ImagePreview";
+import { VideoAttachmentPicker, type VideoAttachmentPickerHandle } from "./VideoAttachmentPicker";
+import { VIDEO_PROVIDER, VIDEO_MODEL_ID, videoMimeTypeForName, type VideoReference } from "@/lib/video-attachments";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useEnterSendMode } from "@/hooks/useEnterSendMode";
 import { useI18n } from "@/hooks/useI18n";
@@ -47,11 +50,18 @@ export interface AttachedImage {
 }
 
 interface Props {
-  onSend: (message: string, images?: AttachedImage[]) => void;
+  onSend: (message: string, images?: AttachedImage[], video?: VideoReference) => void;
+  onFilesUploaded?: () => void;
+  /** Saved separately until an ambiguous ordinary Send is checked explicitly. */
+  unconfirmedSubmission?: ChatDraft | null;
+  unconfirmedSubmissionError?: string | null;
+  unconfirmedRecall?: boolean;
+  onRestoreUnconfirmedSubmission?: () => Promise<void>;
+  restoringSubmission?: boolean;
   onAbort: () => void;
   onNewSession?: (cwd: string) => void;
-  onSteer?: (message: string, images?: AttachedImage[]) => void;
-  onFollowUp?: (message: string, images?: AttachedImage[]) => void;
+  onSteer?: (message: string, images?: AttachedImage[], video?: VideoReference) => void | Promise<void>;
+  onFollowUp?: (message: string, images?: AttachedImage[], video?: VideoReference) => void | Promise<void>;
   /** Optional next-prompt hint. Only shown while the composer is empty. */
   nextCue?: string | null;
   onNextCueAccepted?: () => void;
@@ -119,8 +129,11 @@ export interface ChatInputHandle {
   replaceMessage: (message: UserMessage) => void;
   prependText: (text: string) => void;
   addImages: (files: File[]) => void;
+  addVideos: (files: File[]) => void;
+  hasInput: () => boolean;
+  canRestoreImages: (count: number) => boolean;
   rekeyDraft: (previousKey: string, nextKey: string) => void;
-  restoreSubmission: (text: string, images?: ChatDraftImage[], targetDraftKey?: string) => void;
+  restoreSubmission: (text: string, images?: ChatDraftImage[], targetDraftKey?: string, video?: VideoReference) => void;
 }
 
 // "configured" sends no override, so the session follows settings.json defaultTools.
@@ -478,7 +491,7 @@ function revokeImagePreview(image: AttachedImage): void {
   }
 }
 
-function QueuedMessageRow({ kind, text }: { kind: "steer" | "follow-up"; text: string }) {
+function QueuedMessageRow({ kind, text, video }: { kind: "steer" | "follow-up"; text: string; video?: VideoReference }) {
   return (
     <div
       title={text}
@@ -506,6 +519,7 @@ function QueuedMessageRow({ kind, text }: { kind: "steer" | "follow-up"; text: s
         {kind}
       </span>
       <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{text}</span>
+      {video && <span data-queued-video title={`${video.path} · ${video.mimeType}`} style={{ overflowWrap: "anywhere" }}>🎞 {video.path.split(/[\\/]/).pop()}</span>}
     </div>
   );
 }
@@ -606,7 +620,7 @@ export function ModelScopeWarningBanner({ warnings }: { warnings?: string[] }) {
 }
 
 export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
-  onSend, onAbort, onSteer, onFollowUp, isStreaming, model, isAutoModelSelection, modelNames, modelList, modelError, modelScopeWarnings, onModelChange, modelSwitching,
+  onSend, onFilesUploaded, onAbort, onSteer, onFollowUp, isStreaming, model, isAutoModelSelection, modelNames, modelList, modelError, modelScopeWarnings, onModelChange, modelSwitching,
   defaultModel, onSetDefaultModel,
   onCompact, onAbortCompaction, isCompacting, compactError, compactResult, toolPreset, onToolPresetChange,
   onModelThinkingChange, modelThinkingLevels, modelThinkingLevelMaps,
@@ -617,6 +631,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   onBuiltinCommand, onNewSession,
   soundEnabled, onSoundToggle, onAudioUnlock,
   nextCue, onNextCueAccepted, draftCompletionContext,
+  unconfirmedSubmission, unconfirmedSubmissionError, unconfirmedRecall, onRestoreUnconfirmedSubmission, restoringSubmission,
   onPromptWithStreamingBehavior,
   draftKey,
   cwd,
@@ -635,6 +650,16 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>(() => (
     draftKey ? draftImagesToAttachedImages(getDraft(draftKey)?.images) : []
   ));
+  const [video, setVideo] = useState<VideoReference | undefined>(() => draftKey ? getDraft(draftKey)?.video : undefined);
+  const videoPickerRef = useRef<VideoAttachmentPickerHandle>(null);
+  const videoRef = useRef(video);
+  videoRef.current = video;
+  const [videoBlocked, setVideoBlocked] = useState(false);
+  const [videoError, setVideoError] = useState<string | null>(null);
+  const videoSendError = videoBlocked ? t("chat.videoUnfinished")
+    : video && (isCompacting || modelSwitching) ? t("chat.videoIdleOnly")
+    : video && (model?.provider !== VIDEO_PROVIDER || model.modelId !== VIDEO_MODEL_ID) ? t("chat.videoModelRequired")
+    : video && (!value.trim() || /^[!\/]/.test(value.trimStart())) ? t("chat.videoQuestionOnly") : null;
   const trimmedValue = value.trimStart();
   const bashMode = attachedImages.length === 0 && trimmedValue.startsWith("!");
   const bashExcluded = bashMode && trimmedValue.startsWith("!!");
@@ -684,22 +709,27 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const valueRef = useRef(value);
   const attachedImagesRef = useRef(attachedImages);
   const pendingImageCountRef = useRef(0);
+  const sendPendingRef = useRef(false);
   valueRef.current = value;
   attachedImagesRef.current = attachedImages;
 
   const draftCompletion = useDraftCompletion({
     textarea: textareaRef, value, cwd, context: draftCompletionContext, model,
     disabled: compact || isMobile || isStreaming || !!isCompacting || !!modelSwitching
-      || builtinCommandPending || attachedImages.length > 0 || bashMode
+      || builtinCommandPending || !!restoringSubmission || attachedImages.length > 0 || !!video || videoBlocked || bashMode
       || slashMenuOpen || atMenuOpen || historyMenuOpen || toolDropdownOpen
       || thinkingDropdownOpen || controlsMenuOpen,
   });
 
   useImperativeHandle(ref, () => ({
+    addVideos(files) { if (!restoringSubmission) videoPickerRef.current?.select(files); },
+    hasInput() { return !!(valueRef.current || attachedImagesRef.current.length || videoRef.current || videoBlocked || pendingImageCountRef.current); },
+    canRestoreImages(count) { return count + attachedImagesRef.current.length + pendingImageCountRef.current <= MAX_ATTACHED_IMAGES; },
     focusComposer() {
       textareaRef.current?.focus({ preventScroll: true });
     },
     insertIfEmpty(text: string) {
+      if (restoringSubmission) return;
       const ta = textareaRef.current;
       const current = ta ? ta.value : value;
       if (current.trim()) return;
@@ -714,9 +744,11 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       });
     },
     replaceMessage(message: UserMessage) {
+      if (restoringSubmission) return;
       const ta = textareaRef.current;
       const current = ta ? ta.value : value;
-      if (!canRestoreUserMessage(current, attachedImagesRef.current.length, pendingImageCountRef.current)) return;
+      if (message.piWebVideo) { setVideoError(t("chat.videoEditUnsupported")); return; }
+      if (videoRef.current || videoBlocked || !canRestoreUserMessage(current, attachedImagesRef.current.length, pendingImageCountRef.current)) return;
 
       const restoredText = getUserMessageText(message);
       const restoredImages = draftImagesToAttachedImages(getUserMessageDraftImages(message));
@@ -764,9 +796,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       const currentDraft = {
         value: valueRef.current,
         images: attachedImagesRef.current.map(imageToDraftImage),
+        ...(videoRef.current ? { video: videoRef.current } : {}),
       };
       const moved = rekeyStoredDraft(previousKey, nextKey, currentDraft) ?? { value: "", images: [] };
-      const unchanged = moved.value === currentDraft.value
+      const unchanged = moved.video?.path === currentDraft.video?.path && moved.value === currentDraft.value
         && moved.images.length === currentDraft.images.length
         && moved.images.every((image, index) => (
           image.data === currentDraft.images[index]?.data
@@ -779,6 +812,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       valueRef.current = moved.value;
       attachedImagesRef.current = movedImages;
       setValue(moved.value);
+      videoRef.current = moved.video;
+      setVideo(moved.video);
       setAttachedImages((current) => {
         current.forEach(revokeImagePreview);
         return movedImages;
@@ -786,7 +821,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       setAtQuery(null);
       setHistoryMenuOpen(false);
     },
-    restoreSubmission(text: string, images?: ChatDraftImage[], targetDraftKey?: string) {
+    restoreSubmission(text: string, images?: ChatDraftImage[], targetDraftKey?: string, submittedVideo?: VideoReference) {
       if (!text.trim() && !images?.length) return;
 
       // clearInput is queued before the submission handler runs. Compose with
@@ -805,12 +840,16 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         targetsCurrentComposer
           ? attachedImagesRef.current.map(imageToDraftImage)
           : (storedDraft?.images ?? []),
+        submittedVideo,
+        targetsCurrentComposer ? videoRef.current : storedDraft?.video,
       );
       // The first optimistic message switches ChatWindow out of its empty-state
       // layout and remounts this component. Persist synchronously so recovery is
       // not lost if this instance is the one being unmounted.
       if (destinationDraftKey) setDraft(destinationDraftKey, restoredDraft);
       if (!targetsCurrentComposer) return;
+      videoRef.current = restoredDraft.video;
+      setVideo(restoredDraft.video);
       const restoredImages = images?.length
         ? [
             ...draftImagesToAttachedImages(images).slice(
@@ -851,6 +890,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       });
     },
     insertText(text: string) {
+      if (restoringSubmission) return;
       const ta = textareaRef.current;
       if (!ta) {
         setValue((v) => v + (v ? " " : "") + text);
@@ -875,7 +915,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       });
     },
     addImages(files: File[]) {
-      processImageFiles(files);
+      if (!restoringSubmission) processImageFiles(files);
     },
   }));
 
@@ -935,6 +975,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     if (draftKey) clearDraft(draftKey);
     if (draftKeyRef.current && draftKeyRef.current !== draftKey) clearDraft(draftKeyRef.current);
     clearImages();
+    videoRef.current = undefined;
+    setVideo(undefined);
+    setVideoError(null);
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
     }
@@ -945,8 +988,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     setDraft(draftKey, {
       value,
       images: attachedImages.map(imageToDraftImage),
+      ...(video ? { video } : {}),
     });
-  }, [attachedImages, draftKey, value]);
+  }, [attachedImages, draftKey, value, video]);
 
   useEffect(() => {
     const previousDraftKey = draftKeyRef.current;
@@ -956,11 +1000,16 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       setDraft(previousDraftKey, {
         value: valueRef.current,
         images: attachedImagesRef.current.map(imageToDraftImage),
+        ...(videoRef.current ? { video: videoRef.current } : {}),
       });
     }
 
     const draft = draftKey ? getDraft(draftKey) : null;
     draftKeyRef.current = draftKey;
+    videoRef.current = draft?.video;
+    setVideo(draft?.video);
+    setVideoBlocked(false);
+    setVideoError(null);
     const nextValue = draft?.value ?? "";
     const nextImages = draftImagesToAttachedImages(draft?.images);
     valueRef.current = nextValue;
@@ -1041,6 +1090,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   }, [thinkingDropdownOpen, builtinCommandPending, isStreaming, isCompacting, modelSwitching]);
 
   const runBuiltinCommand = useCallback(async (msg: string): Promise<boolean> => {
+    if ((video || videoBlocked) && msg.startsWith("/")) { setVideoError(t("chat.videoQuestionOnly")); return true; }
     if (msg === "/new" && cwd && onNewSession) {
       // Clear the source draft before navigation; never send or carry its attachments.
       clearInput();
@@ -1072,18 +1122,29 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       builtinCommandPendingRef.current = false;
       setBuiltinCommandPending(false);
     }
-  }, [attachedImages.length, clearInput, cwd, onBuiltinCommand, onNewSession]);
+  }, [attachedImages.length, clearInput, cwd, onBuiltinCommand, onNewSession, t, video, videoBlocked]);
 
   const handleSend = useCallback(async () => {
+    if (restoringSubmission) return;
     const msg = value.trim();
+    if (videoSendError) { setVideoError(videoSendError); return; }
     if (!msg && !attachedImages.length) return;
-    onAudioUnlock?.();
-    const builtinAllowed = !isStreaming || offersBuiltinSlashCommandWhileStreaming(msg) || isSettingsSlashCommand(msg);
-    if (builtinAllowed && await runBuiltinCommand(msg)) return;
-    if (isStreaming) return;
-    clearInput();
-    onSend(msg, attachedImages.length ? attachedImages : undefined);
-  }, [value, attachedImages, isStreaming, runBuiltinCommand, onSend, clearInput, onAudioUnlock]);
+    // Command dispatch yields even for an ordinary question. Do not clear/send
+    // it twice before React has rendered the empty composer or the hook's busy state.
+    if (sendPendingRef.current) return;
+    sendPendingRef.current = true;
+    try {
+      onAudioUnlock?.();
+      const builtinAllowed = !isStreaming || offersBuiltinSlashCommandWhileStreaming(msg) || isSettingsSlashCommand(msg);
+      if (builtinAllowed && await runBuiltinCommand(msg)) return;
+      if (isStreaming) return;
+      clearInput();
+      if (video) onSend(msg, attachedImages.length ? attachedImages : undefined, video);
+      else onSend(msg, attachedImages.length ? attachedImages : undefined);
+    } finally {
+      sendPendingRef.current = false;
+    }
+  }, [value, attachedImages, isStreaming, runBuiltinCommand, onSend, clearInput, onAudioUnlock, video, videoSendError, restoringSubmission]);
 
   const slashQuery = !compact && value.startsWith("/") && !/\s/.test(value.slice(1))
     ? value.slice(1).toLowerCase()
@@ -1118,7 +1179,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     ? t(slashQuery ? "chat.match" : "chat.command")
     : t(slashQuery ? "chat.matches" : "chat.commands", { count: filteredSlashCommands.length });
   const hasInputText = Boolean(value.trim());
-  const canQueueStreamingMessage = hasInputText || attachedImages.length > 0;
+  const canQueueStreamingMessage = !videoSendError && (hasInputText || attachedImages.length > 0);
   // Warn when images are attached but the selected model is known not to accept
   // image input (#584), including a resolved default. Unknown models stay silent.
   const showImageUnsupportedWarning = (
@@ -1312,12 +1373,15 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     });
   }, []);
 
-  const sendQueued = useCallback((mode: "steer" | "followup") => {
+  const sendQueued = useCallback(async (mode: "steer" | "followup") => {
+    if (restoringSubmission) return;
+    if (videoSendError) { setVideoError(videoSendError); return; }
+    if (sendPendingRef.current) return;
     const msg = value.trim();
     if (!msg && !attachedImages.length) return;
     onAudioUnlock?.();
     const images = attachedImages.length ? attachedImages : undefined;
-    const queue = () => {
+    const queue = async () => {
       const streamingBehavior = mode === "steer" ? "steer" : "followUp";
       if (msg.startsWith("/") && onPromptWithStreamingBehavior) {
         clearInput();
@@ -1326,26 +1390,29 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       }
       clearInput();
       if (mode === "steer" && onSteer) {
-        onSteer(msg, images);
+        if (video) await onSteer(msg, images, video);
+        else await onSteer(msg, images);
       } else if (mode === "followup" && onFollowUp) {
-        onFollowUp(msg, images);
+        if (video) await onFollowUp(msg, images, video);
+        else await onFollowUp(msg, images);
       }
     };
-    if ((msg === "/new" && cwd && onNewSession)
-      || (onBuiltinCommand && (isSettingsSlashCommand(msg) || (!attachedImages.length && canRunBuiltinSlashCommandWhileStreaming(msg))))) {
-      void runBuiltinCommand(msg);
-      return;
-    }
-    if (!attachedImages.length && onBuiltinCommand && isBareMcpCommand(msg)) {
-      // Settings › MCP opens when pi's built-in MCP extension owns /mcp; another
-      // extension's /mcp is queued as before. The composer is disabled meanwhile.
-      void runBuiltinCommand(msg).then((handled) => {
-        if (!handled) queue();
-      }, () => queue());
-      return;
-    }
-    queue();
-  }, [value, attachedImages, cwd, onNewSession, onBuiltinCommand, onPromptWithStreamingBehavior, onSteer, onFollowUp, clearInput, onAudioUnlock, runBuiltinCommand]);
+    sendPendingRef.current = true;
+    try {
+      if ((msg === "/new" && cwd && onNewSession)
+        || (onBuiltinCommand && (isSettingsSlashCommand(msg) || (!attachedImages.length && canRunBuiltinSlashCommandWhileStreaming(msg))))) {
+        void runBuiltinCommand(msg);
+        return;
+      }
+      if (!attachedImages.length && onBuiltinCommand && isBareMcpCommand(msg)) {
+        // Settings › MCP opens when pi's built-in MCP extension owns /mcp; another
+        // extension's /mcp is queued as before. The composer is disabled meanwhile.
+        if (!await runBuiltinCommand(msg)) await queue();
+        return;
+      }
+      await queue();
+    } finally { sendPendingRef.current = false; }
+  }, [value, attachedImages, cwd, onNewSession, onBuiltinCommand, onPromptWithStreamingBehavior, onSteer, onFollowUp, clearInput, onAudioUnlock, runBuiltinCommand, video, videoSendError, restoringSubmission]);
 
   const getNextSlashIndex = useCallback((direction: "up" | "down" | "left" | "right") => {
     const lastIndex = displayedSlashCommands.length - 1;
@@ -1575,6 +1642,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   );
 
   const handleInput = useCallback(() => {
+    setVideoError(null);
     const ta = textareaRef.current;
     if (!ta) return;
     ta.style.height = "auto";
@@ -1583,6 +1651,11 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
 
   const handlePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
     const items = Array.from(e.clipboardData?.items ?? []);
+    if (items.some(item => item.kind === "file" && (item.type.startsWith("video/") || videoMimeTypeForName(item.getAsFile()?.name ?? "")))) {
+      e.preventDefault();
+      setVideoError(t("chat.videoPasteUnsupported"));
+      return;
+    }
     const imageItems = items.filter((item) => item.type.startsWith("image/"));
     if (!compact && imageItems.length) {
       e.preventDefault();
@@ -1621,7 +1694,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       ta.focus();
       ta.setSelectionRange(start + markdown.length, start + markdown.length);
     });
-  }, [compact, processImageFiles, updateAtQuery]);
+  }, [compact, processImageFiles, updateAtQuery, t]);
 
   useEffect(() => {
     if (slashQuery === null) {
@@ -1754,8 +1827,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
 
   return (
     <fieldset
-      disabled={builtinCommandPending}
-      aria-busy={builtinCommandPending}
+      disabled={builtinCommandPending || restoringSubmission}
+      aria-busy={builtinCommandPending || restoringSubmission}
       className={compact ? undefined : "chat-input-shell"}
       style={{
         flexShrink: 0,
@@ -1857,10 +1930,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               )}
             </div>
             {queuedMessages?.steering.map((text, i) => (
-              <QueuedMessageRow key={`steer-${i}`} kind="steer" text={text} />
+              <QueuedMessageRow key={`steer-${i}`} kind="steer" text={text} video={queuedMessages.inputs?.steering[i]?.video} />
             ))}
             {queuedMessages?.followUp.map((text, i) => (
-              <QueuedMessageRow key={`followup-${i}`} kind="follow-up" text={text} />
+              <QueuedMessageRow key={`followup-${i}`} kind="follow-up" text={text} video={queuedMessages.inputs?.followUp[i]?.video} />
             ))}
           </div>
         )}
@@ -1912,6 +1985,27 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             {compactError}
           </div>
         )}
+        {!compact && <VideoAttachmentPicker
+          ref={videoPickerRef} key={draftKey}
+          cwd={cwd} video={video} disabled={!!isCompacting || !!modelSwitching || !!restoringSubmission}
+          onChange={next => { videoRef.current = next; setVideo(next); setVideoError(null); }}
+          onBlockedChange={setVideoBlocked} onFilesUploaded={onFilesUploaded}
+        />}
+        {unconfirmedSubmission && <div data-unconfirmed-submission role="status"
+          style={{ marginBottom: 8, padding: 10, border: "1px solid var(--border)", borderRadius: 8, fontSize: 12, overflowWrap: "anywhere" }}>
+          <p>{t(unconfirmedRecall ? "chat.recallUnconfirmed" : "chat.sendUnconfirmed")}</p>
+          {unconfirmedSubmissionError && <p role="alert">{unconfirmedSubmissionError}</p>}
+          <div style={{ whiteSpace: "pre-wrap", maxHeight: 100, overflowY: "auto" }}>{unconfirmedSubmission.value}</div>
+          {unconfirmedSubmission.images.length > 0 && <div>{t("chat.savedSubmissionImages", { count: unconfirmedSubmission.images.length })}</div>}
+          {unconfirmedSubmission.video && <div>{unconfirmedSubmission.video.path} · {unconfirmedSubmission.video.mimeType}</div>}
+          {(value || attachedImages.length > 0 || video || videoBlocked) && <p>{t("chat.clearBeforeRestore")}</p>}
+          <button type="button" onClick={() => { void onRestoreUnconfirmedSubmission?.(); }}
+            disabled={isStreaming || isCompacting || restoringSubmission || !!value || attachedImages.length > 0 || !!video || videoBlocked}
+            style={{ padding: "6px 10px", marginTop: 6, border: "1px solid var(--border)", borderRadius: 6, color: "var(--text)", background: "var(--bg-panel)" }}>
+            {t("chat.restoreSavedSubmission")}
+          </button>
+        </div>}
+        {(videoError || videoSendError) && <div role="alert" style={{ color: "var(--error, #ef4444)", fontSize: 12, marginBottom: 6 }}>{videoSendError ?? videoError}</div>}
         {/* Image previews */}
         {attachedImages.length > 0 && (
           <div style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
@@ -2417,7 +2511,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           ) : (
             <button
               onClick={handleSend}
-              disabled={!value.trim() && !attachedImages.length}
+              disabled={!!videoSendError || (!value.trim() && !attachedImages.length)}
               title={t("chat.send")}
               aria-label={t("chat.send")}
               style={{

@@ -1,5 +1,6 @@
 import {
   SessionManager,
+  buildSessionProjection,
   getAgentDir,
 } from "@earendil-works/pi-coding-agent";
 import { closeSync, type Dirent, fstatSync, openSync, readSync, statSync } from "fs";
@@ -667,6 +668,8 @@ export interface BuildSessionContextOptions {
   deferToolResultImages?: boolean;
   tail?: number;
   excludeLeaf?: boolean;
+  /** Full viewed context's leaf, separate from an older page's `before` cursor. */
+  effectiveLeafId?: string | null;
   /** Session id used to build lazy URLs for historical tool-result images. */
   sessionId?: string;
 }
@@ -683,6 +686,13 @@ export function buildSessionContext(
     entries, leafId ?? null, tail && tail > 0 ? tail : entries.length, excludeLeaf,
   );
   const hasMore = Boolean(tail && tail > 0 && sliced[0]?.parentId);
+  // History is not model context. Ask the same SDK projection used by sends,
+  // over the full entries, not a paginated slice or a guessed compaction cutoff.
+  const videoOwners = sliced.some(e => e.type === "message" && e.message.role === "user" && e.message.piWebVideo)
+    ? new Set(buildSessionProjection(entries as never,
+        options.effectiveLeafId !== undefined ? options.effectiveLeafId : leafId,
+      ).entries.filter(e => e.messages.some(m => m.role === "user" && "piWebVideo" in m)).map(e => e.sourceEntry.id))
+    : new Set<string>();
 
   // Convert messages and their IDs together to keep fork/navigation targets aligned.
   const messages: AgentMessage[] = [];
@@ -690,7 +700,9 @@ export function buildSessionContext(
   for (const entry of sliced) {
     const m = entryToUiMessage(entry, options);
     if (m) {
-      messages.push(m);
+      messages.push(m.role === "user" && m.piWebVideo
+        ? { ...m, piWebVideoInContext: videoOwners.has(entry.id) }
+        : m);
       entryIds.push(entry.id);
     }
   }

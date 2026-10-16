@@ -7,6 +7,8 @@ import { existsSync, realpathSync, writeFileSync } from "fs";
 import { resolve } from "path";
 import { validateAgentImages } from "./image-attachments";
 import { createRequestPerformanceTracker } from "./request-performance";
+import { validateVideoCommand } from "./video-attachments";
+import { createVideoTransport } from "./video-transport";
 import { AutoSessionTitleController, renameSessionTitle, setSessionAutoTitleEnabled, StaleSessionTitleError } from "./auto-session-title";
 import { computeSessionStats } from "./session-stats";
 import { invalidateModelsCache } from "./models-cache";
@@ -319,6 +321,7 @@ export class AgentSessionWrapper {
   private readonly suppressCompletionNotifications: boolean;
   private readonly automaticTitles: boolean;
   private readonly titles: AutoSessionTitleController;
+  private readonly videoTransport: ReturnType<typeof createVideoTransport>;
   private readonly mcpHost?: Pick<McpHost, "prepareForPrompt" | "dispose">;
   private mcpHostDisposed = false;
   // The MCP wait of the prompt being admitted; Stop ends it.
@@ -342,6 +345,7 @@ export class AgentSessionWrapper {
     public readonly inner: AgentSessionLike,
     options: AgentSessionWrapperOptions = {},
   ) {
+    this.videoTransport = createVideoTransport(inner);
     this.exactSystemPrompt = options.exactSystemPrompt;
     this.chatOnly = options.chatOnly ?? false;
     this.headless = options.headless ?? false;
@@ -418,10 +422,21 @@ export class AgentSessionWrapper {
 
   start(): void {
     const performanceTracker = createRequestPerformanceTracker();
+    this.videoTransport.queue.install(() => {
+      const inputs = this.videoTransport.queue.snapshot();
+      this.emit({ type: "queue_update", steering: inputs.steering.map(i => i.text), followUp: inputs.followUp.map(i => i.text), inputs });
+    });
     if (this.inner.agent.streamFunction) {
-      this.inner.agent.streamFunction = performanceTracker.wrap(this.inner.agent.streamFunction);
+      this.inner.agent.streamFunction = performanceTracker.wrap(this.videoTransport.wrap(this.inner.agent.streamFunction));
+    }
+    if (this.inner.agent.convertToLlm) {
+      this.inner.agent.convertToLlm = this.videoTransport.wrapConversion(this.inner.agent.convertToLlm);
     }
     this.unsubscribe = this.inner.subscribe((event: AgentEvent) => {
+      this.videoTransport.observe(event);
+      // SDK's text-only notification precedes the actual public enqueue/consume
+      // boundary. The queue observer emits its corresponding complete view.
+      if (event.type === "queue_update" && this.videoTransport.queue.installed) return;
       if (event.type === "message_end" && event.message && typeof event.message === "object") {
         performanceTracker.restore(event.message);
       }
@@ -768,6 +783,7 @@ export class AgentSessionWrapper {
 
   async send(command: Record<string, unknown>): Promise<unknown> {
     const type = command.type as string;
+    validateVideoCommand(command);
     const allowedDuringReplacement = COMMANDS_ALLOWED_DURING_SESSION_REPLACEMENT.has(type);
     if (this.sessionReplacement && !allowedDuringReplacement) {
       throw new Error("Session is being copied to a new session");
@@ -782,6 +798,10 @@ export class AgentSessionWrapper {
       this.titles.cancel();
     }
     if (type === "abort") this.titles.stopRun();
+    // A new explicit queued video after Stop owns a fresh cancellation scope.
+    // Reset before any await so a later Stop can still cancel this submission.
+    if ((type === "steer" || type === "follow_up") && Object.hasOwn(command, "video")
+      && this.extensionUiAbortController.signal.aborted) this.extensionUiAbortController = new AbortController();
 
     try {
       // Status reconciliation must not postpone forced cleanup after Stop.
@@ -870,7 +890,7 @@ export class AgentSessionWrapper {
           }
           let prompt: Promise<void>;
           try {
-            prompt = this.inner.prompt(command.message as string, {
+            prompt = this.videoTransport.prompt(command.message as string, {
               ...(promptImages?.length ? { images: promptImages } : {}),
               ...(streamingBehavior ? { streamingBehavior } : {}),
               source: "rpc",
@@ -879,7 +899,7 @@ export class AgentSessionWrapper {
               // Every disposition (handled, queued, started) is an acceptance; a
               // rejected prompt never calls this and rejects `prompt` instead.
               preflightResult: () => acceptPreflight(),
-            });
+            }, command.video, this.extensionUiAbortController.signal);
           } catch (error) {
             finishPrompt();
             throw error;
@@ -957,6 +977,7 @@ export class AgentSessionWrapper {
           queuedMessages: {
             steering: [...this.inner.getSteeringMessages()],
             followUp: [...this.inner.getFollowUpMessages()],
+            ...(this.videoTransport.queue.installed ? { inputs: this.videoTransport.queue.snapshot() } : {}),
           },
           contextUsage: contextUsage
             ? { percent: contextUsage.percent, contextWindow: contextUsage.contextWindow, tokens: contextUsage.tokens }
@@ -1177,18 +1198,18 @@ export class AgentSessionWrapper {
       case "clear_queue": {
         // Full clear only: pi has no single-item dequeue, and clear+requeue
         // races against the agent loop pulling messages mid-flight.
-        return this.inner.clearQueue();
+        return this.videoTransport.queue.clear(command.recall === true, this.isRunning(), command.recallInputs);
       }
 
       case "steer": {
         const steerImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
-        await this.inner.steer(command.message as string, steerImages?.length ? steerImages : undefined);
+        await this.videoTransport.enqueue("steer", command.message as string, steerImages?.length ? steerImages : undefined, command.video, this.extensionUiAbortController.signal);
         return null;
       }
 
       case "follow_up": {
         const followImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
-        await this.inner.followUp(command.message as string, followImages?.length ? followImages : undefined);
+        await this.videoTransport.enqueue("followUp", command.message as string, followImages?.length ? followImages : undefined, command.video, this.extensionUiAbortController.signal);
         return null;
       }
 

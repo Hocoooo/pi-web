@@ -29,10 +29,11 @@ function composer(value, isStreaming, attachedImages = []) {
   const actions = [];
   const context = {
     value, isStreaming, attachedImages, cwd: "/current-session-worktree",
+    video: undefined, videoBlocked: false, videoSendError: null, restoringSubmission: false,
     onAudioUnlock() {},
     onNewSession: (...args) => actions.push(["new", ...args]),
     onBuiltinCommand: async (msg) => { actions.push(["builtin", msg]); return { handled: false }; },
-    builtinCommandPendingRef: { current: false },
+    builtinCommandPendingRef: { current: false }, sendPendingRef: { current: false },
     setBuiltinCommandPending() {},
     clearInput: () => actions.push(["clear"]),
     onSend: (...args) => actions.push(["send", ...args]),
@@ -41,11 +42,20 @@ function composer(value, isStreaming, attachedImages = []) {
   };
   context.runBuiltinCommand = callback(inputText, "runBuiltinCommand", context);
   return {
-    actions,
+    actions, context,
     send: callback(inputText, "handleSend", context),
     queue: callback(inputText, "sendQueued", context),
   };
 }
+
+test("Recall/restore pending never dispatches, clears or queues another composer input", async () => {
+  for (const streaming of [false, true]) {
+    const input = composer("Keep the current input", streaming, [{ data: "png", mimeType: "image/png" }]);
+    input.context.restoringSubmission = true;
+    await input.send(); await input.queue("steer"); await input.queue("followup");
+    assert.deepEqual(input.actions, []);
+  }
+});
 
 test("standalone /new clears the source draft and opens a blank session without sending", async () => {
   for (const value of ["/new", "  /new \n"]) {
@@ -79,6 +89,36 @@ test("/new prefixes and arguments do not trigger new-session navigation", async 
     streaming.queue("followup");
     assert.deepEqual(streaming.actions, [["clear"], ["queue", value, "followUp", undefined]]);
   }
+});
+
+test("repeated ordinary Send during command dispatch submits and clears the video draft once", async () => {
+  const images = [{ data: "original-image-bytes", mimeType: "image/png" }];
+  const video = { version: 1, path: "/current-session-worktree/clip.avi", mimeType: "video/avi" };
+  const input = composer("Keep my question", false, images);
+  input.context.video = video;
+  const dispatch = Promise.withResolvers();
+  input.context.runBuiltinCommand = () => dispatch.promise;
+  const first = input.send();
+  const second = input.send();
+  assert.deepEqual(input.actions, [], "input is not cleared while dispatch is pending");
+  dispatch.resolve(false);
+  await Promise.all([first, second]);
+  assert.deepEqual(input.actions, [["clear"], ["send", "Keep my question", images, video]]);
+  assert.equal(input.context.sendPendingRef.current, false);
+});
+
+test("a handled or failed command releases the local Send guard for the next explicit attempt", async () => {
+  const input = composer("Question", false);
+  input.context.runBuiltinCommand = async () => { throw new Error("dispatch failed"); };
+  await assert.rejects(input.send(), /dispatch failed/);
+  assert.equal(input.context.sendPendingRef.current, false);
+  input.context.runBuiltinCommand = async () => true;
+  await input.send();
+  assert.deepEqual(input.actions, []);
+  assert.equal(input.context.sendPendingRef.current, false);
+  input.context.runBuiltinCommand = async () => false;
+  await input.send();
+  assert.deepEqual(input.actions, [["clear"], ["send", "Question", undefined]]);
 });
 
 test("/new is discoverable and available during streaming", () => {

@@ -30,6 +30,23 @@ function renderMessage(message, props = {}) {
   );
 }
 
+test("video references distinguish effective, excluded and not-yet-confirmed context without hiding history", () => {
+  const message = { role: "user", content: "Question", piWebVideo: { version: 1, id: "owner", path: "/workspace/clip.mp4", mimeType: "video/mp4" } };
+  for (const [state, value, text] of [
+    ["active", true, /In current context.*included automatically.*file\/model checks/],
+    ["inactive", false, /Outside current context.*no longer included automatically.*Attach it to a new question.*summary text is not video input/],
+    ["unknown", undefined, /Context status pending.*reference alone does not confirm video input/],
+  ]) {
+    const html = renderMessage({ ...message, piWebVideoInContext: value });
+    assert.match(html, new RegExp(`data-video-context="${state}"`));
+    assert.match(html, text);
+    assert.match(html, /Video reference.*clip\.mp4.*video\/mp4/);
+    assert.match(html, /\/workspace\/clip\.mp4/);
+    assert.match(html, /Question/);
+  }
+  assert.doesNotMatch(renderMessage({ role: "user", content: "/workspace/clip.mp4" }), /data-sent-video|data-video-context/);
+});
+
 test("shows persisted TTFT and provider-based speed on completed messages", () => {
   const message = {
     role: "assistant", provider: "test", model: "test", stopReason: "stop",

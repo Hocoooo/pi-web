@@ -1,5 +1,6 @@
 import { buildAtMentionText } from "./file-fuzzy";
 import { encodeFilePathForApi } from "./file-paths";
+import { videoMimeTypeForName } from "./video-attachments";
 
 /** Browser side of `POST /api/files/[...path]?type=upload`; mirrors `lib/file-upload.ts`. */
 export type UploadConflictStrategy = "error" | "overwrite" | "skip";
@@ -65,22 +66,24 @@ export function uploadFiles(
 export type DroppedItem = { kind: "file"; file: File } | { kind: "folder"; name: string };
 
 /**
- * Sorts a chat drop: images are attached to the prompt as before, other files
- * are uploaded into the working directory and mentioned, and folders are left
+ * Sorts a chat drop: video candidates go to the single-video picker, images
+ * attach to the prompt, ordinary files are uploaded and mentioned, and folders are left
  * out because the upload endpoint takes files only.
  * @param items The dropped items, in drop order
- * @returns The images, the files to upload, and the names of skipped folders
+ * @returns Video candidates (including invalid video types), images, ordinary files and skipped folders
  */
-export function splitDroppedItems(items: DroppedItem[]): { images: File[]; files: File[]; folders: string[] } {
+export function splitDroppedItems(items: DroppedItem[]): { videos: File[]; images: File[]; files: File[]; folders: string[] } {
+  const videos: File[] = [];
   const images: File[] = [];
   const files: File[] = [];
   const folders: string[] = [];
   for (const item of items) {
     if (item.kind === "folder") folders.push(item.name);
+    else if (videoMimeTypeForName(item.file.name) || item.file.type.startsWith("video/")) videos.push(item.file);
     else if (item.file.type.startsWith("image/")) images.push(item.file);
     else files.push(item.file);
   }
-  return { images, files, folders };
+  return { videos, images, files, folders };
 }
 
 /**

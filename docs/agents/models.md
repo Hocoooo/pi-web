@@ -1,5 +1,11 @@
 # Models and provider auth
 
+## TapSVC original-video capability (01–09 resolved)
+
+[F40](../branch-features/video-attachments.md) requires exact provider `tapsvc`, model `google/gemini-3.8-flash`, origin `https://llm-proxy.tapsvc.com`, source API anthropic-messages or google-generative-ai. No old-ID alias, fallback, global config migration or automatic model change. Only effective-video requests use native Google streamSimple at /v1beta, preserving the google/ model prefix. Resolve current SDK ModelRuntime.getAuth first; require its key and matching endpoint origin. Native adapter onPayload validates owners/full tuple/video count/model/endpoint/budget after SDK hooks; swallowed extension-hook errors are not a safe boundary. Non-video requests keep the original stream path.
+
+With effective video, an unsupported ordinary follow-up rejects before SDK acceptance and restores the original text/PNG draft. Model switching itself and repair commands remain available; explicit switch-back and Send can reuse the same owner. Every actual request/queued consumption rechecks the current concrete combination/auth/files, so admission is not later permission and post-acceptance changes fail closed, not text-only. Two-step selection, first-prompt synchronization, defaults, thinking and tool policy are unchanged. See the [acceptance summary](../branch-features/video-attachments-acceptance.md) for isolated SDK/browser evidence, historical exact-ID real MP4/AVI UI success, resource limits and untested paid complex flows.
+
 ## Model defaults for new sessions
 `GET /api/models` returns `defaultModel` from `~/.pi/agent/settings.json`; `ChatWindow` pre-selects it for new sessions. Browser model/thinking picks are applied atomically while the AgentSession is built and are **session-scoped**: neither startup nor a mid-session `set_model` / `set_thinking_level` writes `settings.json`, as pi's `/model` and `/thinking` persist only on Ctrl+S (otherwise a one-off pick becomes the TUI's default too).
 

@@ -5,6 +5,7 @@ import { randomUUID } from "crypto";
 import { allowFileRoot } from "@/lib/file-access";
 import { invalidateSessionListCache } from "@/lib/session-reader";
 import { startRpcSession } from "@/lib/rpc-manager";
+import { validateVideoCommand } from "@/lib/video-attachments";
 
 const THINKING_LEVELS = new Set<ThinkingLevel>(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 
@@ -26,6 +27,11 @@ export async function POST(req: Request) {
     const body = await req.json() as { cwd?: string; [key: string]: unknown };
     const { cwd, ...command } = body;
     commandType = typeof command.type === "string" ? command.type : undefined;
+    validateVideoCommand(command);
+    if (Object.hasOwn(command, "video") && command.type !== "prompt") {
+      throw new Error("A new session accepts video only with a question prompt, not a standalone queue command. Nothing was sent.");
+    }
+
 
     if (!cwd || typeof cwd !== "string") {
       return NextResponse.json({

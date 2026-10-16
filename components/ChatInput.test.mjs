@@ -537,6 +537,7 @@ test("locks built-in command submission until it settles", async () => {
     compilerOptions: { target: ts.ScriptTarget.ES2020 },
   }).outputText).runInNewContext({
     attachedImages: [],
+    video: undefined, videoBlocked: false,
     attachedImagesRef: { current: [] },
     builtinCommandPendingRef: { current: false },
     canClearBuiltinCommandInput,
@@ -554,7 +555,7 @@ test("locks built-in command submission until it settles", async () => {
   callback.resolve({ handled: true });
   assert.equal(await first, true);
   assert.deepEqual(callback.pendingStates, [true, false]);
-  assert.match(sourceText, /<fieldset\s+disabled=\{builtinCommandPending\}\s+aria-busy=\{builtinCommandPending\}/);
+  assert.match(sourceText, /<fieldset\s+disabled=\{builtinCommandPending \|\| restoringSubmission\}\s+aria-busy=\{builtinCommandPending \|\| restoringSubmission\}/);
 });
 
 test("keeps only read-only built-ins available while a run is active", () => {
@@ -608,7 +609,7 @@ function chatInputCallback(name, context) {
   }
   return new Script(ts.transpileModule(findCallback(source).getText(source), {
     compilerOptions: { target: ts.ScriptTarget.ES2020 },
-  }).outputText).runInNewContext(context);
+  }).outputText).runInNewContext({ video: undefined, videoBlocked: false, videoSendError: null, restoringSubmission: false, sendPendingRef: { current: false }, ...context });
 }
 
 test("while a run streams, a bare /mcp opens Settings or is queued as before", async () => {
@@ -628,7 +629,7 @@ test("while a run streams, a bare /mcp opens Settings or is queued as before", a
       onSteer() { throw new Error("slash messages are prompts"); },
       onFollowUp() { throw new Error("slash messages are prompts"); },
     });
-    sendQueued(mode);
+    await sendQueued(mode);
     await new Promise((resolve) => setImmediate(resolve));
     return calls;
   };
@@ -656,6 +657,7 @@ test("handleSend lets a handled /mcp through while streaming and sends an unowne
       offersBuiltinSlashCommandWhileStreaming,
       isSettingsSlashCommand,
       runBuiltinCommand: async (message) => { calls.builtin.push(message); return handled; },
+      sendPendingRef: { current: false },
       clearInput() {},
       onSend: (message) => calls.sent.push(message),
     });

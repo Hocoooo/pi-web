@@ -15,7 +15,7 @@
 3. 优先使用 `ChatWindow` 传入的 `session?.cwd ?? newSessionCwd`，不能偷偷使用侧栏当前选中的另一个项目。
 4. 命令分支需要有效 cwd 和 `onNewSession` 回调；复用 composer 未提供这些上下文时，不应凭空建立目录或导航。
 5. **先清草稿、后导航**：`clearInput()` 清掉源输入与附图，再调用 `onNewSession(cwd)`；附图不发送、不带到新 composer。
-6. 正常发送、运行中的 steer/follow-up 路径都应识别精确 `/new`；不能把命令排进原会话队列。
+6. 正常发送、运行中的 steer/follow-up 路径都应识别精确 `/new`；不能把命令排进原会话队列。[F40 视频附件](video-attachments.md) 是显式例外：选择/上传中的视频不支持任何命令发送（含 `/new`），先明确拒绝并保留问题/附件，移除视频后再执行；原图片行为不变。
 7. 不调用 `onSend`/模型 prompt，不调用 abort；原会话的运行可继续在后台完成。
 8. `AppShell.handleNewSession` 清除已选会话、建立新的 draft key；项目更新 `?cwd=…`，[独立聊天](independent-chat.md)保持固定隐藏 cwd 并更新 `?chat=1`。命令入口传 `restoreParkedDraft=false`，避免恢复同目录先前停放的无关草稿。
 9. 打开空白 composer 不等于已创建 `.jsonl` 或 AgentSession；真实运行时按原有首次需要时创建机制处理。

@@ -58,6 +58,10 @@ PI_WEB_TEST_URL=http://127.0.0.1:30141 node e2e/session-keyboard.mjs
 
 独立聊天脚本用真实浏览器和拦截 API fixture 验证首页、跨日期历史、会话与 composer 刷新、all 模式聊天作为普通项目、“对话”标签、项目往返以及界面一致（Explorer、picker、常规工具控件）。独立脚本未接入 `npm run test:e2e`。
 
+### 原视频模式验证（F40，01–09 已 review / resolved）
+
+`node e2e/video-modes.mjs` 在临时 agentDir/设置与合成媒体中执行实际 default-cwd/new/existing-agent/history/upload handlers → SDK → 原生 Google 最终 fetch，覆盖项目/无项目 × 普通/Chat-only，桌面新发与移动已有续问。无项目仍只使用本功能的固定 `chat-workspace`；普通资源、权限和选定模型不因视频改变。Chat-only 的零工具/精确 context 系统提示保持；越界/链接拒绝、有效视频切不支持模型时保留文字/PNG、切回显式续问与默认/配置字节不变均另有断言。它不是新的目录/权限实现，也不是生产 Next/AppShell 整页或真实网关验收；08已独立resolved。09重跑这些40场景三轮通过，并完成有界压缩/分支/队列Stop组合与项目普通模式的真实MP4/AVI各一次付费200；真实结果不扩展为无项目/Chat-only网络验收。本功能目录/权限/设置行为未改，01–09均已独立review/resolved，详见 [F40](video-attachments.md) 与[公开验收摘要](video-attachments-acceptance.md)，旧claimed为历史时点。
+
 ## 手工验收与限制
 
 1. 在全新浏览器标签页访问 `/`，应直接看到输入框和聊天历史，不要求选项目；无需发送就可刷新保持 `?chat=1`。

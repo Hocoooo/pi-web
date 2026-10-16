@@ -1,12 +1,13 @@
 import type {
   AgentSessionEvent,
   BashOperations,
+  ModelRuntime,
   SessionManager,
   SettingsManager,
   SlashCommandInfo,
   Theme,
 } from "@earendil-works/pi-coding-agent";
-import type { AgentMessage as PiAgentMessage, StreamFn } from "@earendil-works/pi-agent-core";
+import type { Agent, AgentMessage as PiAgentMessage, StreamFn } from "@earendil-works/pi-agent-core";
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 
 export interface ContextUsage {
@@ -135,7 +136,8 @@ export interface AgentSessionLike {
   readonly autoRetryEnabled: boolean;
   readonly model: ModelLike | undefined;
   readonly modelRuntime: {
-    getModel: (provider: string, modelId: string) => ModelLike | undefined;
+    getModel: ModelRuntime["getModel"];
+    getAuth: ModelRuntime["getAuth"];
     refresh: (options?: { allowNetwork?: boolean }) => Promise<unknown>;
   };
   readonly sessionManager: SessionManager;
@@ -150,6 +152,11 @@ export interface AgentSessionLike {
   readonly systemPrompt: string;
   readonly agent: {
     streamFunction?: StreamFn;
+    convertToLlm?: Agent["convertToLlm"];
+    steer?: Agent["steer"];
+    followUp?: Agent["followUp"];
+    clearSteeringQueue?: Agent["clearSteeringQueue"];
+    clearFollowUpQueue?: Agent["clearFollowUpQueue"];
     state?: {
       /** Replayed from the transcript's system messages since Pi 0.86; never assign it. */
       readonly systemPrompt?: string;

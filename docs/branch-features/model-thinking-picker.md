@@ -41,6 +41,10 @@
 | [useAgentSession.ts](../../hooks/useAgentSession.ts) | `handleModelChange`、`handleThinkingLevelChange`、乐观状态与回读；`handleSend` 的首次发送设置核对 |
 | [rpc-manager.ts](../../lib/rpc-manager.ts) | `set_model` / `set_thinking_level`、目标能力验证和 select 抑制 |
 
+## 视频模型能力交点（F40，01–09 已 resolved）
+
+[原视频附件](video-attachments.md)不改变两步选择、首次发送同步、默认星号或 busy 规则，不自动切模型/provider。能力要求精确 provider/model/origin/源协议与 SDK auth，不能凭显示名称判断。有效上下文有视频时，不支持组合的普通 Send 在 SDK 接受前拒绝并恢复文字/PNG；显式切回后再 Send 可继续原 owner，出口仍逐请求重验。`node e2e/video-modes.mjs` 覆盖项目/无项目、普通/Chat-only、新首发与已有续问；真实网关首问与复杂组合隔离证据的区别见[验收摘要](video-attachments-acceptance.md)。
+
 ## 自动验收
 
 在仓库根目录、已安装开发依赖后运行：

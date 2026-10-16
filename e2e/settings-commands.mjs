@@ -167,7 +167,7 @@ try {
     await page.getByRole("option", { name: /^high / }).click();
     assert.ok((await page.evaluate(() => window.calls)).some(([kind, level]) => kind === "thinking" && level === "high"));
 
-    await page.locator('input[type="file"]').setInputFiles({
+    await page.locator('input[type="file"][accept="image/*"]').setInputFiles({
       name: "reference.png", mimeType: "image/png",
       buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aWQAAAABJRU5ErkJggg==", "base64"),
     });

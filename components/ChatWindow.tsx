@@ -280,6 +280,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     savedDefaultThinkingLevel,
     agentPhase,
     isNew, settledRun,
+    unconfirmedSubmission, unconfirmedRecall, restoringSubmission, restoreUnconfirmedSubmission,
     editEntryId,
     showScrollToBottom,
     sessionIdRef, scrollContainerRef,
@@ -769,7 +770,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
       const uploaded = data.uploaded ?? [];
       const skipped = data.skipped ?? [];
       const mentions = dropMentionText(files, [...uploaded, ...skipped]);
-      if (mentions) chatInputRef?.current?.insertText(mentions);
+      if (mentions) composerRef.current?.insertText(mentions);
       if (uploaded.length > 0) {
         addNotice({ type: "success", message: t("chat.dropUploaded", { count: uploaded.length }) });
         onFilesUploaded?.();
@@ -783,16 +784,17 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     } catch (uploadError) {
       addNotice({ type: "error", message: t("chat.dropFailed", { message: uploadError instanceof Error ? uploadError.message : String(uploadError) }) });
     }
-  }, [addNotice, chatInputRef, newSessionCwd, onFilesUploaded, session?.cwd, t]);
+  }, [addNotice, composerRef, newSessionCwd, onFilesUploaded, session?.cwd, t]);
 
   const onDrop = useCallback((items: DroppedItem[]) => {
-    const { images, files, folders } = splitDroppedItems(items);
-    if (images.length > 0) chatInputRef?.current?.addImages(images);
+    const { videos, images, files, folders } = splitDroppedItems(items);
+    if (videos.length > 0) composerRef.current?.addVideos(videos);
+    if (images.length > 0) composerRef.current?.addImages(images);
     if (folders.length > 0) {
       addNotice({ type: "warning", message: t("chat.dropFoldersUnsupported", { names: folders.join(", ") }) });
     }
     if (files.length > 0) void uploadDroppedFiles(files);
-  }, [addNotice, chatInputRef, t, uploadDroppedFiles]);
+  }, [addNotice, composerRef, t, uploadDroppedFiles]);
 
   const { isDragOver, handleDragEnter, handleDragOver, handleDragLeave, handleDrop } = useDragDrop(onDrop);
 
@@ -947,6 +949,12 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
         return true;
       }}
       onSend={handleSend}
+      onFilesUploaded={onFilesUploaded}
+      unconfirmedSubmission={unconfirmedSubmission}
+      unconfirmedRecall={unconfirmedRecall}
+      unconfirmedSubmissionError={error}
+      onRestoreUnconfirmedSubmission={restoreUnconfirmedSubmission}
+      restoringSubmission={restoringSubmission}
       onNewSession={onNewSession}
       nextCue={nextCue}
       onNextCueAccepted={() => setNextCue(null)}
@@ -1009,7 +1017,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     );
   }
 
-  if (error) {
+  if (error && !unconfirmedSubmission) {
     return (
       <div className="flex h-full items-center justify-center text-red-400">
         {error}

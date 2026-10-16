@@ -34,6 +34,7 @@ export async function GET(
       deferToolResultImages,
       tail,
       excludeLeaf: Boolean(before),
+      effectiveLeafId: leafId ?? sm.getLeafId(),
       sessionId: id,
     });
 

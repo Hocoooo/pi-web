@@ -53,6 +53,10 @@ export interface UserMessage {
   role: "user";
   content: string | (TextContent | ImageContent)[];
   timestamp?: number;
+  /** Path-only host metadata persisted on the native SDK user message. */
+  piWebVideo?: import("./video-attachments").VideoAttachment;
+  /** Read-only history annotation from the SDK projection; never persisted or sent. */
+  piWebVideoInContext?: boolean;
 }
 
 export interface AgentUsage {
