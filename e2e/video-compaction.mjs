@@ -187,7 +187,7 @@ async function fixture(mode, viewport) {
     parts.forEach(part => {
       assert.equal(part.role, "user");
       assert.deepEqual(Buffer.from(part.data, "base64"), part.mimeType === "video/mp4" ? mp4 : avi);
-      assert.equal(request.body.contents[part.index].parts[0].text, part.mimeType === "video/mp4" ? f.prompts.findLast(p => p.video?.mimeType === "video/mp4").message : keptQuestion);
+      assert.equal(request.body.contents[part.index].parts[0].text, part.mimeType === "video/mp4" ? f.prompts.findLast(p => p.videos?.some(video => video.mimeType === "video/mp4")).message : keptQuestion);
     });
   }
   return { f, refs, states, openPage, ask, assertWire, sleep, get page() { return page; },
@@ -204,19 +204,19 @@ async function fixture(mode, viewport) {
       }, [...avi]);
       await page.locator("[data-video-attachment]").getByText(/Video ready/).waitFor();
       await ask(keptQuestion); await states(["active", "active"]); assertWire(["video/mp4", "video/avi"]);
-      originals = structuredClone(runtime.sm.getEntries().filter(e => e.message?.piWebVideo));
+      originals = structuredClone(runtime.sm.getEntries().filter(e => e.message?.piWebVideos));
       assert.equal(originals.length, 2);
-      assert.notEqual(originals[0].message.piWebVideo.id, originals[1].message.piWebVideo.id);
-      assert.deepEqual(f.prompts.map(p => p.video), refs);
+      assert.notEqual(originals[0].message.piWebVideos[0].id, originals[1].message.piWebVideos[0].id);
+      assert.deepEqual(f.prompts.map(p => p.videos), refs.map(ref => [ref]));
     },
     assertReattached() {
-      const owners = runtime.sm.getEntries().filter(e => e.message?.piWebVideo);
+      const owners = runtime.sm.getEntries().filter(e => e.message?.piWebVideos);
       assert.equal(owners.length, 3);
       assert.deepEqual(owners.slice(0, 2), originals, "reattachment does not rewrite original owners");
-      assert.notEqual(owners[2].message.piWebVideo.id, originals[0].message.piWebVideo.id);
-      assert.equal(owners[2].message.piWebVideo.path, refs[0].path);
-      assert.deepEqual(runtime.sm.buildSessionProjection().messages.filter(m => m.piWebVideo).map(m => m.piWebVideo.id),
-        [originals[1].message.piWebVideo.id, owners[2].message.piWebVideo.id]);
+      assert.notEqual(owners[2].message.piWebVideos[0].id, originals[0].message.piWebVideos[0].id);
+      assert.equal(owners[2].message.piWebVideos[0].path, refs[0].path);
+      assert.deepEqual(runtime.sm.buildSessionProjection().messages.flatMap(m => m.piWebVideos ?? []).map(video => video.id),
+        [originals[1].message.piWebVideos[0].id, owners[2].message.piWebVideos[0].id]);
     },
     async compact() {
       if (mode === "automatic") { f.highNext = true; await ask("Trigger normal automatic threshold check"); }
@@ -230,7 +230,7 @@ async function fixture(mode, viewport) {
       assert(JSON.stringify(f.requests.at(-1).body).includes("<conversation>"));
       const result = await contextGet(new Request(`http://localhost/api/sessions/${sessionId}/context?before=${entry.id}&leafId=${runtime.sm.getLeafId()}`), { params: Promise.resolve({ id: sessionId }) });
       const data = await result.json();
-      assert.deepEqual(data.context.messages.filter(m => m.piWebVideo).map(m => m.piWebVideoInContext), [false, true], "paged historical references use the full current context, not the cursor");
+      assert.deepEqual(data.context.messages.filter(m => m.piWebVideos).map(m => m.piWebVideoInContext), [false, true], "paged historical references use the full current context, not the cursor");
     },
     async reopen() { await deliveries; await page.close(); page = undefined; await openPage(); },
     async close() {
@@ -256,7 +256,7 @@ try {
       await h.compact(); await h.states(["inactive", "active"]);
       await unlink(h.refs[0].path);
       await h.ask("Follow up with the retained clip only"); h.assertWire(["video/avi"]);
-      assert(h.f.prompts.slice(2).every(p => !p.video));
+      assert(h.f.prompts.slice(2).every(p => !p.videos));
       console.log(`PASS ${label}: SDK ${mode === "manual" ? "manual command" : "automatic threshold"} preserves one owner; excluded reference remains visible and missing file/summary paths never activate media`);
       await h.sleep(); const before = h.f.requests.length;
       await h.page.reload(); await h.states(["inactive", "active"]);
@@ -269,7 +269,7 @@ try {
       await h.page.locator("[data-video-attachment]").getByText(/Video ready/).waitFor();
       await h.ask("Reattached old clip"); await h.states(["inactive", "active", "active"]); h.assertWire(["video/avi", "video/mp4"]); h.assertReattached();
       assert.equal(h.f.uploads, 3);
-      assert.deepEqual(h.f.prompts.at(-1).video, h.refs[0]);
+      assert.deepEqual(h.f.prompts.at(-1).videos, [h.refs[0]]);
       await h.sleep(); await h.page.reload(); await h.states(["inactive", "active", "active"]);
       await h.ask("After reattachment and reload"); h.assertWire(["video/avi", "video/mp4"]); h.assertReattached();
       console.log(`PASS ${label}: existing picker/upload + explicit Send creates new effective owner; old reference stays inactive after reload`);

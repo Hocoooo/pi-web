@@ -125,15 +125,15 @@ async function fixture(viewport, { longBranch = false } = {}) {
   await writeFile(refs[0].path, mp4); await writeFile(refs[1].path, avi);
   await command(source, { type: "prompt", message: "Before both videos" });
   const base = first.sm.getLeafId();
-  await command(source, { type: "prompt", message: "Describe branch A", video: refs[0] });
+  await command(source, { type: "prompt", message: "Describe branch A", videos: [refs[0]] });
   if (longBranch) {
     // Real prompt/SDK entries put A's owner beyond the canonical 50-entry tail.
     for (let turn = 0; turn < 28; turn++) await command(source, { type: "prompt", message: `Long A turn ${turn}` });
   }
   const a = first.sm.getLeafId();
   await command(source, { type: "navigate_tree", targetId: base });
-  await command(source, { type: "prompt", message: "Describe branch B", video: refs[1] });
-  const b = first.sm.getLeafId(), originals = structuredClone(first.sm.getEntries().filter(e => e.message?.piWebVideo));
+  await command(source, { type: "prompt", message: "Describe branch B", videos: [refs[1]] });
+  const b = first.sm.getLeafId(), originals = structuredClone(first.sm.getEntries().filter(e => e.message?.piWebVideos));
   async function sleep() {
     await deliveries;
     for (const [id, runtime] of runtimes) { await runtime.wrapper.shutdown(); registry.delete(id); invalidateSessionManagerCache(files.get(id)); }
@@ -249,7 +249,7 @@ async function fixture(viewport, { longBranch = false } = {}) {
     parts.forEach((p,n) => { const i = expected[n]; assert.equal(p.role, "user"); assert.deepEqual(Buffer.from(p.data,"base64"), bytes[i]); assert.equal(request.body.contents[p.index].parts[0].text, `Describe branch ${i === 0 ? "A" : "B"}`); });
     assert(!request.body.contents.at(-1).parts.some(p => p.inlineData));
     assert(request.bytes < MAX_VIDEO_REQUEST_BYTES);
-    assert.equal(f.commands.at(-1).video, undefined, "a follow-up must not silently attach the last selected video");
+    assert.equal(f.commands.at(-1).videos, undefined, "a follow-up must not silently attach the last selected video");
   }
   async function scrollHistoryToTop() {
     const region = page.locator(".chat-message-region");
@@ -450,7 +450,7 @@ try {
       await c.ask("Forked before video", []);
       await c.sleep(); await c.page.reload(); await c.displayed([]);
       await c.ask("Cold reopen before-video fork", []);
-      assert.equal(SessionManager.open(c.files.get(beforeChild)).getEntries().some(e => e.message?.piWebVideo), false);
+      assert.equal(SessionManager.open(c.files.get(beforeChild)).getEntries().some(e => e.message?.piWebVideos), false);
       console.log(`PASS ${layout}: user New session forks before video; refresh/cold follow-up has no media`);
 
       await c.closePage(); await c.openPage(c.source); await c.displayed([0]);
@@ -469,7 +469,7 @@ try {
       await c.displayed([0]); await c.sleep(); await c.page.reload(); await c.displayed([0]);
       await unlink(c.refs[1].path);
       await c.ask("Clone refresh ordinary follow-up", [0], [changed, avi]);
-      const saved = SessionManager.open(c.files.get(cloneResult.data.newSessionId)).getEntries().filter(e => e.message?.piWebVideo);
+      const saved = SessionManager.open(c.files.get(cloneResult.data.newSessionId)).getEntries().filter(e => e.message?.piWebVideos);
       assert.deepEqual(saved, [c.originals[0]]);
       assert.deepEqual((await readdir(c.cwd)).sort(), beforeFiles.filter(n => n !== "branch-b.avi").sort(), "copy never creates media assets");
       console.log(`PASS ${layout}: composer /clone + reload retain actual user identity, no sibling media/assets`);

@@ -1,6 +1,7 @@
 /** Client/server contract. These are application limits, not TapSVC limits. */
 export const MAX_VIDEO_FILE_BYTES = 20 * 1024 * 1024;
-export const MAX_VIDEO_REQUEST_BYTES = 32 * 1024 * 1024;
+export const MAX_VIDEO_ATTACHMENTS = 4;
+export const MAX_VIDEO_REQUEST_BYTES = 120 * 1024 * 1024;
 // The native Google SDK expands config into wire fields. Bound the complete
 // adapter params (text/images/tools included) with room for that fixed envelope.
 export const VIDEO_REQUEST_ENVELOPE_BYTES = 64 * 1024;
@@ -10,7 +11,7 @@ export const VIDEO_GOOGLE_BASE_URL = "https://llm-proxy.tapsvc.com/v1beta";
 
 export type VideoMimeType = "video/mp4" | "video/avi";
 
-/** Host metadata on ONE native user message. Never a content block or text marker. */
+/** A local file reference, carried by a user message or read_video result. */
 export interface VideoReference {
   version: 1;
   path: string;
@@ -21,7 +22,7 @@ export interface VideoReference {
 export interface QueuedVideoInput {
   text: string;
   images?: Array<{ type: "image"; data: string; mimeType: string }>;
-  video?: VideoAttachment;
+  videos?: VideoAttachment[];
 }
 
 /** Server-assigned identity survives the SDK's cloned request projections. */
@@ -51,7 +52,7 @@ export function videoMimeTypeForFile(file: { name: string; type: string }): Vide
 
 export function parseVideoReference(value: unknown): VideoReference {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("Attach exactly one MP4 or AVI video reference.");
+    throw new Error("Expected an MP4 or AVI video reference.");
   }
   const ref = value as Record<string, unknown>;
   if (ref.version !== 1 || typeof ref.path !== "string" || !ref.path
@@ -60,6 +61,13 @@ export function parseVideoReference(value: unknown): VideoReference {
     throw new Error("Invalid video reference: expected version 1, an MP4/AVI path and its matching MIME type.");
   }
   return { version: 1, path: ref.path, mimeType: ref.mimeType as VideoMimeType };
+}
+
+export function parseVideoReferences(value: unknown): VideoReference[] {
+  if (!Array.isArray(value) || !value.length || value.length > MAX_VIDEO_ATTACHMENTS) {
+    throw new Error(`Attach 1–${MAX_VIDEO_ATTACHMENTS} MP4 or AVI videos.`);
+  }
+  return value.map(parseVideoReference);
 }
 
 export function assertVideoModel(model: { provider: string; id: string; api?: string; baseUrl?: string }): void {
@@ -72,8 +80,8 @@ export function assertVideoModel(model: { provider: string; id: string; api?: st
 
 /** Reject unsupported command entrances before they can silently discard a video. */
 export function validateVideoCommand(command: Record<string, unknown>): void {
-  if (!Object.hasOwn(command, "video")) return;
-  parseVideoReference(command.video);
+  if (!Object.hasOwn(command, "videos")) return;
+  parseVideoReferences(command.videos);
   if (!["prompt", "steer", "follow_up"].includes(command.type as string)
     || (command.streamingBehavior !== undefined && (command.type !== "prompt" || !["steer", "followUp"].includes(command.streamingBehavior as string)))
     || typeof command.message !== "string" || !command.message.trim()

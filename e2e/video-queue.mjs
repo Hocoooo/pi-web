@@ -95,7 +95,7 @@ async function fixture(mobile, transformInput = false, userGate) {
       const r = Object.values(runtimes).find(r => url.pathname.includes(r.wrapper.sessionId)); assert(r, `unexpected request ${url.pathname}`);
       if (url.pathname.endsWith("/next-cue")) return route.fulfill({ status: 204 });
       if (body) {
-        const outcome = body.type === "prompt" && body.video ? f.unknown : null;
+        const outcome = body.type === "prompt" && body.videos?.length ? f.unknown : null;
         if (body.type === "prompt") prompts.push({ id: r.wrapper.sessionId, ...body });
         if (body.type === "clear_queue") { f.recalls ??= []; f.recalls.push(body); }
         let response;
@@ -147,7 +147,7 @@ async function assertDelivered(f, bytes = avi, image = true) {
   assert.equal(f.requests.length, 2); assert.equal(videos(f.requests[0]).length, 0);
   const media = videos(f.requests[1]); assert.equal(media.length, 1); assert.equal(media[0].text, "Keep queued question"); assert.deepEqual(Buffer.from(media[0].data, "base64"), bytes);
   if (image) assert(f.requests[1].contents[media[0].index].parts.some(p => p.inlineData?.mimeType === "image/png" && p.inlineData.data === png.toString("base64")));
-  assert.equal(f.a.sm.getEntries().filter(e => e.message?.piWebVideo).length, 1); assert.equal(await f.input.inputValue(), ""); assert.equal(await f.card.count(), 0); assert.equal(await f.queued.count(), 0);
+  assert.equal(f.a.sm.getEntries().filter(e => e.message?.piWebVideos).length, 1); assert.equal(await f.input.inputValue(), ""); assert.equal(await f.card.count(), 0); assert.equal(await f.queued.count(), 0);
 }
 async function assertPngDraft(f, text, count = 1) {
   await f.page.waitForFunction(({ sid, text, count }) => {
@@ -172,7 +172,7 @@ async function assertPngSent(f, text, count = 1) {
   for (const image of wire) { assert.equal(image.text, text); assert.deepEqual(Buffer.from(image.data, "base64"), png); }
   const users = f.a.sm.getEntries().filter(e => e.message?.role === "user");
   assert.equal(users.length, 2, "only the original question and explicit restored Send become native users");
-  const user = users[1].message; assert.equal(user.piWebVideo, undefined); assert.equal(user.content.find(p => p.type === "text")?.text, text);
+  const user = users[1].message; assert.equal(user.piWebVideos, undefined); assert.equal(user.content.find(p => p.type === "text")?.text, text);
   const images = user.content.filter(p => p.type === "image"); assert.equal(images.length, count);
   for (const image of images) assert.deepEqual(Buffer.from(image.data ?? image.source.data, "base64"), png);
   assert.equal(await f.input.inputValue(), ""); assert.equal(await f.page.locator("fieldset img").count(), 0);
@@ -217,10 +217,10 @@ try {
           if (failure === "missing") await unlink(join(f.a.cwd, "queued.mp4")); else f.a.session.agent.state.model.provider = "other";
           f.finish(); await f.settle(); await f.page.locator("[data-sent-video]").waitFor();
           await f.page.getByText(failure === "missing" ? /Video file is missing/ : /Video requires tapsvc/).waitFor();
-          assert.equal(f.requests.length, 1); assert.equal(f.a.sm.getEntries().filter(e => e.message?.piWebVideo).length, 1); assert.equal(await f.card.count(), 0);
+          assert.equal(f.requests.length, 1); assert.equal(f.a.sm.getEntries().filter(e => e.message?.piWebVideos).length, 1); assert.equal(await f.card.count(), 0);
           await writeFile(join(f.a.cwd, "queued.mp4"), mp4); f.a.session.agent.state.model.provider = "tapsvc";
           await f.input.fill("Explicit repair follow-up"); await f.send.click(); await f.page.getByText("Captured queued answer", { exact: true }).waitFor(); await f.settle();
-          assert.equal(f.requests.length, 2); assert.deepEqual(Buffer.from(videos(f.requests[1])[0].data, "base64"), mp4); assert.equal(f.a.sm.getEntries().filter(e => e.message?.piWebVideo).length, 1);
+          assert.equal(f.requests.length, 2); assert.deepEqual(Buffer.from(videos(f.requests[1])[0].data, "base64"), mp4); assert.equal(f.a.sm.getEntries().filter(e => e.message?.piWebVideos).length, 1);
           console.log(`PASS ${layout}/${mode}: consume-time ${failure} is a visible error, zero fallback, original reference survives explicit repair`);
         } finally { await f.close(); }
       }
@@ -335,7 +335,7 @@ try {
         await f.stop(); await idleRead; await f.page.evaluate(() => new Promise(requestAnimationFrame));
         f.suppressEvents = true;
         const path = join(f.a.cwd, "later.avi"); await writeFile(path, avi);
-        await f.a.wrapper.send({ type: "steer", message: "Later video question", images: [{ type: "image", data: png.toString("base64"), mimeType: "image/png" }], video: { version: 1, path, mimeType: "video/avi" } });
+        await f.a.wrapper.send({ type: "steer", message: "Later video question", images: [{ type: "image", data: png.toString("base64"), mimeType: "image/png" }], videos: [{ version: 1, path, mimeType: "video/avi" }] });
         const actual = (await f.a.wrapper.send({ type: "get_state" })).queuedMessages.inputs;
         assert.equal(f.a.session.pendingMessageCount, 2); assert.equal(await f.queued.count(), 0, "late SDK media has not reached the client summary");
         if (outcome === "lost-ack") f.recallOutcome = "cleared"; // Drop the actual handler's refusal ACK, not its execution.
@@ -351,7 +351,7 @@ try {
         }
         await f.queued.waitFor();
         assert.equal(f.a.session.pendingMessageCount, 2, "unseen video/PNG must remain in the sole SDK queue even when the ACK is lost");
-        assert.equal(f.a.sm.getEntries().filter(e => e.message?.piWebVideo).length, 0);
+        assert.equal(f.a.sm.getEntries().filter(e => e.message?.piWebVideos).length, 0);
         assert.equal(await f.input.inputValue(), ""); assert.equal(await f.card.count(), 0); assert.equal(await f.saved.count(), 0);
         const before = f.recalls?.length ?? 0;
         assert.equal(before, outcome === "missing-inputs" ? 0 : 1);
@@ -369,7 +369,7 @@ try {
         const media = videos(f.requests[1]); assert.equal(media.length, 1); assert.deepEqual(Buffer.from(media[0].data, "base64"), avi);
         assert.equal(media[0].text, "Later video question\n\nPlain queued question");
         assert(f.requests[1].contents[media[0].index].parts.some(p => p.inlineData?.mimeType === "image/png" && p.inlineData.data === png.toString("base64")));
-        assert.equal(f.a.sm.getEntries().filter(e => e.message?.piWebVideo).length, 1);
+        assert.equal(f.a.sm.getEntries().filter(e => e.message?.piWebVideos).length, 1);
         console.log(`PASS ${layout}: stale plain Recall/${outcome} keeps unseen SDK video/PNG; refresh then explicit Recall/Send restores native bytes once`);
       } catch (error) { recallFailures.push(error); console.error(`FAIL ${layout}: stale plain Recall/${outcome}`, error); }
       finally { await f.close(); }
@@ -385,7 +385,7 @@ try {
         await f.recall.click(); await f.saved.waitFor();
         assert.equal(f.a.session.pendingMessageCount, outcome === "none" ? 1 : 0);
         assert.equal(await f.input.inputValue(), ""); assert.equal(await f.card.count(), 0);
-        assert((await f.saved.textContent()).includes("Keep queued question")); assert((await f.saved.textContent()).includes(original.video.path));
+        assert((await f.saved.textContent()).includes("Keep queued question")); assert((await f.saved.textContent()).includes(original.videos[0].path));
         await f.saved.getByText("Saved images: 1", { exact: true }).waitFor();
         const restore = f.page.getByRole("button", { name: "Check and restore saved input", exact: true });
         f.historyFailure = true; await restore.click(); await f.saved.getByRole("alert").waitFor();
@@ -416,7 +416,7 @@ try {
           f.heldHistory = { entered: Promise.withResolvers(), release: Promise.withResolvers() }; f.nextHistory = f.heldHistory;
           await restore.click(); await f.heldHistory.entered.promise;
           gate.release.resolve(); await f.a.session.waitForIdle();
-          assert.equal(f.a.sm.getEntries().filter(e => e.message?.piWebVideo?.id === original.video.id).length, 1);
+          assert.equal(f.a.sm.getEntries().filter(e => e.message?.piWebVideos?.some(video => video.id === original.videos[0].id)).length, 1);
           f.heldHistory.release.resolve(); await f.page.waitForFunction(() => !document.querySelector("[data-unconfirmed-submission]"));
           assert.equal(await f.card.count(), 0); assert.equal(await f.input.inputValue(), ""); assert.equal(f.recalls.length, 1);
         } else {
@@ -491,8 +491,8 @@ try {
       await f.start(); await f.prepare(); await f.queue("followUp"); await f.queued.waitFor(); await f.switchTo("b");
       await f.input.fill("Other conversation question"); await f.send.click(); await f.page.getByText("Captured queued answer", { exact: true }).waitFor();
       assert.equal(videos(f.requests[1]).length, 0); assert.equal(await f.page.locator("[data-sent-video]").count(), 0); assert.equal(await f.queued.count(), 0);
-      f.finish(); await f.a.session.waitForIdle(); assert.equal(videos(f.requests[2]).length, 1); assert.equal(f.b.sm.getEntries().some(e => e.message?.piWebVideo), false);
-      await f.switchTo("a"); await f.page.locator("[data-sent-video]").waitFor(); assert.equal(f.a.sm.getEntries().filter(e => e.message?.piWebVideo).length, 1);
+      f.finish(); await f.a.session.waitForIdle(); assert.equal(videos(f.requests[2]).length, 1); assert.equal(f.b.sm.getEntries().some(e => e.message?.piWebVideos), false);
+      await f.switchTo("a"); await f.page.locator("[data-sent-video]").waitFor(); assert.equal(f.a.sm.getEntries().filter(e => e.message?.piWebVideos).length, 1);
       console.log(`PASS ${layout}: queued owner cannot enter another conversation; source history restores after consumption`);
     } finally { await f.close(); }
   }

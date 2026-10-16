@@ -32,7 +32,7 @@ import type { SessionStatsInfo } from "@/lib/pi-types";
 import { mergeSessionStats, type SessionFileStats } from "@/lib/session-stats";
 import { userMessageKey } from "@/lib/prompt-recovery";
 import { MAX_ATTACHED_IMAGES, isBase64ImageWithinLimits } from "@/lib/image-attachments";
-import { validateVideoCommand, type VideoReference, type QueuedVideoInput } from "@/lib/video-attachments";
+import { MAX_VIDEO_ATTACHMENTS, validateVideoCommand, type VideoReference, type QueuedVideoInput } from "@/lib/video-attachments";
 import { AgentEventConnection } from "@/lib/agent-event-connection";
 import { isNestedToolExecutionEvent, isSystemMessageEvent } from "@/lib/agent-event-wire";
 import { getToolExecutionProgress } from "@/lib/tool-execution-progress";
@@ -308,7 +308,7 @@ export interface ChatInputHandle {
   prependText: (text: string) => void;
   addImages: (files: File[]) => void;
   rekeyDraft: (previousKey: string, nextKey: string) => void;
-  restoreSubmission: (text: string, images?: Array<{ data: string; mimeType: string }>, targetDraftKey?: string, video?: VideoReference) => void;
+  restoreSubmission: (text: string, images?: Array<{ data: string; mimeType: string }>, targetDraftKey?: string, videos?: VideoReference[]) => void;
   hasInput: () => boolean;
   canRestoreImages: (count: number) => boolean;
 }
@@ -467,7 +467,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     queued?: boolean;
     // A Recall snapshot is not a send: an existing queued UUID must NOT confirm
     // recovery. Only that native owner, or explicit idle/absence checks, can.
-    recallVideoId?: string;
+    recallVideoIds?: string[];
+    confirmedRecallVideoIds?: Set<string>;
     possibleVideoOwner?: boolean;
     unknown: boolean;
   } | null>(null);
@@ -596,7 +597,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     text: string,
     images: AttachedImage[] | undefined,
     targetDraftKey: string | undefined,
-    video?: VideoReference,
+    videos?: VideoReference[],
   ) => {
     const draftImages = images?.map(({ data, mimeType }) => ({ data, mimeType }));
     const destinationDraftKey = resolveComposerDraftKey(targetDraftKey);
@@ -607,9 +608,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     ) return;
     const input = opts.chatInputRef?.current;
     if (input) {
-      input.restoreSubmission(text, draftImages, destinationDraftKey, video);
+      input.restoreSubmission(text, draftImages, destinationDraftKey, videos);
     } else if (destinationDraftKey) {
-      restoreDraftSubmission(destinationDraftKey, text, draftImages, video);
+      restoreDraftSubmission(destinationDraftKey, text, draftImages, videos);
     }
   }, [newSessionDraftKey, opts.chatInputRef, resolveComposerDraftKey]);
 
@@ -622,22 +623,32 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const submitted = submittedDraftRef.current;
     if (!submitted || message.role !== "user"
       || (entryId !== undefined && submitted.previousEntryIds.has(entryId))) return;
-    const video = submitted.draft.video;
-    const nativeVideo = (message as UserMessage).piWebVideo;
-    if (submitted.recallVideoId) {
-      // A later explicit run may consume a retained queue. UUID, not its text
-      // or the old run id, proves this saved video must never be restored again.
-      if (nativeVideo?.id === submitted.recallVideoId) clearSubmittedDraft();
+    const videos = submitted.draft.videos;
+    const nativeVideos = (message as UserMessage).piWebVideos ?? [];
+    if (submitted.recallVideoIds?.length) {
+      // Recalled inputs may be consumed in separate native messages. Confirm
+      // every UUID; even a partial consumption forbids restoring duplicates.
+      const confirmed = submitted.confirmedRecallVideoIds ??= new Set();
+      for (const native of nativeVideos) {
+        if (submitted.recallVideoIds.includes(native.id)) {
+          confirmed.add(native.id);
+          submitted.possibleVideoOwner = true;
+        }
+      }
+      if (submitted.recallVideoIds.every(id => confirmed.has(id))) clearSubmittedDraft();
       return;
     }
     if (submitted.runId !== promptRunIdRef.current) return;
-    if (video && (!nativeVideo || submitted.previousQueuedVideoIds?.has(nativeVideo.id) || nativeVideo.version !== video.version
-      || nativeVideo.path !== video.path || nativeVideo.mimeType !== video.mimeType)) return;
+    if (videos?.length && (nativeVideos.length !== videos.length || videos.some((video, index) => {
+      const native = nativeVideos[index];
+      return submitted.previousQueuedVideoIds?.has(native.id) || native.version !== video.version
+        || native.path !== video.path || native.mimeType !== video.mimeType;
+    }))) return;
     if (userMessageKey(message) !== submitted.messageKey) {
       // An input extension may transform a queued question. A new matching
       // video owner is not proof of the original text, but also not proof of
       // non-reception: keep the snapshot rather than restore a duplicate.
-      if (submitted.queued && video) submitted.possibleVideoOwner = true;
+      if (submitted.queued && videos?.length) submitted.possibleVideoOwner = true;
       return;
     }
     clearSubmittedDraft();
@@ -645,10 +656,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   const confirmQueuedSubmission = useCallback((queue?: Partial<QueuedMessages> | null) => {
     const submitted = submittedDraftRef.current;
-    if (!submitted?.queued || submitted.recallVideoId || !queue?.inputs) return;
+    if (!submitted?.queued || submitted.recallVideoIds?.length || !queue?.inputs) return;
     for (const input of [...queue.inputs.steering, ...queue.inputs.followUp]) {
-      if (!input.video || submitted.previousQueuedVideoIds?.has(input.video.id)) continue;
-      confirmSubmittedMessage({ role: "user", content: [{ type: "text", text: input.text }, ...(input.images ?? []).map(image => ({ type: "image", source: { type: "base64", media_type: image.mimeType, data: image.data } }))], piWebVideo: input.video, timestamp: 0 } as UserMessage);
+      if (!input.videos?.length || input.videos.some(video => submitted.previousQueuedVideoIds?.has(video.id))) continue;
+      confirmSubmittedMessage({ role: "user", content: [{ type: "text", text: input.text }, ...(input.images ?? []).map(image => ({ type: "image", source: { type: "base64", media_type: image.mimeType, data: image.data } }))], piWebVideos: input.videos, timestamp: 0 } as UserMessage);
     }
   }, [confirmSubmittedMessage]);
 
@@ -1230,7 +1241,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   const handleEditContent = useCallback((message: UserMessage, entryId: string) => {
     if (!session?.id) return;
-    if (message.piWebVideo) { addNotice({ type: "error", message: "Editing a video message is not supported yet. Attach it to a new ordinary question instead." }); return; }
+    if (message.piWebVideos?.length) { addNotice({ type: "error", message: "Editing a video message is not supported yet. Attach it to a new ordinary question instead." }); return; }
     opts.chatInputRef?.current?.replaceMessage(message);
     setEdit(entryId);
   }, [addNotice, opts.chatInputRef, session?.id, setEdit]);
@@ -1426,7 +1437,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       // Only after confirming idle + absence from the queue can a second fresh
       // history read prove it was cleared, not consumed in that first window.
       // These are reads only; never retry the destructive clear or send.
-      for (let check = 0; check < (submitted.recallVideoId ? 2 : 1); check++) {
+      for (let check = 0; check < (submitted.recallVideoIds?.length ? 2 : 1); check++) {
         const result = await loadSession(sid, false, true, { force: false }) as { running?: boolean; state?: AgentStateResponse } | null;
         if (submittedDraftRef.current !== submitted || !sessionHookMountedRef.current) return;
         if (!result || typeof result !== "object" || typeof result.running !== "boolean"
@@ -1436,9 +1447,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           addNotice({ type: "warning", message: "The send is still unconfirmed or the conversation is busy. The saved input has been kept; nothing was resent." });
           return;
         }
-        if (submitted.recallVideoId && result.state?.queuedMessages?.inputs
+        if (submitted.recallVideoIds?.length && result.state?.queuedMessages?.inputs
           && [...result.state.queuedMessages.inputs.steering, ...result.state.queuedMessages.inputs.followUp]
-            .some(input => input.video?.id === submitted.recallVideoId)) {
+            .some(input => input.videos?.some(video => submitted.recallVideoIds!.includes(video.id)))) {
           addNotice({ type: "warning", message: "The saved video question is still queued. The saved input was kept; nothing was cleared, restored or resent." });
           return;
         }
@@ -1454,8 +1465,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
       clearSubmittedDraft();
       setMessages(prev => prev.filter(message => message !== submitted.optimisticMessage));
-      const { value, images, video } = submitted.draft;
-      restoreSubmission(value, images.map(image => ({ ...image, previewUrl: "" })), submitted.draftKey, video);
+      const { value, images, videos } = submitted.draft;
+      restoreSubmission(value, images.map(image => ({ ...image, previewUrl: "" })), submitted.draftKey, videos);
     } finally {
       restoringSubmissionRef.current = false;
       if (sessionHookMountedRef.current) setRestoringSubmission(false);
@@ -1728,12 +1739,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           const delivered = normalizeToolCalls(completed);
           const deliveredKey = userMessageKey(delivered);
           const optimisticKey = optimisticUserMessageKeyRef.current;
-          if (optimisticKey === deliveredKey || submittedDraftRef.current?.recallVideoId) confirmSubmittedMessage(delivered);
+          if (optimisticKey === deliveredKey || submittedDraftRef.current?.recallVideoIds?.length) confirmSubmittedMessage(delivered);
           optimisticUserMessageKeyRef.current = null;
           setMessages((prev) => {
             const last = prev[prev.length - 1];
             if (optimisticKey && last?.role === "user" && userMessageKey(last) === optimisticKey) {
-              return optimisticKey === deliveredKey && !(delivered as UserMessage).piWebVideo
+              return optimisticKey === deliveredKey && !(delivered as UserMessage).piWebVideos?.length
                 ? prev
                 : [...prev.slice(0, -1), delivered];
             }
@@ -1859,38 +1870,38 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [addNotice, applyContextUsage, cancelEventStreamGrace, confirmQueuedSubmission, confirmSubmittedMessage, handleExtensionUiRequest, loadSession, notifyPromptStage, onAgentEnd, onSessionTitleChange, refreshContextUsage, scheduleEventStreamClose, scrollToBottom, settleUiStage, syncLiveModel]);
   handleAgentEventRef.current = handleAgentEvent;
 
-  const handleSend = useCallback(async (message: string, images?: AttachedImage[], video?: VideoReference) => {
+  const handleSend = useCallback(async (message: string, images?: AttachedImage[], videos?: VideoReference[]) => {
     const trimmedMessage = message.trim();
     if (treeNavigationPendingRef.current || restoringSubmissionRef.current) {
       addNotice({ type: "warning", message: restoringSubmissionRef.current
         ? "Wait for input recovery to finish before sending. Nothing was sent."
         : "Wait for branch navigation to finish before sending. Nothing was sent." });
-      restoreSubmission(message, images, composerDraftKey, video);
+      restoreSubmission(message, images, composerDraftKey, videos);
       return;
     }
     if (submittedDraftRef.current?.unknown) {
       addNotice({ type: "warning", message: "Check the unconfirmed submission and restore its saved input before sending again. Nothing was sent." });
-      restoreSubmission(message, images, composerDraftKey, video);
+      restoreSubmission(message, images, composerDraftKey, videos);
       return;
     }
-    if (video) {
+    if (videos?.length) {
       try {
-        validateVideoCommand({ type: "prompt", message, video });
+        validateVideoCommand({ type: "prompt", message, videos });
         if (editEntryId) throw new Error("Video is not supported when editing a past message. Cancel the edit before sending.");
       } catch (error) {
         addNotice({ type: "error", message: error instanceof Error ? error.message : String(error) });
-        restoreSubmission(message, images, composerDraftKey, video);
+        restoreSubmission(message, images, composerDraftKey, videos);
         return;
       }
     }
     if (opts.taskStartRequired && !opts.taskStart) {
       addNotice({ type: "error", message: "Task preparation expired. Return to the task and preview again before sending." });
-      restoreSubmission(message, images, composerDraftKey, video); return;
+      restoreSubmission(message, images, composerDraftKey, videos); return;
     }
     if (!trimmedMessage && !images?.length) return;
     if (agentRunningRef.current || bashRunningRef.current) {
-      if (video) addNotice({ type: "error", message: "Video requires an idle session. Nothing was sent." });
-      restoreSubmission(message, images, composerDraftKey, video);
+      if (videos?.length) addNotice({ type: "error", message: "Video requires an idle session. Nothing was sent." });
+      restoreSubmission(message, images, composerDraftKey, videos);
       return;
     }
     if (editEntryId) {
@@ -1900,7 +1911,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setEdit(null);
       if (!(await handleNavigateRef.current?.(entryId))) {
         setEdit(entryId);
-        restoreSubmission(message, images, composerDraftKey, video);
+        restoreSubmission(message, images, composerDraftKey, videos);
         return;
       }
     }
@@ -1937,7 +1948,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       runId: promptRunId,
       draftKey: composerDraftKey,
       draft: { value: message, images: images?.map(({ data, mimeType }) => ({ data, mimeType })) ?? [],
-        ...(video ? { video: { ...video } } : {}) },
+        ...(videos?.length ? { videos: videos.map(video => ({ ...video })) } : {}) },
       messageKey: userMessageKey(userMsg),
       previousEntryIds: new Set(entryIdsRef.current),
       optimisticMessage: userMsg,
@@ -1988,7 +1999,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           message,
           ...(opts.taskStart ? { taskStart: opts.taskStart } : {}),
           ...(piImages?.length ? { images: piImages } : {}),
-          ...(video ? { video } : {}),
+          ...(videos?.length ? { videos } : {}),
         });
         promoteNewSession(1, message);
       } else if (session) {
@@ -2001,7 +2012,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           message,
           ...(opts.taskStart ? { taskStart: opts.taskStart } : {}),
           ...(piImages?.length ? { images: piImages } : {}),
-          ...(video ? { video } : {}),
+          ...(videos?.length ? { videos } : {}),
         });
       } else {
         throw new Error("No active session for the prompt");
@@ -2037,7 +2048,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           : [...prev.slice(0, optimisticIndex), ...prev.slice(optimisticIndex + 1)];
       });
       addNotice({ type: "error", message: e instanceof Error ? e.message : String(e) });
-      restoreSubmission(message, images, composerDraftKey, video);
+      restoreSubmission(message, images, composerDraftKey, videos);
       optimisticUserMessageKeyRef.current = null;
       // Rejection only describes this submission. Another tab or an event we
       // missed may still have a real run active for the same session, so keep
@@ -2586,10 +2597,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     message: string,
     behavior: "steer" | "followUp",
     images?: AttachedImage[],
-    video?: VideoReference,
+    videos?: VideoReference[],
   ) => {
     const sid = sessionIdRef.current;
-    const restore = () => restoreSubmission(message, images, composerDraftKey, video);
+    const restore = () => restoreSubmission(message, images, composerDraftKey, videos);
     if (streamingSubmissionPendingRef.current || submittedDraftRef.current?.unknown || treeNavigationPendingRef.current || restoringSubmissionRef.current) {
       restore();
       addNotice({ type: "warning", message: "Check the pending submission or wait for navigation before queuing another question. Nothing was sent." });
@@ -2611,17 +2622,17 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       return;
     }
     const piImages = images?.map((img) => ({ type: "image" as const, data: img.data, mimeType: img.mimeType }));
-    if (video) {
-      try { validateVideoCommand({ type: "prompt", message, streamingBehavior: behavior, video }); }
+    if (videos?.length) {
+      try { validateVideoCommand({ type: "prompt", message, streamingBehavior: behavior, videos }); }
       catch (error) { restore(); addNotice({ type: "error", message: error instanceof Error ? error.message : String(error) }); return; }
       if (submittedDraftRef.current) { restore(); return; }
     }
-    const submitted = video ? {
+    const submitted = videos?.length ? {
       runId: promptRunIdRef.current, draftKey: composerDraftKey,
-      draft: { value: message, images: images?.map(({ data, mimeType }) => ({ data, mimeType })) ?? [], video: { ...video } },
+      draft: { value: message, images: images?.map(({ data, mimeType }) => ({ data, mimeType })) ?? [], videos: videos.map(video => ({ ...video })) },
       messageKey: userMessageKey({ role: "user", content: [{ type: "text", text: message }, ...(piImages ?? []).map(image => ({ type: "image", source: { type: "base64", media_type: image.mimeType, data: image.data } }))], timestamp: 0 } as UserMessage),
       previousEntryIds: new Set(entryIdsRef.current),
-      previousQueuedVideoIds: new Set([...(queuedMessages.inputs?.steering ?? []), ...(queuedMessages.inputs?.followUp ?? [])].flatMap(i => i.video ? [i.video.id] : [])),
+      previousQueuedVideoIds: new Set([...(queuedMessages.inputs?.steering ?? []), ...(queuedMessages.inputs?.followUp ?? [])].flatMap(i => (i.videos ?? []).map(video => video.id))),
       queued: true, unknown: false,
     } : null;
     if (submitted) submittedDraftRef.current = submitted;
@@ -2636,7 +2647,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         streamingBehavior: behavior,
         ...(opts.taskStart ? { taskStart: opts.taskStart } : {}),
         ...(piImages?.length ? { images: piImages } : {}),
-        ...(video ? { video } : {}),
+        ...(videos?.length ? { videos } : {}),
       });
       if (submitted && submittedDraftRef.current === submitted) clearSubmittedDraft();
     } catch (e) {
@@ -2657,8 +2668,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [addNotice, clearSubmittedDraft, composerDraftKey, editEntryId, ensureEventsConnected, loadSession, queuedMessages.inputs, restoreSubmission, opts.taskStart, opts.taskStartRequired]);
 
-  const handleSteer = useCallback(async (message: string, images?: AttachedImage[], video?: VideoReference) => {
-    await sendStreamingPrompt(message, "steer", images, video);
+  const handleSteer = useCallback(async (message: string, images?: AttachedImage[], videos?: VideoReference[]) => {
+    await sendStreamingPrompt(message, "steer", images, videos);
   }, [sendStreamingPrompt]);
 
   const handlePromptWithStreamingBehavior = useCallback(async (
@@ -2669,8 +2680,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     await sendStreamingPrompt(message, behavior, images);
   }, [sendStreamingPrompt]);
 
-  const handleFollowUp = useCallback(async (message: string, images?: AttachedImage[], video?: VideoReference) => {
-    await sendStreamingPrompt(message, "followUp", images, video);
+  const handleFollowUp = useCallback(async (message: string, images?: AttachedImage[], videos?: VideoReference[]) => {
+    await sendStreamingPrompt(message, "followUp", images, videos);
   }, [sendStreamingPrompt]);
 
   const handleAbortCompaction = useCallback(async () => {
@@ -2702,7 +2713,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       return;
     }
     const inputs = [...recallInputs.steering, ...recallInputs.followUp];
-    const videos = inputs.flatMap(i => i.video ? [i.video] : []);
+    const videos = inputs.flatMap(i => i.videos ?? []);
     const occupied = () => !!opts.chatInputRef?.current?.hasInput()
       || !!(composerDraftKey && getDraft(resolveComposerDraftKey(composerDraftKey)!));
     if (videos.length) {
@@ -2710,8 +2721,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         addNotice({ type: "warning", message: "Stop the conversation and wait until it is idle before recalling video questions. No queued input was cleared." });
         return;
       }
-      if (videos.length > 1 || occupied()) {
-        addNotice({ type: "warning", message: "Recall needs one video question and an empty composer. The queue was kept." });
+      if (videos.length > MAX_VIDEO_ATTACHMENTS || occupied()) {
+        addNotice({ type: "warning", message: `Recall needs at most ${MAX_VIDEO_ATTACHMENTS} videos and an empty composer. The queue was kept.` });
         return;
       }
     }
@@ -2730,33 +2741,37 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       addNotice({ type: "warning", message: "The recalled images do not fit the composer. Free image slots before recalling; no queued input was cleared." });
       return;
     }
-    const snapshot = (items: QueuedVideoInput[], video?: QueuedVideoInput["video"]) => ({
-      runId: promptRunIdRef.current, draftKey: composerDraftKey,
-      draft: { value: items.map(i => i.text).join("\n\n"), images: items.flatMap(i => (i.images ?? []).map(({ data, mimeType }) => ({ data, mimeType }))), ...(video ? { video: { ...video } } : {}) },
-      messageKey: "", previousEntryIds: new Set(entryIdsRef.current),
-      queued: true, recallVideoId: video?.id, unknown: false,
-    });
-    let submitted = videos.length ? snapshot(inputs, videos[0]) : null;
+    const snapshot = (items: QueuedVideoInput[]) => {
+      const videos = items.flatMap(item => item.videos ?? []);
+      return {
+        runId: promptRunIdRef.current, draftKey: composerDraftKey,
+        draft: { value: items.map(i => i.text).join("\n\n"), images: items.flatMap(i => (i.images ?? []).map(({ data, mimeType }) => ({ data, mimeType }))), ...(videos.length ? { videos: videos.map(video => ({ ...video })) } : {}) },
+        messageKey: "", previousEntryIds: new Set(entryIdsRef.current),
+        queued: true, recallVideoIds: videos.map(video => video.id), unknown: false,
+      };
+    };
+    let submitted = videos.length ? snapshot(inputs) : null;
     if (submitted) { submittedDraftRef.current = submitted; setRestoringSubmission(true); }
     restoringSubmissionRef.current = true;
     try {
       const result = await sendAgentCommand<QueuedMessages>(sid, { type: "clear_queue", recall: true, recallInputs });
       if (!sessionHookMountedRef.current || sessionIdRef.current !== sid) return;
       const recalled = [...(result?.inputs?.steering ?? []), ...(result?.inputs?.followUp ?? [])];
-      const returnedVideos = recalled.flatMap(i => i.video ? [i.video] : []);
+      const returnedVideos = recalled.flatMap(i => i.videos ?? []);
       // Classify and restore the actual native result, never the client summary.
-      if (returnedVideos.length > 1 || (submitted && (returnedVideos.length !== 1 || returnedVideos[0].id !== submitted.recallVideoId))) {
+      if (returnedVideos.length > MAX_VIDEO_ATTACHMENTS || (submitted && (returnedVideos.length !== submitted.recallVideoIds.length
+        || returnedVideos.some((video, index) => video.id !== submitted!.recallVideoIds[index])))) {
         throw new Error("Recall was not confirmed. The saved input was kept; check before restoring.");
       }
       if (returnedVideos.length || recalled.some(i => i.images?.length)) {
         if (submitted && submittedDraftRef.current !== submitted) return; // A native owner won.
-        const native = snapshot(recalled, returnedVideos[0]);
+        const native = snapshot(recalled);
         if (submitted) submitted.draft = native.draft;
         else { submitted = native; submittedDraftRef.current = submitted; }
         if (returnedVideos.length && occupied()) throw new Error("The composer changed during Recall. Both inputs were kept; clear the composer before restoring the saved input.");
         if (!imagesFit(submitted.draft.images)) throw new Error("The recalled images no longer fit the composer. Both inputs were kept; free image slots before restoring the saved input.");
-        const { value, images, video } = submitted.draft;
-        restoreSubmission(value, images.map(image => ({ ...image, previewUrl: "" })), submitted.draftKey, video);
+        const { value, images, videos } = submitted.draft;
+        restoreSubmission(value, images.map(image => ({ ...image, previewUrl: "" })), submitted.draftKey, videos);
         clearSubmittedDraft();
       } else {
         setQueuedMessages({ steering: [], followUp: [] });
@@ -3166,7 +3181,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     isNew,
     editEntryId,
     settledRun,
-    unconfirmedSubmission, unconfirmedRecall: !!submittedDraftRef.current?.recallVideoId, restoringSubmission,
+    unconfirmedSubmission, unconfirmedRecall: !!submittedDraftRef.current?.recallVideoIds?.length, restoringSubmission,
     promptAnchorActive,
     showScrollToBottom,
     // Refs

@@ -1,11 +1,11 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AgentSessionLike } from "./pi-types";
-import type { QueuedVideoInput, VideoAttachment } from "./video-attachments";
+import { MAX_VIDEO_ATTACHMENTS, type QueuedVideoInput, type VideoAttachment } from "./video-attachments";
 
 type Kind = "steering" | "followUp";
 export interface VideoSubmission {
-  ref: VideoAttachment;
+  refs: VideoAttachment[];
   armed: boolean;
   bound: boolean;
   compactedOut: boolean;
@@ -21,7 +21,7 @@ export interface VideoSubmission {
 export function createVideoInputBinding(session: AgentSessionLike) {
   const scope = new AsyncLocalStorage<VideoSubmission>();
   const pending = new Map<AgentMessage, Kind>();
-  const references = new WeakMap<AgentMessage, VideoAttachment>();
+  const references = new WeakMap<AgentMessage, VideoAttachment[]>();
   const prompt = session.prompt?.bind(session);
   const steer = session.steer?.bind(session);
   const followUp = session.followUp?.bind(session);
@@ -32,7 +32,7 @@ export function createVideoInputBinding(session: AgentSessionLike) {
     return {
       text: typeof content === "string" ? content : content.filter(c => c.type === "text").map(c => c.text).join(""),
       ...(Array.isArray(content) ? { images: content.filter(c => c.type === "image").map(c => ({ type: "image" as const, data: c.data, mimeType: c.mimeType })) } : {}),
-      ...(references.has(message) ? { video: { ...references.get(message)! } } : {}),
+      ...(references.has(message) ? { videos: references.get(message)!.map(ref => ({ ...ref })) } : {}),
     };
   };
   const snapshot = () => {
@@ -60,8 +60,8 @@ export function createVideoInputBinding(session: AgentSessionLike) {
         agent[method] = message => {
           const submission = scope.getStore();
           if (submission && !submission.armed && !submission.bound && message.role === "user") {
-            references.set(message, { ...submission.ref });
-            Object.assign(message, { piWebVideo: { ...submission.ref } });
+            references.set(message, submission.refs.map(ref => ({ ...ref })));
+            Object.assign(message, { piWebVideos: submission.refs.map(ref => ({ ...ref })) });
             submission.bound = true;
           }
           enqueue(message);
@@ -83,27 +83,27 @@ export function createVideoInputBinding(session: AgentSessionLike) {
       // As for ordinary prompts, bind host metadata after extension events and
       // before SDK appendMessage, using the queued object's independent tuple.
       if (event.type === "message_end" && references.has(message)) {
-        Object.assign(message, { piWebVideo: { ...references.get(message)! } });
+        Object.assign(message, { piWebVideos: references.get(message)!.map(ref => ({ ...ref })) });
         references.delete(message);
       }
     },
     clear(recall: boolean, running: boolean, recallInputs?: unknown) {
       const inputs = snapshot();
-      const videos = [...inputs.steering, ...inputs.followUp].filter(i => i.video);
+      const videos = [...inputs.steering, ...inputs.followUp].filter(i => i.videos?.length);
       // Public message_start follows awaited extension handlers, not the SDK's
       // dequeue. This display view cannot authorize Recall during a live run.
       if (recall && videos.length && running) {
         throw new Error("Stop the conversation and wait until it is idle before recalling video questions. No queued input was cleared.");
       }
-      if (recall && videos.length > 1) {
-        throw new Error("The queue contains multiple video questions. They cannot be merged into one attachment; the queue was kept. Continue explicitly to consume them.");
+      if (recall && videos.reduce((count, input) => count + input.videos!.length, 0) > MAX_VIDEO_ATTACHMENTS) {
+        throw new Error(`Recall supports at most ${MAX_VIDEO_ATTACHMENTS} videos. The queue was kept.`);
       }
       if (recall && recallInputs !== undefined) {
         // Clear only the exact full input the browser saved before this request.
         // A later enqueue must not be discarded behind a stale recovery snapshot.
         const key = (view: typeof inputs) => JSON.stringify([view.steering, view.followUp].map(queue => queue.map(i => [
           i.text, (i.images ?? []).map(image => [image.data, image.mimeType]),
-          i.video ? [i.video.id, i.video.version, i.video.path, i.video.mimeType] : null,
+          i.videos?.map(ref => [ref.id, ref.version, ref.path, ref.mimeType]) ?? [],
         ])));
         if (key(recallInputs as typeof inputs) !== key(inputs)) {
           throw new Error("The queue changed before Recall. No queued input was cleared; check the current queue.");

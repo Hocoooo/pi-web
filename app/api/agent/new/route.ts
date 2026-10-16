@@ -28,7 +28,7 @@ export async function POST(req: Request) {
     const { cwd, ...command } = body;
     commandType = typeof command.type === "string" ? command.type : undefined;
     validateVideoCommand(command);
-    if (Object.hasOwn(command, "video") && command.type !== "prompt") {
+    if (Object.hasOwn(command, "videos") && command.type !== "prompt") {
       throw new Error("A new session accepts video only with a question prompt, not a standalone queue command. Nothing was sent.");
     }
     if (Object.hasOwn(body, "taskStart")) {

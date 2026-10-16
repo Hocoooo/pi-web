@@ -108,7 +108,7 @@ async function fixture(existing) {
       if (url.pathname === "/api/tasks/membership") return route.fulfill({ json: { task: null } });
       const state = await wrapper.send({ type: "get_state" });
       if (url.pathname === "/api/agent/new") {
-        assert.equal(body.type, "ensure_session"); assert.equal(body.video, undefined);
+        assert.equal(body.type, "ensure_session"); assert.equal(body.videos, undefined);
         return route.fulfill({ json: { sessionId: wrapper.sessionId, model: { provider: "tapsvc", modelId: VIDEO_MODEL_ID }, thinkingLevel: "high" } });
       }
       if (url.pathname.endsWith("/state")) return route.fulfill({ json: { running: true, state } });
@@ -183,15 +183,16 @@ try {
           await f.page.getByText("Captured video answer", { exact: true }).waitFor();
           await f.page.locator("[data-sent-video]").waitFor();
           assert.equal(f.prompts.length, 1); assert.equal(f.requests.length, 1);
-          assert.deepEqual(f.prompts[0].video, { version: 1, path: `${f.cwd}/${name}`, mimeType });
+          assert.deepEqual(f.prompts[0].videos, [{ version: 1, path: `${f.cwd}/${name}`, mimeType }]);
           const parts = media(f.requests[0]);
           assert.equal(parts.length, 1); assert.equal(parts[0].index, 0); assert.equal(parts[0].role, "user");
           assert.equal(parts[0].mimeType, mimeType); assert.deepEqual(Buffer.from(parts[0].data, "base64"), bytes);
           assert.equal(f.requests[0].body.generationConfig.thinkingConfig.thinkingLevel, "HIGH");
           assert.equal(f.session.model.provider, "tapsvc");
-          const native = f.session.messages.find(m => m.piWebVideo);
-          assert.deepEqual({ ...native.piWebVideo, id: undefined }, { ...f.prompts[0].video, id: undefined });
-          payloads.push(f.requests[0].body.contents);
+          const native = f.session.messages.find(m => m.piWebVideos);
+          assert.deepEqual(native.piWebVideos.map(({ version, path, mimeType }) => ({ version, path, mimeType })), f.prompts[0].videos);
+          // Selection and drop fixtures have different authorized cwd labels.
+          payloads.push(JSON.stringify(f.requests[0].body.contents).replaceAll(f.cwd, "/fixture-workspace"));
           console.log(`PASS ${layout} ${name} ${entry}: UI/upload POST/native owner/final Google bytes/answer`);
         } finally { await f.close(); }
       }
@@ -201,23 +202,23 @@ try {
     const f = await fixture(existing);
     try {
       await f.input.fill("Keep my question");
-      await f.drop([{ name: "first.mp4", bytes: mp4 }, { name: "second.avi", bytes: avi }]);
-      await f.page.getByRole("alert").filter({ hasText: /Only one video per message/ }).waitFor();
+      await f.drop(Array.from({ length: 5 }, (_, i) => ({ name: `excess-${i}.mp4`, bytes: mp4 })));
+      await f.page.getByRole("alert").filter({ hasText: /up to 4 videos/ }).waitFor();
       assert.equal(f.uploads.length, 0); assert.equal(await f.card.count(), 0);
       f.hold();
       await f.drop([{ name: "pending.mp4", bytes: mp4 }]);
       await f.card.getByText(/Uploading video/).waitFor();
       assert.equal(await f.send.isDisabled(), true);
       await f.input.press("Control+Alt+Enter"); assert.equal(f.prompts.length, 0);
-      await f.drop([{ name: "cannot-replace.avi", bytes: avi }]);
-      await f.page.getByRole("alert").filter({ hasText: /Only one video per message/ }).waitFor();
+      await f.drop(Array.from({ length: 4 }, (_, i) => ({ name: `cannot-replace-${i}.avi`, bytes: avi })));
+      await f.page.getByRole("alert").filter({ hasText: /up to 4 videos/ }).waitFor();
       assert.match(await f.card.textContent(), /pending.mp4/); assert.equal(f.uploads.length, 1);
       await f.remove(); f.release();
       await f.page.waitForTimeout(80); assert.equal(await f.card.count(), 0, "removed upload cannot reappear");
       await f.drop([{ name: "ready.mp4", bytes: mp4 }]);
       await f.card.getByText(/Video ready/).waitFor();
-      await f.drop([{ name: "replacement.avi", bytes: avi }]);
-      await f.page.getByRole("alert").filter({ hasText: /Only one video per message/ }).waitFor();
+      await f.drop(Array.from({ length: 4 }, (_, i) => ({ name: `replacement-${i}.avi`, bytes: avi })));
+      await f.page.getByRole("alert").filter({ hasText: /up to 4 videos/ }).waitFor();
       assert.equal(f.uploads.length, 2); assert.match(await f.card.textContent(), /ready.mp4/);
       await f.remove();
       for (const file of [{ name: "bad.mov", type: "video/quicktime", bytes: mp4 }, { name: "bad.mp4", type: "image/png", bytes: png }, { name: "bad.avi", type: "video/mp4", bytes: avi }]) {
@@ -228,7 +229,8 @@ try {
       f.fail(true);
       await f.drop([{ name: "failed.mp4", bytes: mp4 }]);
       await f.card.getByRole("alert").filter({ hasText: /fixture upload failure/ }).waitFor();
-      await f.drop([{ name: "cannot-replace-error.avi", bytes: avi }]);
+      await f.drop(Array.from({ length: 4 }, (_, i) => ({ name: `cannot-replace-error-${i}.avi`, bytes: avi })));
+      await f.page.getByRole("alert").filter({ hasText: /up to 4 videos/ }).waitFor();
       assert.equal(f.uploads.length, 3); assert.match(await f.card.textContent(), /failed.mp4/); await f.remove(); f.fail(false);
       const existingBytes = Buffer.concat([mp4, Buffer.from("existing file, not new bytes")]);
       await writeFile(join(f.cwd, "same.mp4"), existingBytes);

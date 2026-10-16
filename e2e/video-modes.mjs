@@ -125,7 +125,7 @@ async function fixture({ noProject, chatOnly, existing }) {
         result = await uploadPost(new NextRequest(`http://localhost${url.pathname}${url.search}`, { method: "POST", headers: { ...req.headers(), host: "localhost", origin: "http://localhost" }, body: req.postDataBuffer() }), { params: Promise.resolve({ path: encodeFilePathForApi(cwd).split("/") }) });
       } else if (url.pathname === "/api/agent/new") {
         const body = req.postDataJSON(); f.commands.push(body); f.ensureCalls++;
-        assert.equal(body.type, "ensure_session"); assert.equal(body.video, undefined); assert.equal(body.cwd, cwd);
+        assert.equal(body.type, "ensure_session"); assert.equal(body.videos, undefined); assert.equal(body.cwd, cwd);
         assert.equal(body.provider, "tapsvc"); assert.equal(body.modelId, VIDEO_MODEL_ID); assert.equal(body.thinkingLevel, "high");
         assert.deepEqual(body.toolNames, chatOnly ? [] : undefined);
         result = await newPost(new Request("http://localhost/api/agent/new", { method: "POST", body: JSON.stringify({ ...body, headless: true }) }));
@@ -195,7 +195,7 @@ try {
       assert.equal(parts.length, 1); assert.equal(parts[0].role, "user"); assert.equal(parts[0].mimeType, mimeType); assert.deepEqual(Buffer.from(parts[0].data, "base64"), bytes);
       assert.equal(wire.body.generationConfig.thinkingConfig.thinkingLevel, "HIGH");
       if (chatOnly) { assert.equal(wire.body.systemInstruction.parts.map(p => p.text).join("\n\n"), f.exact); assert.equal(wire.body.tools?.length ?? 0, 0); }
-      const owners = structuredClone(f.wrapper.inner.sessionManager.getEntries().filter(e => e.message?.piWebVideo));
+      const owners = structuredClone(f.wrapper.inner.sessionManager.getEntries().filter(e => e.message?.piWebVideos));
       assert.equal(owners.length, 1); assert.equal(await f.card.count(), 0);
       console.log(`PASS ${label}: current selected first video/upload cwd/SDK final bytes/resource policy`);
 
@@ -220,14 +220,14 @@ try {
       assert.equal(f.requests.length, count + 1); assert.deepEqual(Buffer.from(videos(f.requests.at(-1))[0].data, "base64"), bytes);
       const image = f.requests.at(-1).body.contents.at(-1).parts.find(p => p.inlineData?.mimeType === "image/png");
       assert.deepEqual(Buffer.from(image.inlineData.data, "base64"), png);
-      assert.deepEqual(f.wrapper.inner.sessionManager.getEntries().filter(e => e.message?.piWebVideo), owners);
+      assert.deepEqual(f.wrapper.inner.sessionManager.getEntries().filter(e => e.message?.piWebVideos), owners);
       assert.deepEqual([...f.wrapper.inner.getActiveToolNames()].sort(), f.tools); assert.equal(await f.input.inputValue(), "");
       assert(!f.commands.some(c => c.type === "set_tools"));
       console.log(`PASS ${label}: switch back + explicit Send keeps original owner/current bytes/PNG/tools`);
 
       const outside = join(sandbox, "outside.mp4"), linked = join(f.cwd, "escape.mp4"); await writeFile(outside, mp4); await symlink(outside, linked);
       for (const path of [outside, linked]) {
-        const result = await agentPost(new Request("http://localhost/api/agent/test", { method: "POST", body: JSON.stringify({ type: "prompt", message: "Must not widen roots", video: { version: 1, path, mimeType: "video/mp4" } }) }), { params: Promise.resolve({ id: f.wrapper.sessionId }) });
+        const result = await agentPost(new Request("http://localhost/api/agent/test", { method: "POST", body: JSON.stringify({ type: "prompt", message: "Must not widen roots", videos: [{ version: 1, path, mimeType: "video/mp4" }] }) }), { params: Promise.resolve({ id: f.wrapper.sessionId }) });
         const data = await result.json(); assert.equal(result.status, 500); assert.equal(data.accepted, false); assert.match(data.error, /outside the allowed/);
       }
       assert.equal(f.requests.length, count + 1); assert.deepEqual([...f.wrapper.inner.getActiveToolNames()].sort(), f.tools);
