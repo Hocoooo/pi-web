@@ -432,14 +432,14 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
             overflowY: "auto",
           }}
         >
-          {message.piWebVideo && <div data-sent-video title={message.piWebVideo.path} style={{ marginBottom: 6, fontSize: 12, color: "var(--text-muted)", overflowWrap: "anywhere" }}>
-            <div>{t("chat.videoReference")}: {message.piWebVideo.path.split(/[\\/]/).pop()} · {message.piWebVideo.mimeType}</div>
-            <div style={{ fontFamily: "var(--font-mono)", fontSize: 11 }}>{message.piWebVideo.path}</div>
+          {message.piWebVideos?.map(video => <div key={video.id} data-sent-video title={video.path} style={{ marginBottom: 6, fontSize: 12, color: "var(--text-muted)", overflowWrap: "anywhere" }}>
+            <div>{t("chat.videoReference")}: {video.path.split(/[\\/]/).pop()} · {video.mimeType}</div>
+            <div style={{ fontFamily: "var(--font-mono)", fontSize: 11 }}>{video.path}</div>
             <div data-video-context={message.piWebVideoInContext === undefined ? "unknown" : message.piWebVideoInContext ? "active" : "inactive"}>
               {t(message.piWebVideoInContext === undefined ? "chat.videoContextUnknown"
                 : message.piWebVideoInContext ? "chat.videoContextActive" : "chat.videoContextInactive")}
             </div>
-          </div>}
+          </div>)}
           {commandText ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 0 }}>
               {imageBlocksNode}

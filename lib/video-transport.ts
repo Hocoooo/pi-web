@@ -11,14 +11,14 @@ import { getAllowedFileRoots, isExistingFilePathAllowed, isFilePathAllowed } fro
 import type { AgentSessionLike } from "./pi-types";
 import { createVideoInputBinding, type VideoSubmission } from "./video-input-binding";
 import {
-  assertVideoModel, MAX_VIDEO_FILE_BYTES, MAX_VIDEO_REQUEST_BYTES, parseVideoReference, parseVideoAttachment,
+  assertVideoModel, MAX_VIDEO_FILE_BYTES, MAX_VIDEO_REQUEST_BYTES, parseVideoReferences, parseVideoAttachment,
   VIDEO_GOOGLE_BASE_URL, VIDEO_REQUEST_ENVELOPE_BYTES, type VideoReference, type VideoAttachment,
 } from "./video-attachments";
 
 type GoogleContent = ReturnType<typeof convertMessages>[number];
 // The native adapter's onPayload receives SDK params, before wire conversion.
 type GoogleParams = { model: string; contents: GoogleContent[]; config?: { httpOptions?: unknown; [key: string]: unknown } };
-type VideoOwner = { role: string; piWebVideo?: VideoAttachment };
+type VideoOwner = { role: string; piWebVideos?: VideoAttachment[]; toolName?: string; isError?: boolean; details?: { piWebVideos?: VideoAttachment[] } };
 type PromptOptions = NonNullable<Parameters<AgentSessionLike["prompt"]>[1]>;
 
 function sameReference(left: VideoAttachment, right: VideoAttachment): boolean {
@@ -26,7 +26,7 @@ function sameReference(left: VideoAttachment, right: VideoAttachment): boolean {
 }
 
 /** Read the current file, never a path mentioned in text. No session-reference exception. */
-async function readVideo(ref: VideoReference, cwd: string): Promise<Buffer> {
+export async function readVideo(ref: VideoReference, cwd: string): Promise<Buffer> {
   if (!path.isAbsolute(ref.path)) throw new Error("Video reference must have an absolute path.");
   const roots = new Set(await getAllowedFileRoots());
   roots.add(cwd); // Includes a new session's not-yet-flushed cwd, already authorized at startup.
@@ -61,13 +61,16 @@ async function readVideo(ref: VideoReference, cwd: string): Promise<Buffer> {
   }
 }
 
+function referencesOf(message: VideoOwner): VideoAttachment[] {
+  const values = message.role === "user" ? message.piWebVideos
+    : message.role === "toolResult" && message.toolName === "read_video" && !message.isError
+      ? message.details?.piWebVideos : undefined;
+  return values?.map(parseVideoAttachment) ?? [];
+}
+
 function owners(messages: readonly { role: string }[]) {
-  return messages.flatMap((message, index) => {
-    if (!Object.hasOwn(message, "piWebVideo")) return [];
-    const owner = message as VideoOwner;
-    if (owner.role !== "user") throw new Error("Video reference must belong to a native user message.");
-    return [{ message: owner, ref: parseVideoAttachment(owner.piWebVideo), index }];
-  });
+  return messages.flatMap((message, index) => referencesOf(message as VideoOwner)
+    .map(ref => ({ message: message as VideoOwner, ref, index })));
 }
 
 /**
@@ -88,17 +91,15 @@ export function createVideoTransport(session: AgentSessionLike) {
       if (event.type === "compaction_end") {
         compacting = false;
         if (event.result && !event.aborted && !event.errorMessage && active?.bound) {
-          const id = active.ref.id;
-          active.compactedOut = !session.sessionManager.buildSessionProjection().messages.some(
-            m => m.role === "user" && "piWebVideo" in m && (m.piWebVideo as VideoAttachment)?.id === id,
-          );
+          const remaining = owners(session.sessionManager.buildSessionProjection().messages);
+          active.compactedOut = !active.refs.some(ref => remaining.some(owner => owner.ref.id === ref.id));
         }
       }
       // Public listeners run before SDK appendMessage. Bind only after THIS
       // prompt's "started" preflight, never an extension/preflight/queued input.
       const message = event.message as VideoOwner | undefined;
       if (event.type === "message_end" && message?.role === "user" && active?.armed && !active.bound) {
-        message.piWebVideo = { ...active.ref };
+        message.piWebVideos = active.refs.map(ref => ({ ...ref }));
         active.bound = true;
       }
     },
@@ -107,7 +108,7 @@ export function createVideoTransport(session: AgentSessionLike) {
         const references = owners(messages);
         const converted = await original(messages);
         for (const { message, ref } of references) {
-          if (!converted.includes(message as Message) || !sameReference(parseVideoAttachment(message.piWebVideo), ref)) {
+          if (!converted.includes(message as Message) || !referencesOf(message).some(value => sameReference(value, ref))) {
             throw new Error("The message converter replaced, removed or changed a video's user message. Video conversion is not supported; nothing was sent.");
           }
         }
@@ -131,13 +132,13 @@ export function createVideoTransport(session: AgentSessionLike) {
         throw new Error("Video questions require an idle session or an explicit steering/follow-up behavior. Nothing was sent.");
       }
       if (options.streamingBehavior && !binding.installed) throw new Error("Video queue binding is unavailable. Nothing was sent.");
-      const ref = parseVideoReference(value);
+      const refs = parseVideoReferences(value);
       const selected = session.model && session.modelRuntime.getModel(session.model.provider, session.model.id);
       if (!selected) throw new Error("Select the supported TapSVC video model before sending.");
       assertVideoModel(selected);
-      await readVideo(ref, cwd()); // Reject unreadable/invalid new attachments before accepting the prompt.
+      for (const ref of refs) await readVideo(ref, cwd());
       if (signal?.aborted) throw new Error("Video prompt was stopped before submission. Nothing was sent.");
-      const submission: VideoSubmission = { ref: { ...ref, id: randomUUID() }, armed: false, bound: false, compactedOut: false };
+      const submission: VideoSubmission = { refs: refs.map(ref => ({ ...ref, id: randomUUID() })), armed: false, bound: false, compactedOut: false };
       try {
         await binding.prompt(submission, text, {
           ...options,
@@ -159,13 +160,13 @@ export function createVideoTransport(session: AgentSessionLike) {
     async enqueue(kind: "steer" | "followUp", text: string, images: PromptOptions["images"], value: unknown, signal?: AbortSignal) {
       if (value === undefined) return session[kind](text, images);
       if (!binding.installed || session.isCompacting || session.isBashRunning) throw new Error("Video queue input is unavailable while compacting or running shell input. Nothing was queued.");
-      const ref = parseVideoReference(value);
+      const refs = parseVideoReferences(value);
       const selected = session.model && session.modelRuntime.getModel(session.model.provider, session.model.id);
       if (!selected) throw new Error("Select the supported TapSVC video model before sending.");
       assertVideoModel(selected);
-      await readVideo(ref, cwd());
+      for (const ref of refs) await readVideo(ref, cwd());
       if (signal?.aborted) throw new Error("Video input was stopped before submission. Nothing was queued.");
-      const submission: VideoSubmission = { ref: { ...ref, id: randomUUID() }, armed: false, bound: false, compactedOut: false };
+      const submission: VideoSubmission = { refs: refs.map(ref => ({ ...ref, id: randomUUID() })), armed: false, bound: false, compactedOut: false };
       const disposition = await binding.enqueue(submission, kind, text, images);
       if (disposition !== "queued" || !submission.bound) throw new Error("Video input was handled without its owning queued question. Nothing was queued.");
       return disposition;
@@ -185,11 +186,13 @@ export function createVideoTransport(session: AgentSessionLike) {
         // absence, not permission for context/converter resurrection of that ID.
         const submitted = active;
         if (submitted) {
-          const activeOwners = references.filter(({ ref }) => ref.id === submitted.ref.id);
-          if (submitted.compactedOut) {
-            if (activeOwners.length !== 0) throw new Error("The compacted video question was reintroduced into provider input. Attach it to a new question instead. Nothing was sent.");
-          } else if (!submitted.bound || activeOwners.length !== 1 || !sameReference(activeOwners[0].ref, submitted.ref)) {
-            throw new Error("The active video question is missing from the provider input or its reference changed. Nothing was sent.");
+          for (const ref of submitted.refs) {
+            const activeOwners = references.filter(owner => owner.ref.id === ref.id);
+            if (submitted.compactedOut) {
+              if (activeOwners.length !== 0) throw new Error("The compacted video question was reintroduced into provider input. Attach it to a new question instead. Nothing was sent.");
+            } else if (!submitted.bound || activeOwners.length !== 1 || !sameReference(activeOwners[0].ref, ref)) {
+              throw new Error("The active video question is missing from the provider input or its reference changed. Nothing was sent.");
+            }
           }
         }
         // Queued submissions can outlive the prompt() admission call (including
@@ -212,21 +215,22 @@ export function createVideoTransport(session: AgentSessionLike) {
           throw new Error("TapSVC video authentication resolved a different endpoint. Nothing was sent.");
         }
         const googleModel: Model<"google-generative-ai"> = { ...model, api: "google-generative-ai", baseUrl: VIDEO_GOOGLE_BASE_URL, headers: undefined, compat: undefined };
-        const media: Array<{ index: number; content: GoogleContent; inlineData: { mimeType: string; data: string } }> = [];
+        const media: Array<{ index: number; content: GoogleContent; path: string; inlineData: { mimeType: string; data: string } }> = [];
+        const converted = convertMessages(googleModel, normalizeContext(context));
         let encodedBytes = 0;
         for (const { ref, index } of references) {
           const bytes = await readVideo(ref, cwd());
           encodedBytes += 4 * Math.ceil(bytes.length / 3);
           if (encodedBytes > MAX_VIDEO_REQUEST_BYTES - VIDEO_REQUEST_ENVELOPE_BYTES) {
-            throw new Error("Videos exceed the 32 MiB application request limit after Base64 encoding. Nothing was sent.");
+            throw new Error("Videos exceed the 120 MiB application request limit after Base64 encoding. Reduce the selection or compact older video context. Nothing was sent.");
           }
           // Use the adapter's own converter for positions; it can omit system/
           // empty assistants and merge tool results. Never assume message index
           // equals Google contents index or append media to the last user.
           const prefix = convertMessages(googleModel, normalizeContext({ messages: context.messages.slice(0, index + 1) }));
-          const content = prefix.at(-1);
-          if (content?.role !== "user" || !content.parts?.length) throw new Error("Video's owning user message cannot be converted. Nothing was sent.");
-          media.push({ index: prefix.length - 1, content, inlineData: { mimeType: ref.mimeType, data: bytes.toString("base64") } });
+          const content = converted[prefix.length - 1];
+          if (content?.role !== "user" || !content.parts?.length) throw new Error("Video's owning message cannot be converted. Nothing was sent.");
+          media.push({ index: prefix.length - 1, content, path: ref.path, inlineData: { mimeType: ref.mimeType, data: bytes.toString("base64") } });
         }
         const headers = providerHeadersToRecord(model.headers, auth.auth.headers, options?.headers) ?? {};
         // Normalize case before overriding: the current provider may have been
@@ -244,9 +248,24 @@ export function createVideoTransport(session: AgentSessionLike) {
               if (JSON.stringify(contents?.[item.index]) !== JSON.stringify(item.content)) {
                 throw new Error("Google video message position changed. Nothing was sent.");
               }
-              contents[item.index].parts!.push({ inlineData: item.inlineData });
             }
-            const expected = media.map((item) => JSON.stringify(contents[item.index]));
+            const toolMedia = new Map<number, GoogleContent>();
+            const protectedContents = new Set<GoogleContent>();
+            for (const item of media) {
+              const owner = contents[item.index];
+              let target = owner;
+              // TapSVC rejects a terminal turn mixing functionResponse and video.
+              // Keep tool responses intact; put their media immediately after them.
+              if (owner.parts!.some(part => part.functionResponse)) {
+                if (!toolMedia.has(item.index)) toolMedia.set(item.index, { role: "user", parts: [] });
+                target = toolMedia.get(item.index)!;
+              }
+              target.parts!.push({ text: `Video: ${item.path}` }, { inlineData: item.inlineData });
+              protectedContents.add(owner);
+              protectedContents.add(target);
+            }
+            params.contents = contents.flatMap((content, index) => toolMedia.has(index) ? [content, toolMedia.get(index)!] : [content]);
+            const expected = [...protectedContents].map(content => ({ index: params.contents.indexOf(content), json: JSON.stringify(content) }));
             // SDK extension hooks swallow handler exceptions. Validate AFTER
             // that hook, in the native adapter's fail-closed onPayload boundary.
             const changed = await options?.onPayload?.(params, requestModel);
@@ -254,11 +273,11 @@ export function createVideoTransport(session: AgentSessionLike) {
             const videoCount = final.contents?.reduce((count, content) => count + (content.parts ?? [])
               .filter(part => part.inlineData?.mimeType?.startsWith("video/")).length, 0);
             if (final.model !== model.id || final.config?.httpOptions || videoCount !== media.length
-              || media.some((item, i) => JSON.stringify(final.contents?.[item.index]) !== expected[i])) {
+              || expected.some(item => JSON.stringify(final.contents?.[item.index]) !== item.json)) {
               throw new Error("Provider payload hook changed the video, its user message or endpoint. Nothing was sent.");
             }
             if (Buffer.byteLength(JSON.stringify(final), "utf8") + VIDEO_REQUEST_ENVELOPE_BYTES > MAX_VIDEO_REQUEST_BYTES) {
-              throw new Error("Video request exceeds the 32 MiB application limit including text, images, tools and Base64. Nothing was sent.");
+              throw new Error("Video request exceeds the 120 MiB application limit including text, images, tools and Base64. Reduce the selection or compact older video context. Nothing was sent.");
             }
             return final;
           },

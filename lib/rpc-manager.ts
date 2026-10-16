@@ -58,6 +58,7 @@ import type { McpHost } from "./mcp-host";
 import { mcpPromptPreparation, type McpCommandCandidate } from "./mcp-command";
 import { createReadOnlyMcpPolicyExtension } from "./mcp-read-only-policy";
 import { createTaskReportToolsExtension } from "./task-report-tools";
+import { createVideoToolsExtension } from "./video-tools";
 import { TASK_REPORT_TOOL_NAMES } from "./tool-presets";
 import { createSubagentSkillsBinding } from "./subagent-skills";
 import { isNestedToolExecutionEvent } from "./agent-event-wire";
@@ -935,7 +936,7 @@ export class AgentSessionWrapper {
               // Every disposition (handled, queued, started) is an acceptance; a
               // rejected prompt never calls this and rejects `prompt` instead.
               preflightResult: () => acceptPreflight(),
-            }, command.video, this.extensionUiAbortController.signal);
+            }, command.videos, this.extensionUiAbortController.signal);
           } catch (error) {
             finishPrompt();
             throw error;
@@ -1247,13 +1248,13 @@ export class AgentSessionWrapper {
 
       case "steer": {
         const steerImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
-        await this.videoTransport.enqueue("steer", command.message as string, steerImages?.length ? steerImages : undefined, command.video, this.extensionUiAbortController.signal);
+        await this.videoTransport.enqueue("steer", command.message as string, steerImages?.length ? steerImages : undefined, command.videos, this.extensionUiAbortController.signal);
         return null;
       }
 
       case "follow_up": {
         const followImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
-        await this.videoTransport.enqueue("followUp", command.message as string, followImages?.length ? followImages : undefined, command.video, this.extensionUiAbortController.signal);
+        await this.videoTransport.enqueue("followUp", command.message as string, followImages?.length ? followImages : undefined, command.videos, this.extensionUiAbortController.signal);
         return null;
       }
 
@@ -2632,6 +2633,7 @@ export async function startRpcSession(
               ...(builtins?.extensions ?? []),
               createReadOnlyMcpPolicyExtension(),
               createTaskReportToolsExtension(agentDir),
+              createVideoToolsExtension(),
               createProjectCommandBashExtension({
                 cwd: sessionCwd,
                 settings: settingsManager,

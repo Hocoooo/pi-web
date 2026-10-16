@@ -730,10 +730,10 @@ export function buildSessionContext(
   const hasMore = Boolean(tail && tail > 0 && sliced[0]?.parentId);
   // History is not model context. Ask the same SDK projection used by sends,
   // over the full entries, not a paginated slice or a guessed compaction cutoff.
-  const videoOwners = sliced.some(e => e.type === "message" && e.message.role === "user" && e.message.piWebVideo)
+  const videoOwners = sliced.some(e => e.type === "message" && e.message.role === "user" && e.message.piWebVideos)
     ? new Set(buildSessionProjection(entries as never,
         options.effectiveLeafId !== undefined ? options.effectiveLeafId : leafId,
-      ).entries.filter(e => e.messages.some(m => m.role === "user" && "piWebVideo" in m)).map(e => e.sourceEntry.id))
+      ).entries.filter(e => e.messages.some(m => m.role === "user" && "piWebVideos" in m)).map(e => e.sourceEntry.id))
     : new Set<string>();
 
   // Convert messages and their IDs together to keep fork/navigation targets aligned.
@@ -742,7 +742,7 @@ export function buildSessionContext(
   for (const entry of sliced) {
     const m = entryToUiMessage(entry, options);
     if (m) {
-      messages.push(m.role === "user" && m.piWebVideo
+      messages.push(m.role === "user" && m.piWebVideos
         ? { ...m, piWebVideoInContext: videoOwners.has(entry.id) }
         : m);
       entryIds.push(entry.id);

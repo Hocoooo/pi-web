@@ -537,7 +537,7 @@ test("locks built-in command submission until it settles", async () => {
     compilerOptions: { target: ts.ScriptTarget.ES2020 },
   }).outputText).runInNewContext({
     attachedImages: [],
-    video: undefined, videoBlocked: false,
+    videos: undefined, videoBlocked: false,
     attachedImagesRef: { current: [] },
     builtinCommandPendingRef: { current: false },
     canClearBuiltinCommandInput,
@@ -609,7 +609,7 @@ function chatInputCallback(name, context) {
   }
   return new Script(ts.transpileModule(findCallback(source).getText(source), {
     compilerOptions: { target: ts.ScriptTarget.ES2020 },
-  }).outputText).runInNewContext({ video: undefined, videoBlocked: false, videoSendError: null, restoringSubmission: false, sendPendingRef: { current: false }, ...context });
+  }).outputText).runInNewContext({ videos: undefined, videoBlocked: false, videoBlockedRef: { current: false }, videoSendError: null, restoringSubmission: false, sendPendingRef: { current: false }, ...context });
 }
 
 test("while a run streams, a bare /mcp opens Settings or is queued as before", async () => {

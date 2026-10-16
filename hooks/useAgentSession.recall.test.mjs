@@ -4,6 +4,7 @@ import test from "node:test";
 import { Script } from "node:vm";
 import ts from "typescript";
 import { MAX_ATTACHED_IMAGES, isBase64ImageWithinLimits } from "../lib/image-attachments.ts";
+import { MAX_VIDEO_ATTACHMENTS } from "../lib/video-attachments.ts";
 
 // Invoke the real hook callback, following the existing settings callback tests.
 // SDK/full-clear atomicity is separately exercised by video-queue.test.mjs.
@@ -20,11 +21,11 @@ const plain = { steering: [], followUp: [{ text: "Plain queued question", images
 const video = { version: 1, id: "known-video-id", path: "/fixture/later.avi", mimeType: "video/avi" };
 const png = { type: "image", data: Buffer.from("native-image-bytes").toString("base64"), mimeType: "image/png" };
 const draftPng = { data: png.data, mimeType: png.mimeType };
-const native = { steering: [{ text: "Native video question", images: [png], video }], followUp: [] };
+const native = { steering: [{ text: "Native video question", images: [png], videos: [video] }], followUp: [] };
 const copy = x => JSON.parse(JSON.stringify(x));
 function fixture(inputs = plain, resultInputs = inputs, occupied = false) {
   const calls = [], context = {
-    console: { error() {} }, MAX_ATTACHED_IMAGES, isBase64ImageWithinLimits,
+    console: { error() {} }, MAX_ATTACHED_IMAGES, MAX_VIDEO_ATTACHMENTS, isBase64ImageWithinLimits,
     sessionIdRef: { current: "fixture" }, sessionHookMountedRef: { current: true },
     restoringSubmissionRef: { current: false }, submittedDraftRef: { current: null },
     agentRunningRef: { current: false }, bashRunningRef: { current: false }, isCompacting: false,
@@ -65,9 +66,9 @@ test("missing full input projection never authorizes destructive Recall; only re
 });
 
 test("successful video Recall restores native returned text/image bytes, not the saved client summary", async () => {
-  const old = { steering: [{ text: "Old client text", images: [{ ...png, data: Buffer.from("old-bytes").toString("base64") }], video }], followUp: [] };
+  const old = { steering: [{ text: "Old client text", images: [{ ...png, data: Buffer.from("old-bytes").toString("base64") }], videos: [video] }], followUp: [] };
   const f = fixture(old, native); await f.recall();
-  assert.deepEqual(f.calls.find(c => c[0] === "restore"), ["restore", "Native video question", [{ ...draftPng, previewUrl: "" }], "fixture", video]);
+  assert.deepEqual(f.calls.find(c => c[0] === "restore"), ["restore", "Native video question", [{ ...draftPng, previewUrl: "" }], "fixture", [video]]);
   assert.equal(f.context.submittedDraftRef.current, null);
 });
 
@@ -75,7 +76,7 @@ test("a successful response is classified by native inputs even when the client 
   // Response contract test; the actual SDK stale-queue tests separately prove
   // the precondition refuses unseen media before clear, even with ACK loss.
   const f = fixture(plain, native); await f.recall();
-  assert.deepEqual(f.calls.find(c => c[0] === "restore"), ["restore", "Native video question", [{ ...draftPng, previewUrl: "" }], "fixture", video]);
+  assert.deepEqual(f.calls.find(c => c[0] === "restore"), ["restore", "Native video question", [{ ...draftPng, previewUrl: "" }], "fixture", [video]]);
   assert.equal(f.calls.filter(c => c[0] === "prepend").length, 0);
 });
 
@@ -83,9 +84,35 @@ test("native video response plus a now-occupied plain composer keeps full recall
   const f = fixture(plain, native, true); await f.recall();
   assert.equal(f.calls.filter(c => c[0] === "restore" || c[0] === "prepend").length, 0);
   const saved = f.context.submittedDraftRef.current;
-  assert.equal(saved.unknown, true); assert.equal(saved.recallVideoId, video.id);
-  assert.deepEqual(copy(saved.draft), { value: "Native video question", images: [{ data: png.data, mimeType: png.mimeType }], video });
+  assert.equal(saved.unknown, true); assert.deepEqual(copy(saved.recallVideoIds), [video.id]);
+  assert.deepEqual(copy(saved.draft), { value: "Native video question", images: [{ data: png.data, mimeType: png.mimeType }], videos: [video] });
   assert.equal(f.calls.filter(c => c[0] === "saved").length, 1);
+});
+
+test("Recall merges all video references from both queues within the attachment cap", async () => {
+  const videos = Array.from({ length: MAX_VIDEO_ATTACHMENTS }, (_, i) => ({ ...video, id: `video-${i}`, path: `/fixture/${i}.avi` }));
+  const inputs = { steering: [{ text: "First question", videos: videos.slice(0, 2) }], followUp: [{ text: "Second question", videos: videos.slice(2) }] };
+  const f = fixture(inputs); await f.recall();
+  assert.deepEqual(f.calls.find(c => c[0] === "restore"), ["restore", "First question\n\nSecond question", [], "fixture", videos]);
+  assert.equal(f.context.submittedDraftRef.current, null);
+});
+
+test("over-cap video Recall refuses before clear and an unknown clear snapshots every UUID", async () => {
+  const videos = Array.from({ length: MAX_VIDEO_ATTACHMENTS + 1 }, (_, i) => ({ ...video, id: `video-${i}`, path: `/fixture/${i}.avi` }));
+  const inputs = { steering: [{ text: "Question", videos }], followUp: [] };
+  const overCap = fixture(inputs); await overCap.recall();
+  assert.equal(overCap.calls.filter(c => c[0] === "rpc" || c[0] === "restore").length, 0);
+  assert(overCap.calls.some(c => c[0] === "notice"));
+
+  inputs.steering[0].videos = videos.slice(0, MAX_VIDEO_ATTACHMENTS);
+  const unknown = fixture(inputs);
+  unknown.context.sendAgentCommand = async () => { throw new Error("lost clear response"); };
+  await unknown.recall();
+  const saved = unknown.context.submittedDraftRef.current;
+  assert.equal(saved.unknown, true);
+  assert.deepEqual(copy(saved.recallVideoIds), inputs.steering[0].videos.map(video => video.id));
+  assert.deepEqual(copy(saved.draft.videos), inputs.steering[0].videos);
+  assert.equal(unknown.calls.filter(c => c[0] === "restore").length, 0);
 });
 
 const imageOnly = { steering: [{ text: "Native PNG question", images: [png] }], followUp: [] };

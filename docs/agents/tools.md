@@ -1,5 +1,9 @@
 # Tool selection and built-in extensions
 
+## Original video reads
+
+Ordinary sessions register `createVideoToolsExtension()` / `read_video`, default-active and model-only so nested codemode calls cannot lose native tool-result ownership. It returns local references in `details.piWebVideos`; the session video transport reads bytes and injects them into the next Gemini request. No secondary analysis model. Existing file/shell tools discover directory candidates; the description asks for task-relevant files and no silent batching. Chat-only still has no tools and uses explicit attachments. See [F40](../branch-features/video-attachments.md).
+
 ## Task management does not supply model input (current)
 
 The [session-management scope](../branch-features/task-session-management.md) suspends the task-start/shared-update behavior documented below. Normal chat does not inject task descriptions, shared versions or pending updates, and task archive is not a tool or prompt admission policy. Keep the ordinary exact-system, model, tool-preset, MCP and SDK lifecycle behavior unchanged. Old native history is not erased by this suspension.

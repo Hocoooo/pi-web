@@ -160,7 +160,7 @@ async function fixture(existing) {
       if (url.pathname === "/api/app-update") return route.fulfill({ json: { updateAvailable: false } });
       if (url.pathname === "/api/tasks/membership") return route.fulfill({ json: { task: null } });
       if (url.pathname === "/api/agent/new") {
-        f.ensureCalls++; assert.equal(body.type, "ensure_session"); assert.equal(body.video, undefined);
+        f.ensureCalls++; assert.equal(body.type, "ensure_session"); assert.equal(body.videos, undefined);
         return route.fulfill({ json: { sessionId: a.wrapper.sessionId, model: { provider: "tapsvc", modelId: VIDEO_MODEL_ID }, thinkingLevel: "high" } });
       }
       const r = Object.values(runtimes).find(r => url.pathname.includes(r.wrapper.sessionId));
@@ -270,11 +270,11 @@ try {
         await f.send.click(); await f.ready();
         assert.equal(await f.input.inputValue(), "Keep the original question");
         assert.equal(await f.saved.count(), 0); assert.equal(f.prompts.length, 2); assert.equal(f.requests.length, 0, "retry checks must never send text-only");
-        assert.equal(f.a.session.messages.some(m => m.piWebVideo), false, "definite rejection has no native owner");
+        assert.equal(f.a.session.messages.some(m => m.piWebVideos), false, "definite rejection has no native owner");
         await writeFile(path, avi); f.a.session.modelRuntime.getModel = originalGetModel;
         await f.send.click(); await assertSuccess(f, { prompts: 3 });
         for (const prompt of f.prompts.slice(1)) {
-          assert.deepEqual(prompt.video, f.prompts[0].video); assert.deepEqual(prompt.images, f.prompts[0].images);
+          assert.deepEqual(prompt.videos, f.prompts[0].videos); assert.deepEqual(prompt.images, f.prompts[0].images);
         }
         console.log(`PASS ${layout}: rejection -> restored retry rechecks ${kind} -> repair -> validated actual transport`);
       } finally { await f.close(); }
@@ -288,24 +288,27 @@ try {
         const next = { gate: Promise.withResolvers(), started: Promise.withResolvers() };
         f.uploadPlan = old; await f.select("removed.mp4", mp4, "video/mp4");
         await old.started.promise; await f.card.getByText(/Uploading video/).waitFor(); await f.remove();
-        f.uploadPlan = next; await f.select(); await next.started.promise; await f.card.getByText(/Uploading video/).waitFor();
-        old.gate.resolve(); await f.waitForSourceCompletion("upload");
+        f.uploadPlan = next; await f.select(); await f.card.getByText(/Uploading video/).waitFor();
+        old.gate.resolve(); await f.waitForSourceCompletion("upload"); await next.started.promise;
         assert.match(await f.card.textContent(), /clip.avi.*Uploading video/s); assert.equal(await f.send.isDisabled(), true);
         next.gate.resolve(); await f.ready(); await f.remove();
         f.uploadPlan = {};
         const count = f.uploads.length;
         await f.input.evaluate((target, bytes) => {
-          for (let i = 0; i < 2; i++) {
-            const dt = new DataTransfer(); dt.items.add(new File([Uint8Array.from(bytes)], "duplicate.mp4", { type: "video/mp4" }));
+          for (let i = 0; i < 5; i++) {
+            const dt = new DataTransfer(); dt.items.add(new File([Uint8Array.from(bytes)], `selection-${i}.mp4`, { type: "video/mp4" }));
             target.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: dt }));
           }
         }, [...mp4]);
-        await f.ready(); assert.equal(f.uploads.length, count + 1, "duplicate selection uploads only once"); await f.remove();
+        await f.page.waitForFunction(() => [...document.querySelectorAll('[data-video-attachment] [role="status"]')].filter(node => node.textContent.includes("Video ready")).length === 4);
+        assert.equal(f.uploads.length, count + 4, "rapid selections reserve four slots; the fifth starts no upload");
+        assert.equal(await f.card.count(), 4);
+        for (let i = 0; i < 4; i++) await f.page.getByRole("button", { name: "Remove video", exact: true }).first().click();
         await f.prepare();
         await f.send.evaluate(button => { button.click(); button.click(); });
         await assertSuccess(f);
         assert.equal(await f.page.locator('fieldset img').count(), 0, "duplicate Send must not restore a second copy of the submitted draft");
-        assert.equal(f.a.session.messages.filter(m => m.piWebVideo).length, 1);
+        assert.equal(f.a.session.messages.filter(m => m.piWebVideos).length, 1);
         console.log(`PASS ${layout}: removed late upload vs newer upload + duplicate Send preserves one owner and empty draft`);
       } finally { await f.close(); }
     }
@@ -331,7 +334,7 @@ try {
         assert.equal(f.prompts.filter(p => p.id === f.b.wrapper.sessionId).length, 0);
         assert.equal(f.requests.length, stage === "accepted" ? 1 : 0);
         assert.equal(await f.page.locator("[data-sent-video]").count(), 0, "late source owner is not displayed in destination");
-        assert.equal(await f.page.evaluate(id => window.readDraft(id)?.video?.path, f.b.wrapper.sessionId), join(f.b.cwd, "destination.mp4"));
+        assert.equal(await f.page.evaluate(id => window.readDraft(id)?.videos?.[0]?.path, f.b.wrapper.sessionId), join(f.b.cwd, "destination.mp4"));
         if (existing && stage === "rejection") {
           await f.switchTo("a"); await f.ready();
           assert.equal(await f.input.inputValue(), "Keep the original question", "late rejection is recoverable only in its source session");
@@ -384,7 +387,7 @@ try {
             f.promptPlan = {}; await f.send.click(); await f.ready(); assert.equal(f.requests.length, 0);
             await writeFile(join(f.a.cwd, "clip.avi"), avi);
             await f.send.click(); await assertSuccess(f, { prompts: 3 });
-            assert.deepEqual(f.prompts[2].video, f.prompts[0].video); assert.deepEqual(f.prompts[2].images, f.prompts[0].images);
+            assert.deepEqual(f.prompts[2].videos, f.prompts[0].videos); assert.deepEqual(f.prompts[2].images, f.prompts[0].images);
           }
         }
         console.log(`PASS ${layout}: ${outcome}, authoritative check/no automatic resend/explicit restore/actual validated wire`);

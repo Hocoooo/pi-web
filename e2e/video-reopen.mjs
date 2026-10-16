@@ -117,12 +117,12 @@ async function fixture(viewport) {
     { version: 1, path: join(cwd, "second.avi"), mimeType: "video/avi" },
   ];
   await writeFile(refs[0].path, mp4); await writeFile(refs[1].path, avi);
-  await send({ type: "prompt", message: "Describe first clip", video: refs[0], images: [{ type: "image", mimeType: "image/png", data: png.toString("base64") }] });
-  await send({ type: "prompt", message: "Describe second clip", video: refs[1] });
-  const originals = runtime.sm.getEntries().filter(e => e.message?.piWebVideo);
+  await send({ type: "prompt", message: "Describe first clip", videos: [refs[0]], images: [{ type: "image", mimeType: "image/png", data: png.toString("base64") }] });
+  await send({ type: "prompt", message: "Describe second clip", videos: [refs[1]] });
+  const originals = runtime.sm.getEntries().filter(e => e.message?.piWebVideos);
   assert.equal(originals.length, 2);
-  const savedRefs = structuredClone(originals.map(e => e.message.piWebVideo));
-  assert.notEqual(savedRefs[0].id, savedRefs[1].id);
+  const savedRefs = structuredClone(originals.map(e => e.message.piWebVideos));
+  assert.notEqual(savedRefs[0][0].id, savedRefs[1][0].id);
   await sleepRuntime();
   async function routeRequest(route) {
     const req = route.request(), url = new URL(req.url());
@@ -148,7 +148,7 @@ async function fixture(viewport) {
       }
       if (url.pathname === `/api/agent/${sessionId}` && body) {
         if (body.type === "prompt") {
-          assert.equal(body.video, undefined, "follow-up needs no re-upload or new explicit video field");
+          assert.equal(body.videos, undefined, "follow-up needs no re-upload or new explicit videos field");
           f.prompts.push(body);
           await send(body);
           return route.fulfill({ json: { success: true, data: {} } });
@@ -187,8 +187,8 @@ async function fixture(viewport) {
     assert.equal(await page.locator("textarea").inputValue(), "");
     assert.equal(await page.locator('img[src^="data:image/png"]').count(), 1, "persisted image still restores beside the native video reference");
     const history = f.history.at(-1);
-    assert.deepEqual(history.context.messages.filter(m => m.piWebVideo).map(m => m.piWebVideo), savedRefs);
-    assert.deepEqual(history.context.messages.flatMap((m, i) => m.piWebVideo ? [history.context.entryIds[i]] : []), originals.map(e => e.id));
+    assert.deepEqual(history.context.messages.filter(m => m.piWebVideos).map(m => m.piWebVideos), savedRefs);
+    assert.deepEqual(history.context.messages.flatMap((m, i) => m.piWebVideos ? [history.context.entryIds[i]] : []), originals.map(e => e.id));
   }
   async function ask(message, error = false) {
     const count = f.prompts.length, answerNumber = f.requests.length + 1;
@@ -215,7 +215,7 @@ async function fixture(viewport) {
     assert(!contents.at(-1).parts.some(p => p.inlineData));
     assert.deepEqual(Buffer.from(contents[0].parts.find(p => p.inlineData?.mimeType === "image/png").inlineData.data, "base64"), png);
     assert(request.bytes < MAX_VIDEO_REQUEST_BYTES);
-    assert.deepEqual(runtime.sm.getEntries().filter(e => e.message?.piWebVideo).map(e => e.message.piWebVideo), savedRefs);
+    assert.deepEqual(runtime.sm.getEntries().filter(e => e.message?.piWebVideos).map(e => e.message.piWebVideos), savedRefs);
   }
   return { ...f, refs, savedRefs, requests: f.requests, get runtimeBuilds() { return f.runtimeBuilds; },
     get page() { return page; }, openPage, restored, ask, sleepRuntime, assertWire,

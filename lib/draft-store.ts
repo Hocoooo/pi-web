@@ -13,7 +13,7 @@ export interface ChatDraftImage {
 export interface ChatDraft {
   value: string;
   images: ChatDraftImage[];
-  video?: VideoReference;
+  videos?: VideoReference[];
 }
 
 const drafts = new Map<string, ChatDraft>();
@@ -22,12 +22,12 @@ function cloneDraft(draft: ChatDraft): ChatDraft {
   return {
     value: draft.value,
     images: draft.images.map((image) => ({ ...image })),
-    ...(draft.video ? { video: { ...draft.video } } : {}),
+    ...(draft.videos?.length ? { videos: draft.videos.map(video => ({ ...video })) } : {}),
   };
 }
 
 function isEmptyDraft(draft: ChatDraft): boolean {
-  return !draft.value && draft.images.length === 0 && !draft.video;
+  return !draft.value && draft.images.length === 0 && !draft.videos?.length;
 }
 
 export function getDraft(key: string): ChatDraft | null {
@@ -58,8 +58,8 @@ export function mergeRestoredSubmissionDraft(
   submittedImages: ChatDraftImage[] | undefined,
   currentText: string,
   currentImages: ChatDraftImage[],
-  submittedVideo?: VideoReference,
-  currentVideo?: VideoReference,
+  submittedVideos?: VideoReference[],
+  currentVideos?: VideoReference[],
 ): ChatDraft {
   const images = [...(submittedImages ?? []), ...currentImages]
     .filter(isBase64ImageWithinLimits)
@@ -69,7 +69,10 @@ export function mergeRestoredSubmissionDraft(
   return {
     value: mergeRestoredSubmissionText(submittedText, currentText),
     images,
-    ...((currentVideo ?? submittedVideo) ? { video: { ...(currentVideo ?? submittedVideo)! } } : {}),
+    // Preserve every reference on recovery; the composer blocks over-cap sends
+    // until the user removes attachments rather than silently dropping input.
+    ...((submittedVideos?.length || currentVideos?.length)
+      ? { videos: [...(submittedVideos ?? []), ...(currentVideos ?? [])].map(video => ({ ...video })) } : {}),
   };
 }
 
@@ -77,7 +80,7 @@ export function restoreDraftSubmission(
   key: string,
   text: string,
   images?: ChatDraftImage[],
-  video?: VideoReference,
+  videos?: VideoReference[],
 ): ChatDraft {
   const current = getDraft(key) ?? { value: "", images: [] };
   const restored = mergeRestoredSubmissionDraft(
@@ -85,8 +88,8 @@ export function restoreDraftSubmission(
     images,
     current.value,
     current.images,
-    video,
-    current.video,
+    videos,
+    current.videos,
   );
   setDraft(key, restored);
   return restored;
@@ -108,7 +111,7 @@ export function rekeyDraft(
   if (!previous) return next;
 
   const merged = next
-    ? mergeRestoredSubmissionDraft(next.value, next.images, previous.value, previous.images, next.video, previous.video)
+    ? mergeRestoredSubmissionDraft(next.value, next.images, previous.value, previous.images, next.videos, previous.videos)
     : previous;
   setDraft(nextKey, merged);
   return cloneDraft(merged);

@@ -2,6 +2,31 @@
 
 状态：视频01–09已于2026-10-15分别独立 review / resolved。实现契约见 [F40](video-attachments.md)。这是从本地票据/验收记录提炼的持久摘要，不保存私有路径、会话正文/ID、凭证、真实 payload、捕获 JSON、临时探针或调度日志。原本地 scratch 不属于提交内容；下列命令可在仓库中直接定位。
 
+## 2026-10-16：原生 Google 与真实 Pi Web 会话实测
+
+用户授权后，在当前源码开发服务中创建独立 Pi Web 会话，经真实 HTTP API、SDK 和 TapSVC 请求完成以下检查（没有mock模型响应）：
+
+- 全局 models.json 中目标 Gemini 的 api 保持 google-generative-ai，补齐模型级 /v1beta baseUrl；不改provider其他模型、凭证或全局思考等级。
+- 无视频文本请求成功，原生assistant记录 api=google-generative-ai、provider=tapsvc。
+- 两个中性文件名、各4秒的合成无音轨H.264 MP4作为同消息附件，正确识别红色/蓝色与静止画面。
+- 新普通会话只给 samples 目录，实际执行 find 发现嵌套目录，再执行一次 read_video(paths含两个文件)，正确描述原视频；下一次追问无需重调工具也成功。
+- 真实浏览器打开这两个会话，附件会话显示两张视频卡片，目录会话显示正确结果。
+- 实测发现并最小修正：以 functionResponse+视频混合contents结束时，TapSVC返回“Requests ending with a model turn are not supported”；改为保留完整工具响应，视频置于紧随其后的独立user contents，目录实测通过。回归测试先红后绿，覆盖合并工具结果、媒体顺序/归属和冷重开。
+- minimal思考等级被上游明确拒绝；测试会话改用low后成功。没有修改全局默认等级或自动降级。
+
+本轮没有生产build、全局安装或服务重启。仅验证上述小样本与当前网关；120 MiB、大文件、50 MiB单文件、音轨/任意codec仍未真实验证。测试会话及隔离样本保留供本机查看，公开文档不保存具体会话ID/私有路径/凭证/完整请求。
+
+## 多视频 / read_video 开发迭代
+
+当前实现以 [F40](video-attachments.md) 为准：`videos` / `piWebVideos` 数组（不兼容旧单对象），每次最多4个，每文件20 MiB，完整请求应用预算120 MiB。下文01–09是扩展前的历史验收；新真实小样本验收见上节，不代表大请求网关容量已验。
+
+- 定向单测269项全部通过。SDK + 截获最终 fetch：同一问题的多视频、连续工具结果合并、真实 `read_video` 工具调用后的原媒体续轮、冷重开、文件当前bytes与缺失失败、权限/格式/模型/数量拒绝；工具结果owner额外覆盖压缩保留/移出、不复活摘要路径，以及非当前分支clone后的引用/兄弟隔离/冷重开。
+- 浏览器：`node e2e/video-multiple.mjs`，桌面和移动视口均通过。覆盖多文件拖入、追加顺序、单项移除、4个上限、上传中/失败禁止提交、明确拒绝恢复、原生数组展示、多行Recall及全部UUID确认；HTTP/SSE使用夹具，不是付费模型验收。
+- 旧 `video-attachments/drop/retry/reopen/compaction/branch/queue/modes` 浏览器脚本同步迁移至数组，8个隔离脚本均通过（186个PASS检查点）；未进行真实provider请求。
+- `tsc --noEmit`、`npm run lint`（零warning）和 `git diff --check` 通过。全量单测一次完成：3235项，3223通过、9跳过、3失败；失败均在 `task-session-copy.test.mjs` 的权限故障注入，干净HEAD导出也复现相同3项，未在本次视频迭代修改它们。
+- 全量测试启动需将环境中的相对 `NODE_OPTIONS=--require=./bin/stdio-guard.js` 改为同文件的绝对路径，否则切换cwd的子进程找不到preload（仅调整测试命令环境，不改项目实现）。
+- 此开发回归轮未发真实付费请求、未做生产build/install/restart；后续用户授权的真实请求见上节。120 MiB仅是容纳多视频Base64与其他上下文的应用预算，网关容量、长视频/音轨/任意codec仍待验收。
+
 ## 票据覆盖
 
 | 票据 | 交付与保留的关键回归 |

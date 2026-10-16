@@ -31,7 +31,10 @@ function renderMessage(message, props = {}) {
 }
 
 test("video references distinguish effective, excluded and not-yet-confirmed context without hiding history", () => {
-  const message = { role: "user", content: "Question", piWebVideo: { version: 1, id: "owner", path: "/workspace/clip.mp4", mimeType: "video/mp4" } };
+  const message = { role: "user", content: "Question", piWebVideos: [
+    { version: 1, id: "owner-mp4", path: "/workspace/clip.mp4", mimeType: "video/mp4" },
+    { version: 1, id: "owner-avi", path: "/workspace/other.avi", mimeType: "video/avi" },
+  ] };
   for (const [state, value, text] of [
     ["active", true, /In current context.*included automatically.*file\/model checks/],
     ["inactive", false, /Outside current context.*no longer included automatically.*Attach it to a new question.*summary text is not video input/],
@@ -42,6 +45,8 @@ test("video references distinguish effective, excluded and not-yet-confirmed con
     assert.match(html, text);
     assert.match(html, /Video reference.*clip\.mp4.*video\/mp4/);
     assert.match(html, /\/workspace\/clip\.mp4/);
+    assert.match(html, /Video reference.*other\.avi.*video\/avi/);
+    assert.equal((html.match(new RegExp(`data-video-context="${state}"`, "g")) ?? []).length, 2);
     assert.match(html, /Question/);
   }
   assert.doesNotMatch(renderMessage({ role: "user", content: "/workspace/clip.mp4" }), /data-sent-video|data-video-context/);

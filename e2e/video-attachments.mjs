@@ -64,11 +64,11 @@ try {
     const withVideo = mode !== "unknown-text" && mode !== "unknown-image";
     const withImage = mode !== "unknown-text";
     const nativeMessage = body => ({role:"user",content:body.images?.length ? [{type:"text",text:body.message},...body.images] : body.message,
-      timestamp:Date.now(),...(body.video ? {piWebVideo:{...body.video,id:"11111111-1111-4111-8111-111111111111"}} : {})});
+      timestamp:Date.now(),...(body.videos ? {piWebVideos:body.videos.map((video,index)=>({...video,id:`11111111-1111-4111-8111-${String(index).padStart(12,"0")}`}))} : {})});
     // Prior identical text/images/video must not be mistaken for this Send.
     if (existing && mode !== "basic") history.push(nativeMessage({message:"What is visible?",
       ...(withImage ? {images:[{type:"image",data:png.toString("base64"),mimeType:"image/png"}]} : {}),
-      ...(withVideo ? {video:{version:1,path:"/video-workspace/clip.avi",mimeType:"video/avi"}} : {})}));
+      ...(withVideo ? {videos:[{version:1,path:"/video-workspace/clip.avi",mimeType:"video/avi"}]} : {})}));
     await page.route("http://video.test/**", async route => {
       const req = route.request(), url = new URL(req.url());
       if (url.pathname === "/") return route.fulfill({contentType:"text/html",body:'<div id="root"></div>'});
@@ -86,7 +86,7 @@ try {
       const state = {isStreaming:false,isPromptRunning:false,model:{provider:"tapsvc",id:"google/gemini-3.8-flash"},thinkingLevel:"off",steeringMessages:[],followUpMessages:[]};
       if (url.pathname === "/api/agent/new") {
         ensureCalls++;
-        assert.equal(body.type,"ensure_session"); assert.equal(body.video,undefined);
+        assert.equal(body.type,"ensure_session"); assert.equal(body.videos,undefined);
         return route.fulfill({json:{sessionId:"fixture-session",model:{provider:"tapsvc",modelId:"google/gemini-3.8-flash"},thinkingLevel:"off"}});
       }
       if (url.pathname.endsWith("/state")) return route.fulfill({json:{running:true,state}});
@@ -138,13 +138,13 @@ try {
       if (received) {
         assert.equal(await page.evaluate(()=>window.chat.unconfirmedSubmission),null,"native receipt releases the snapshot");
         assert.equal(await page.locator('[data-unconfirmed-submission]').count(),0);
-        assert.equal(await page.evaluate(()=>window.chat.messages.filter(m=>m.piWebVideo).length),existing ? 2 : 1);
+        assert.equal(await page.evaluate(()=>window.chat.messages.filter(m=>m.piWebVideos?.length).length),existing ? 2 : 1);
       } else {
         const saved = await page.evaluate(()=>window.chat.unconfirmedSubmission);
         assert.equal(saved.value,"What is visible?");
         assert.equal(saved.images.length,withImage ? 1 : 0);
         if (withImage) assert.deepEqual(Buffer.from(saved.images[0].data,"base64"),png);
-        assert.deepEqual(saved.video,withVideo ? {version:1,path:"/video-workspace/clip.avi",mimeType:"video/avi"} : undefined);
+        assert.deepEqual(saved.videos,withVideo ? [{version:1,path:"/video-workspace/clip.avi",mimeType:"video/avi"}] : undefined);
         await page.locator('[data-unconfirmed-submission]').waitFor();
         if (mode === "unknown-late") history.push(lastNative);
         const restore=page.getByRole("button",{name:"Check and restore saved input",exact:true});
@@ -173,7 +173,7 @@ try {
           assert.equal(prompts.length,2,"only explicit Send resubmits the recovered input");
           assert.equal(prompts[1].message,prompts[0].message);
           assert.deepEqual(prompts[1].images,prompts[0].images);
-          assert.deepEqual(prompts[1].video,prompts[0].video);
+          assert.deepEqual(prompts[1].videos,prompts[0].videos);
           assert.equal(ensureCalls,existing ? 0 : 1,"recovery reuses the created session, not another new session");
         }
       }
@@ -218,7 +218,7 @@ try {
     await page.waitForFunction(()=>window.chat.notices.some(n=>n.message.includes("fixture preflight rejection")));
     await page.getByText("clip.avi",{exact:true}).waitFor();
     assert.equal(await input.inputValue(),"What is visible?","rejection restores text through the empty/history remount");
-    assert.deepEqual(prompts[0].video,{version:1,path:"/video-workspace/clip.avi",mimeType:"video/avi"});
+    assert.deepEqual(prompts[0].videos,[{version:1,path:"/video-workspace/clip.avi",mimeType:"video/avi"}]);
     rejectPrompt=false;
     await send.click();
     await page.locator('[data-sent-video]').waitFor();
@@ -228,13 +228,13 @@ try {
     assert.equal(prompts.length,2,"no implicit retry");
     await input.fill("Ordinary text path /video-workspace/clip.mp4"); await send.click();
     await page.waitForFunction(()=>!window.chat.agentRunning);
-    assert.equal(prompts.at(-1).video,undefined,"ordinary paths stay text");
+    assert.equal(prompts.at(-1).videos,undefined,"ordinary paths stay text");
 
     await page.locator('input[accept="image/*"]').setInputFiles({name:"pixel.png",mimeType:"image/png",buffer:png});
     await page.locator('img[src^="blob:"]').waitFor();
     await input.fill("Ordinary image"); await send.click();
     await page.waitForFunction(()=>!window.chat.agentRunning);
-    assert.equal(prompts.at(-1).video,undefined);
+    assert.equal(prompts.at(-1).videos,undefined);
     assert.equal(prompts.at(-1).images[0].mimeType,"image/png");
     assert.deepEqual(Buffer.from(prompts.at(-1).images[0].data,"base64"),png);
 
@@ -242,7 +242,7 @@ try {
     await select("bad.mp4"); await page.getByRole("alert").filter({hasText:/fixture upload failure/}).waitFor();
     await input.fill("Keep my question"); assert.equal(await send.isDisabled(),true); await remove();
     const before=uploads.length;
-    await select("clip.mov"); await page.getByRole("alert").filter({hasText:/exactly one MP4 or AVI/}).waitFor();
+    await select("clip.mov"); await page.getByRole("alert").filter({hasText:/Choose MP4 or AVI/}).waitFor();
     assert.equal(uploads.length,before); await remove();
     await select("large.mp4",Buffer.alloc(20*1024*1024+1));
     await page.getByRole("alert").filter({hasText:/20 MiB/}).waitFor(); assert.equal(uploads.length,before); await remove();

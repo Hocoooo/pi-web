@@ -80,7 +80,7 @@ F09 `/new` 现在以一次性、draft 专属 seed 自动沿用当前已确认 pr
 | F37 | [每轮结束自动更新会话标题](automatic-session-titles.md) | 服务端整轮结束后台命名，保护手动标题；会话级开关、去重/过期保护与 next-cue 兼容；任务关联/归档不触发命名，归档保留完整目录与匹配版本 | auto-session-title、session-title、rpc-manager、会话 API、AppShell、useAgentSession、SessionSidebar |
 | F38 | [可选侧栏任务树、任务筛选与检索](sidebar-task-tree.md) | 设置默认关闭、仅有任务项目插入Task层；无任务项目沿用原列表/项目预览；每Task五族、更多/收起与session左对齐、空任务资料检索；关树保留筛选与旧项目结构，后端截断前限Task正文搜索；轻量只读目录、归档独立、虚拟键盘与三语言 | tasks/catalog、sessions/search、task-membership/view、useSidebarTasks、sidebar-task-rows/keyboard/preferences、SidebarSearchControls/TaskGroup、SessionSidebar/Search、SettingsPanel |
 | F39 | [统一侧栏搜索与筛选入口](sidebar-search-filters.md) | Task/正文复用原搜索按钮与desktop浮层/mobile底部面板，Task不常驻；日常/归档保留原生范围选择，清除筛选不改范围；添加条件、实时生效/关闭保留、单行摘要，正文/归属语义不变 | SidebarSearchControls/CSS、SessionSidebar、i18n、sidebar-search-filters/Task-tree/session-archive E2E |
-| F40 | [原视频附件（01–09 已 review / resolved）](video-attachments.md) | 单 MP4/AVI 共用上传/skip、原生引用、精确 tapsvc/SDK auth＋Google、20 MiB/完整32 MiB；失败恢复/未知不自动重发、有效上下文/压缩/分支/复制、原 SDK 队列/Stop/Recall、项目/无项目与 Chat-only | VideoAttachmentPicker、ChatInput/ChatWindow/MessageView、useAgentSession/draft-store、video-transport/input-binding、session-reader、agent routes |
+| F40 | [原视频附件与主动读取](video-attachments.md) | 多 MP4/AVI 拖入/追加（最多4个）、read_video 原视频工具（工具媒体独立Google user段，真实小样本已验）；20 MiB/完整120 MiB应用预算；原生引用、SDK auth＋Google、失败恢复、有效上下文/压缩/分支/复制、SDK 队列/Stop/Recall；Chat-only 保持零工具 | VideoAttachmentPicker、ChatInput/ChatWindow/MessageView、useAgentSession/draft-store、video-transport/input-binding/tools、session-reader、agent routes |
 
 ## 任务功能历史快照（2026-10-09 文档收尾；当前范围见 F31/F32/F33/F35）
 
