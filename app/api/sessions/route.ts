@@ -13,6 +13,8 @@ import {
   getRunningRpcSessionIds,
 } from "@/lib/rpc-manager";
 import { startServerPerf } from "@/lib/perf";
+import { readArchivedSessionIds } from "@/lib/session-archive";
+import { withSessionArchiveState } from "@/lib/session-archive-view";
 
 export const dynamic = "force-dynamic";
 
@@ -35,7 +37,12 @@ export async function GET(req: Request) {
       attachSessionProjectInfo(getRpcSessionInfos()),
     ]);
     perf?.span("scan+projects");
-    const sessions = mergeSessionLists(persistedSessions, runtimeSessions);
+    // Keep the canonical catalog complete: tasks, URL restoration and activity
+    // tracking still need archived sessions. Only the sidebar/search project it.
+    const sessions = withSessionArchiveState(
+      mergeSessionLists(persistedSessions, runtimeSessions),
+      await readArchivedSessionIds(),
+    );
     return perf?.attach(jsonResponse(
       req,
       {

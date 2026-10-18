@@ -1,5 +1,15 @@
 # 当前分支功能契约与验收索引
 
+## 当前任务范围调整（优先于旧任务执行描述）
+
+**任务面板现阶段仅管理 session 归属。** [F31：任务 session 管理](task-session-management.md)覆盖 F21–F30 中共享重点、AI 整理、任务启动、共享更新及归档执行限制的旧行为：F22/F24/F26/F28 暂停新执行并移除 UI；F27 归档不再限制聊天，F30 关系更新不要求 active/idle。下面旧阶段的 resolved/验收记录不代表这些功能仍启用；v7 存储及历史兼容继续保留。
+
+F31 详情关联对话默认预览前五个，超过五个提供更多/收起；总数与关联顺序不变，每任务独立内存状态，关闭/重开保留、页面刷新重置。折叠不发请求、不切换聊天、不丢移除精确重试，专项验证见 `e2e/task-session-previews.mjs`。详情关联对话行的 `...` 仅打开“移除”菜单，选择后只解除任务关联、不删除/停止 session；改绑保留在 F32 聊天归属选择器。缺失对话同样允许显式移除，使用实际 generation/updateRevision 和原 owner/CAS/精确重试，不重建或改绑缺失 session。菜单/键盘/IME/失败精确重试回归见 `e2e/task-dashboard-panel.mjs`。
+
+[F32：聊天任务选择器](task-picker.md)扩展 F31 的入口：`/task` 与归属按钮共用键盘弹窗，支持新会话预选和已有会话关联/改绑/解除，不打开任务面板、不恢复共享或任务执行。详情保留独立按钮。
+
+[F33：任务项目选择与修改](task-projects.md)扩展创建与详情入口：可选 Pi 已有项目或新增目录；跨项目修改经预览确认后原子解除不兼容对话，不修改对话 cwd 或执行状态。
+
 ## 必须先读：Agent 工作规则
 
 **每次开发迭代开始前，必须先阅读本 README，再阅读本次涉及的功能文档及其关联功能文档。** 适用于新增、修改、修复、重构、测试调整，以及 merge/rebase 冲突处理；不能等修改完成后才补读。
@@ -18,6 +28,10 @@
 - 后续在本分支引入的新能力也应登记；定制被上游等价吸收时，更新实现与验收依据，不可仅因 diff 消失便删除保护性说明。
 - `demo/` 是上游静态演示实现，本轮文档描述主应用，不承诺定制功能已同步到演示站点。
 
+## `/new` 延续当前工作配置与任务
+
+F09 `/new` 现在以一次性、draft 专属 seed 自动沿用当前已确认 provider/model、具体 thinking level（含 `off`）和任务归属/空白预选。新 composer 无需重选任务；正常创建后经权威项目校验/CAS 关联，再发首次 prompt/bash。不带历史/附件、不注入共享上下文、不改全局默认或原会话；读取失败停留来源并报错，关联失败保留真实 ID/草稿供重试。其他新建入口、切项目和刷新不继承这份内存 seed。契约见 F02/F05/F09/F30/F31/F32；新增 `e2e/new-session-inheritance.mjs`，复用 task-picker-page/task-session-selection/model-first-prompt 的整页与实际 SDK 测试 provider 边界，不代表外部 provider/生产平台验收。
+
 ## 最新上游整合
 
 - 2026-10-08：个人分支的 27 个提交重放到 `origin/main` 的 `cf3ebfb`（Pi Web 0.10.0 / SDK 1.0.0）；详见 [整合记录](rebase-0.10.0.md)。
@@ -35,7 +49,7 @@
 | F06 | [侧栏键盘导航与面板切换](sidebar-keyboard-navigation.md) | Alt+左右切换面板，虚拟化列表可键盘到达，删除需确认 | useKeyboardShortcuts、sidebar-keyboard、SessionSidebar |
 | F07 | [复制会话 ID](session-id-copy.md) | 从会话菜单获得真实 ID，而非标题、文件路径或 entry ID | SessionSidebar |
 | F08 | [输入框与消息区焦点导航](chat-focus-navigation.md) | Alt+上下切换且不跳阅读位置；空白会话加载后聚焦 | ChatInput、ChatWindow、CSS |
-| F09 | [`/new` 空白会话命令](new-session-command.md) | 当前 cwd 新建空白 composer，不发送命令、不带附图、不打断原会话 | ChatInput、ChatWindow、AppShell |
+| F09 | [`/new` 空白会话命令](new-session-command.md) | 当前 cwd 空白 composer，自动沿用模型/思考等级/同一任务；不带历史/附图、不改默认、不打断原会话，其他新建入口不继承 | ChatInput、ChatWindow、AppShell、useAgentSession、useTaskSelection |
 | F10 | [下一轮提示词建议](next-prompt-suggestions.md) | 可配置独立建议请求；Tab 只采纳草稿，绝不自动发送 | next-cue 路由、ChatWindow、ChatInput、SettingsPanel |
 | F11 | [桌面文件操作与 Explorer 复用](desktop-file-actions.md) | 浏览/复制/系统打开文件，授权边界与 Windows 标签页复用 | LocalFileLink、desktop-files、windows-explorer、desktop API |
 | F12 | [开发服务输出断管保护](dev-stdio-guard.md) | 仅忽略 stdout/stderr EPIPE，避免日志递归，不吞其他错误 | bin/stdio-guard、package scripts |
@@ -45,17 +59,38 @@
 | F16 | [Windows 无窗口启动链](windows-silent-start.md) | 隐藏 Next 与浏览器辅助控制台，保留日志和生命周期；区分无窗口与 no-open | bin/pi-web、安装器 launch |
 | F17 | [消息与会话性能统计](message-performance.md) | 服务端首有效输出 TTFT、持久化 tok/s、会话加权速度与平均 TTFT；缺失样本不补零 | request-performance、session-stats、MessageView、AppShell |
 | F18 | [输入时草稿补全](draft-completion.md) | 默认关闭；独立模型续写未发送草稿，Tab 只采纳；新/休眠会话不启动 AgentSession | draft-completion API、useDraftCompletion、ChatInput、SettingsPanel |
-
 | F19 | [独立聊天与固定隐藏工作区](independent-chat.md) | 无项目直接对话，入口在“会话项目”选择器内；固定 cwd 保持跨日历史，权限与界面均与项目会话一致，侧栏显示“对话” | default-cwd、NewSessionProjectPicker、AppShell、SessionSidebar、rpc-manager、session-reader |
 | F20 | [macOS 服务重启与运行诊断](macos-service-lifecycle.md) | 默认 Terminal 私有交接、显式用户级 LaunchAgent、独立 restart 命令；不转储环境、不自动授予权限，诊断失败不假报 verified | 安装器 mac-terminal/mac-launchagent、service-health API |
-
-| F21 | [每轮结束自动更新会话标题](automatic-session-titles.md) | 服务端整轮结束后台命名，保护手动标题；会话级开关、去重/过期保护与 next-cue 兼容 | auto-session-title、session-title、rpc-manager、会话 API、AppShell、useAgentSession |
+| F21 | [任务看板、资料编辑、手动排序、全局列与已有对话关联](task-dashboard.md) | 按钮唤起的 Settings 风格悬浮面板、紧凑卡片（整卡单击详情/拖动、键盘与触屏）/独立详情抽屉（无状态选择器）、主次筛选与条件标签、任务范围下拉列表完整跟随主题、关闭保留草稿、[全界面UI检查](../testing/task-dashboard-ui.md)、用户确认状态；单任务邻居移动、全局稳定列、原子批量关联（候选仅主 session，保留独立复制/fork）、权威项目scope、metadata-only运行提示；统一存储/CAS/迁移权威表 | tasks API/page、TaskDashboard/Details/Sessions/DragTargets/ColumnSettings、task-operations/store/types/sessions、worktree/scanner/RPC、proxy、SessionSidebar |
+| F22 | [人工共享重点版本（暂停）](task-shared-context.md) | F31 暂停编辑/审核/发布/历史/恢复 UI 与新操作；保留不可变 current/history、来源、独立 CAS/receipt 的旧数据兼容，下文原06验收仅作历史 | TaskSharedContext/TaskContextPreview、task-context、task-operations/store/types |
+| F23 | [任务筛选、自动排序与保存视图](task-views.md) | 六条件/无项目/稳定列ID/unknown运行态；自动排序不写回手动；views独立CAS/精确receipt，过滤移动/固定双草稿，05 resolved | TaskViewControls、TaskDashboard、task-view/task-saved-views、task-types/store/operations |
+| F24 | [主动AI整理共享重点（暂停）](task-ai-summary.md) | F31 移除任务/当前对话的整理和草稿入口，所有 summary-* 新操作在存储/模型调用前拒绝；旧 AI 来源数据保留，原07执行测试明确退役 | task-summary/types、TaskSummary、task-context/operations、Dashboard/Sidebar |
+| F25 | [复制/fork继承任务](task-session-copy.md) | 11已主集成并验收resolved：原clone/fork/fork_branch新SDK session继承唯一关系、source-owner CAS/权威scope、durable intent/精确receipt；异常2xx保留UUID、未知结果人工检查后显式新tab尝试；不伪造08采用 | rpc-manager、agent-client、task-session-copy、task-operations/store、agent route |
+| F26 | [任务准备对话与独立发送（暂停）](task-start-chat.md) | F31 移除开始执行/材料预览；旧 taskStart 在路由 startup/权限变更前及 wrapper 再次拒绝，旧准备 URL 明确提示；普通聊天后关联 session，不再注入任务资料，旧 receipt/native 历史兼容 | TaskStart、ChatWindow/useAgentSession、task-start/types/store/operations、agent/new、rpc-manager |
+| F27 | [任务归档与恢复](task-archive.md) | 可发现且跟随主题的归档列表/恢复、独立 archive CAS/精确 receipt；F35 Dashboard 经预览一次性联动归档会话族，恢复任务不恢复会话；不要求空闲、不阻止聊天/关联/复制，不 Stop/自动完成，保留全部历史 | task-archive/types/store/operations、rpc-manager、agent routes、TaskDashboard/Details |
+| F28 | [已有对话显式接收共享更新（暂停）](task-context-updates.md) | F31 移除版本/更新 UI 及其轮询；拒绝新选择/投递，普通 prompt 不消费旧 pending、不安装发送观察器；保留 choices/deliveries/native 历史，暂停不等于遗忘 | TaskContextUpdates/ChatWindow、task-context-updates/update-send、task-start/types/store/operations、RPC/tasks API |
+| F29 | [安全删除状态列](task-column-removal.md) | 14 resolved：done/lastunfinished保护、独立完成确认、完整ordered源摘要/有界请求、hidden/archive原子迁移、旧board receipt返回当前派生digest、删todo两create首unfinished；与10联合回归 | TaskColumnSettings、TaskDashboard、task-operations/store/types、tasks API |
+| F30 | [解除/改绑任务关系](task-session-relation.md) | F31 关系只管理归属，不要求任务 active 或 session idle；仍保留同锁权威 scope、唯一 owner、generation/CAS/精确 receipt、旧 pending 清理和复制 ABA 保护，不改 cwd/模型/工具/原生历史 | task-relations/operations/store、TaskSessionMenu/TaskSessions/Dashboard、task-summary/start/context-update-send/session-copy |
+| F31 | [任务 session 管理](task-session-management.md) | 任务详情关联对话默认五条/更多收起、每任务独立内存状态与精确移除重试保留、关联已有对话排除递归子代理且不改既有关系、当前会话归属与直达入口、卡片数量/运行提示；管理与执行解耦，停用共享/启动/更新路径，旧数据与历史兼容保留 | TaskDashboard/Details/Sessions/SessionMenu、SessionTaskLink/ChatWindow/AppShell、task-operations/relations/archive/session-copy、rpc-manager |
+| F32 | [聊天任务选择器 `/task`](task-picker.md) | 紧凑主题选择器、单行归属栏、全键盘/慢保存焦点约束与状态本地化；新会话预选不启动 Agent，正常创建后关联；已有会话关联/改绑/解除；同项目/归档/CAS、失败草稿与 ID 保留、详情独立入口 | TaskPicker/TaskSelectionDialog/SessionTaskLink/ChatInput/ChatWindow、useTaskSelection/useAgentSession、tasks API/task-types/task-operations |
+| F33 | [任务项目选择与修改](task-projects.md) | 合并 Pi 对话与任务项目、复用目录新增/选择、同项目保留关联、跨项目预览确认后原子解除；项目 CAS/精确重试、不改聊天执行；真实隔离服务浏览器验收 | TaskProject/Dashboard/Details/Inspector、tasks API、task-operations/store/types |
+| F34 | [对话归档与恢复](session-archive.md) | 与改名/删除同区悬停显示且统一 32px 按钮、独立会话显示状态/族范围/搜索；F35 复用同锁 sidecar 批量归档及 v2 回执，单会话接口/恢复不改任务；不改 JSONL/完整历史、任务归属或 Agent 生命周期 | session-archive/view、sessions/archive/list/search API、SessionSidebar/SessionSearch |
+| F35 | [任务一次性关联对话归档](task-session-archive.md) | Dashboard 归档先预览固定会话族，跨任务须额外确认；耐久 pending/批次回执与精确重试，部分失败不假报成功；恢复任务不恢复会话，后来关联/fork 不自动归档，不 Stop/改历史 | task-session-archive、task-archive/store/operations/types、session-archive/reader/family、tasks API、TaskArchivePreview/Dashboard/Inspector |
+| F36 | [任务归档报告（01–08：分层材料、恢复/重试、历史与只读工具）](task-archive-report.md) | 全局专用设置/冻结来源；锁外唯一串行 SDK 无工具请求，固定模型意图；容量内完整分段/有限分层综合、逐层真实材料与完整目录；无法收缩/容纳明确失败保留成果，启动续跑未发送阶段不重做durable材料，未知不自动重发；明确当前设置/原快照精确重试；所选快照新版本/操作去重、创建顺序最新成功默认入口与历史；全局成功档案文本检索/全层级完整分页、配置开关/普通只读预设、零模型零写入/不注入 | task-report-settings/types、task-report-snapshot/types、task-reports/executor/chunks/tools、tool-presets/rpc-manager、instrumentation-node、task-archive/operations、TaskReports/Inspector、task-reports API |
+| F37 | [每轮结束自动更新会话标题](automatic-session-titles.md) | 服务端整轮结束后台命名，保护手动标题；会话级开关、去重/过期保护与 next-cue 兼容；任务关联/归档不触发命名，归档保留完整目录与匹配版本 | auto-session-title、session-title、rpc-manager、会话 API、AppShell、useAgentSession、SessionSidebar |
+| F38 | [可选侧栏任务树、任务筛选与检索](sidebar-task-tree.md) | 设置默认关闭、仅有任务项目插入Task层；无任务项目沿用原列表/项目预览；每Task五族、更多/收起与session左对齐、空任务资料检索；关树保留筛选与旧项目结构，后端截断前限Task正文搜索；轻量只读目录、归档独立、虚拟键盘与三语言 | tasks/catalog、sessions/search、task-membership/view、useSidebarTasks、sidebar-task-rows/keyboard/preferences、SidebarSearchControls/TaskGroup、SessionSidebar/Search、SettingsPanel |
+| F39 | [统一侧栏搜索与筛选入口](sidebar-search-filters.md) | Task/正文复用原搜索按钮与desktop浮层/mobile底部面板，Task不常驻；日常/归档保留原生范围选择，清除筛选不改范围；添加条件、实时生效/关闭保留、单行摘要，正文/归属语义不变 | SidebarSearchControls/CSS、SessionSidebar、i18n、sidebar-search-filters/Task-tree/session-archive E2E |
 | F40 | [原视频附件（01–09 已 review / resolved）](video-attachments.md) | 单 MP4/AVI 共用上传/skip、原生引用、精确 tapsvc/SDK auth＋Google、20 MiB/完整32 MiB；失败恢复/未知不自动重发、有效上下文/压缩/分支/复制、原 SDK 队列/Stop/Recall、项目/无项目与 Chat-only | VideoAttachmentPicker、ChatInput/ChatWindow/MessageView、useAgentSession/draft-store、video-transport/input-binding、session-reader、agent routes |
+
+## 任务功能历史快照（2026-10-09 文档收尾；当前范围见 F31/F32/F33/F35）
+
+- **01–14 全部已由父代理按各票范围验收 resolved**；10 最终独立主复审见 `/tmp/t10mr-mus4_2wp/REPORT.md`，修复证据见 `/tmp/t10fix-l8beyj3o/REPORT.md`。最终独立综合核验及父review已完成，见[最终接受记录](../../.scratch/task-dashboard/FINAL-ACCEPTANCE.md)；仅已执行范围通过，不代表全平台/真实provider验收。
+- 当前存储为 **v7**；唯一的[当前 schema、独立 CAS 与迁移表](task-dashboard.md#当前存储cas与迁移权威表)由 F21 维护，其余任务合同引用它。14 `columnRemovalDigests` 同锁派生、不持久；09 选择 ≠ native append ≠ 成功 SDK input/response ≠ provider wire/read。
+- [阶段验证历史附录](task-dashboard-validation-history.md)保留失败因果、原 claimed 时点和证据指针；[65 US / 24 T coverage ledger](../../.scratch/task-dashboard/FINAL-COVERAGE.md)按执行层级与未验边界分列，不把计划/静态检查算执行通过。
 
 ## 视频附件：01–09 全部已独立 review / resolved
 
 [F40](video-attachments.md)记录选择/拖入、上传、原生引用、恢复、重开/追问、压缩、分支/复制、队列/Stop/Recall 与会话模式/模型切换的稳定契约。精确 tapsvc，无别名/fallback、SDK 或全局配置修改。实际 SDK/Google final-fetch、mounted browser、历史真实 Next/AppShell MP4/AVI 各一次200严格分层；571项开发期有界回归不等于全量，任务复制原三项故障注入失败和一次未知根因恢复超时风险保留。[公开验收摘要与可执行命令](video-attachments-acceptance.md)不依赖本地 scratch、临时捕获或会话正文。
-
 
 ## 交互原型（不代表生产功能）
 
@@ -78,6 +113,20 @@
 - F09 的 `/new` 沿用当前显示会话 cwd，并刻意不恢复 parked draft；F05 切换空白会话目录时要迁移已有草稿。两者不能复用一个“全部清空”的捷径。
 - 保留上游按浏览器标签页恢复会话、URL 导航、项目/worktree 归属与阅读位置恢复；显式用户导航必须压过陈旧异步恢复。子目录的 worktree 列表不得将其独立项目身份借给仓库顶层会话，避免 benchmark 会话切回旧会话时清空 `?session=`；见[全项目侧边栏](all-projects-sidebar.md#子目录会话导航回归)。
 - F19 的无指定目标首页默认进入聊天，空白聊天用 `?chat=1`；聊天使用固定隐藏 cwd 与独立身份，但在权限、界面与列表上都与普通项目一致，侧栏显示“对话”而非内部路径。项目功能的浏览器验收须显式进入项目 URL。
+- F21 看板由侧栏按钮打开首页上的持久悬浮面板，默认紧凑卡片、筛选折叠、右侧详情；旧 `/tasks` 重定向首页同一浮层。打开/关闭不导航或卸载聊天，关闭保留任务草稿且取消 modal 标记/后台轮询；显式关联聊天/任务准备经 shell 选择回调而非仅 query 导航。以下原 `/tasks` departure 停放逻辑仅兼容旧离页路径，不是新按钮工作流；任务存储与 session 分开，复用服务端项目身份，但任务目录/文本不授予文件访问，也不启动 Agent。Link 及 history 后退/前进离开的往返复用标签页 cwd/内存停放草稿保留空白 composer 文字和图片，仅真正 `/tasks` layout departure 保存一次最终快照（Link 点击不提前保存，慢路由期间编辑/清空/删图不重复合并），不全局取消草稿弃用清理，不创建 session/发送消息保存；显式 URL、普通新建、项目切换仍优先。后续票据沿用同一个任务操作入口，创建幂等身份使用不可变原创建内容，不依赖目录现状或可变标题等。03 以服务端数组为唯一手动顺序，移动只有单任务+邻居/列边缘锚点，不用可见数组覆盖全量任务；06 使用独立 currentVersionId CAS 发布人工知识，不推进资料/顺序 revision 或破坏 moveReceipt，恢复确认成为新版本且保留中间历史；权威响应/失败同步和精确重试保留 02 草稿的原 base revision；联网恢复/focus/手动重读不等于确认移动，不能清掉未确认移动的错误与原请求重试入口。04来源创建/批量关联同锁验证存在/唯一所有权/当前scope，await既有uncachedworktree身份而非展示cache，source指纹已提交重试优先；迁移遵循F21权威表，不猜未发布源-only v3；metadata与running快照不启动Agent/扫描正文/改变任务状态。13 列配置存于同一 board，新增均未完成，done 身份不随文案/参数改变；columnsRevision 与 task/order revision、知识 currentVersionId CAS 独立，改列不改变任务字段/历史/receipt；列设置草稿重读不自动 rebase，所有操作返回当前同锁配置。
+
+- F24 的07只扩展知识source严格union，不迁移或伪造旧manual/restore来源，旧指纹保持；新AI receipt另绑定generationId。生成结果只有draft，经06确认前不改current；固定task/base的草稿在05过滤隐藏/运行unknown/排序重挂载时仍保留，来源关系/branch变化不得错发布。08主resolved见F26；11主resolved见F25，不改变07父验收。
+- F26仅把08首次新启动选择receipt保存为sessionContexts，绝不当作native append/provider已读。11 child不复制source tuple；显式Continue按SDK活动分支raw custom entry显示可追溯原版本/来源，压缩或context_edit可能排除实际输入，不重注入、不追latest。source receipt-only Stop仍只在source Continue补原snapshot。统一迁移按F21权威表保留sessionCopies、views、AI/manual/restore历史与各CAS/receipt；08已resolved，证据见专属合同。
+- F25复用F21唯一关系与权威scope，内部sessionCopies跟踪原复制结果，不破坏07严格AI来源、所有旧CAS/receipt。原SDK历史不重拼；06latest不等于fork采用，08接缝不能把source严格new-start receipt复制给child或伪造child provider调用。SDK创建与board提交不是跨文件原子，未知结果拒绝旧intent；人工检查后在无opener空tab明确新尝试可能重复/遗留孤儿，不自动换ID/猜parent链。
+- F23 使用同一个board的viewsRevision/savedViews；legacy双字段absence-only与当前必填规则只见F21权威表；不重置partial/invalid。筛选/排序纯投影，03单UUID/邻居移动、02/06草稿固定base、04count/source导航保留；自动同列禁调序、跨列edge后自动呈现。unknown running不匹配idle，14删列完整保留未知ID条件/receipt并fail-closed，不能扩大结果。后续集成须按域保留字段/CAS，不整文件覆盖。
+
+- F27（12）归档scope是F23六条件之外的纯投影，不改savedViews。active/busy guard与F26 admission共用同board锁及原wrapper pendingPromptCount；来源关系/复制向归档目标只接受idle，当前知识/历史/所有CAS与receipt不变，不伪Stop/done/模型已读。09采用/clear复用此guard，14仍可移动归档task；两票迁移按字段语义合并，12/09/14均已分别验收resolved，不互相替代证据；主证据 `/tmp/m12-39pOIJ/REPORT.md`。外部进程/扩展直接绕wrapper不宣称受控，详见F27管理边界。
+
+- F28（09）当前存储/迁移见F21权威表，保留12archive CAS/receipt及05/07/08/11全部事实，缺必填域或损坏拒读。原prompt最早预留仍在所有await前，09只扣本次发送自身预留判断idle，不忽略其他pending/queue/UI；pending领取/再次权威验证/complete同锁拒archived，select/state/CASclear只管理持久意图，不restore/abort/prompt。10已resolved，同锁clear与关系变更原子提交；14已resolved，见F29。选择receipt、原生append、成功input/response与实际Provider捕获分层，拒绝/Stop/authfail不伪used；Continue以native lineage防V2→V1回拨，projection按sourceEntry.id且发送要求request-local贡献引用与SDK stream实际输入完整锁定正文同时成立，另一entry同正文不代证；converter脱敏/截断只保留pending、不补原文（R1/R2独立主复审已关闭，父R3累计15项复核通过，09已resolved，证据/tmp/m9f-x4GgSR）；详见F28主证据与未验边界。
+
+- F29已在当前统一存储集成；columnRemovalDigests只是同锁board派生响应，所有旧board receipt确认返回当前map，不持久或推进09独立session CAS。完整源digest绑定task revision（包括field/link/08/11关系修改）与archiveRevision/ordered set，09选择/投递与知识独立域不失效scope。迁移只改columnId/task revision/updatedAt，归档/pending/历史与所有旧receipt保持；actualSend仍遵守12guard及09entry identity/贡献引用/完整stream输入。10关系修改推进双方task revision并同锁clear旧pending，联合入口 `lib/task-relation-column-removal.test.mjs`；10与14独立主复审各自有效，不互相冒称执行。
+
+- F30（10）按F21权威表保留全部域与receipts，sessionIds仍唯一owner，sessionRelations仅generation/latest receipt。source/target关系revision使14旧全源摘要失效，pendingclear与关系变更同锁原子；07snapshot/authdispatch/response/result/publish、08prepared/start/recovery、09pending/authority/latecomplete与11prepared intent统一校验owner+epoch，拒A→B→A与null-owner ABA新执行。已提交publish/completedcopy/latestrelation receipt仅确认旧事实，不能重绑/清新pending。columnRemovalReceipt保留，所有board-returning精确retry同锁最新digest map且不持久；删列不清采用/epoch，archiveowner不能reassign/newsend绕过恢复。原最早reservation/active/allbusy/权威project及UI旧历史警告保持，10已获最终独立主复审并由父验收resolved；最终综合/平台验证另列，不继承该结论。
 
 ### 运行时与外部副作用
 
@@ -85,8 +134,8 @@
 - F01 的 headless 模式不能误删正常 Web 会话的扩展 UI。
 - F11 必须经过文件授权，不因“本地部署”而放开任意文件系统路径。
 - F18 会上传未发送草稿，必须独立 opt-in，不能继承 F10 开关；仅使用独立推理，不创建主会话运行时。
-- F21 的标题请求不延迟 F01 的整轮完成；仅标题元数据移动 leaf 不应使 F10 重生成/丢弃建议，真实分支/对话变化仍须保护。
-- F10/F13/F18/F21 可能产生外部推理请求；F11 可启动桌面程序；F14 可影响全局安装与服务。文档验收不能默认授权在用户真实环境执行这些副作用。
+- F37 的标题请求不延迟 F01 的整轮完成；仅标题元数据移动 leaf 不应使 F10 重生成/丢弃建议，真实分支/对话变化仍须保护。F32 任务关联与 F34/F35 归档不触发命名；会话归档的确认更新保留完整目录与匹配的 sessionListVersion，并强制回读权威列表。
+- F10/F13/F18/F37 可能产生外部推理请求；F11 可启动桌面程序；F14 可影响全局安装与服务。文档验收不能默认授权在用户真实环境执行这些副作用。
 - F20 改变 macOS 的 F14 重启方式，不改变 F16 的 Windows 隐藏链；注册 LaunchAgent/登录项、打开真实 Terminal、重启当前服务仍需操作授权。运行诊断不扩大项目文件访问权限，也不继承 Terminal 的 TCC 授权。
 
 ## 开发与文档同步流程
@@ -131,7 +180,7 @@ npm test
 ```
 
 - 各功能文档列出更小范围的单测和浏览器命令，先运行受影响部分，再扩大范围。
-- Windows / SDK 1.0 的模块身份、换行、MCP fixture 清理及安装器隔离条件见 [Windows 全量测试验证契约](windows-test-portability.md)；平台能力跳过必须明确记录，不能算作通过。
+- Windows / SDK 1.0 的模块身份、换行、MCP fixture 清理及安装器隔离条件见 [Windows 全量测试验证契约](windows-test-portability.md)；新增任务 HTTP/复制错误身份、SDK 会话目录、确定性存储故障、任务/报告 rename 有界重试、报告读写 FIFO 及恢复进程清理见其[2026-10-13 修复](windows-test-portability.md#任务看板安装前修复2026-10-13)。平台能力跳过必须明确记录，不能算作通过。
 - `npm run test:e2e` 自建临时 agent 数据和独立 dev 服务。只在没有同 checkout dev 服务的工作区执行，详见 [e2e/README.md](../../e2e/README.md)。需安装 Playwright 浏览器。
 - 不要在正在开发的 checkout 运行 `next build`，不要为同一 checkout 换端口绕开 `.next/dev/lock`；遵循根 AGENTS 的服务排查规则。
 - 桌面操作、真实模型、Windows Explorer、全局安装的验收必须先检查环境和用户授权；测试提示不构成执行授权。

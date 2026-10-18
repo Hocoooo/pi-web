@@ -4,7 +4,7 @@ import {
   getAgentDir,
 } from "@earendil-works/pi-coding-agent";
 import { closeSync, type Dirent, fstatSync, openSync, readSync, statSync } from "fs";
-import { readdir } from "fs/promises";
+import { lstat, readdir } from "fs/promises";
 import { isAbsolute, join, normalize as normalizePath, relative, resolve as resolvePath, sep } from "path";
 import type { AgentMessage, ImageContent, SessionEntry, SessionHeader, SessionInfo, SessionContext } from "./types";
 import { normalizeToolCalls } from "./normalize";
@@ -16,7 +16,7 @@ import { sessionPathKey } from "./session-path";
 import { MAX_TOOL_RESULT_IMAGE_BYTES, TOOL_RESULT_IMAGE_MIMES } from "./tool-result-images";
 import { resolveProject, type ProjectInfo } from "./worktree";
 import { readSubagentRun, SUBAGENT_META_TYPE } from "./subagents";
-import { listSessionsIncremental, type ScannedSessionInfo } from "./session-list-scanner";
+import { listSessionMetadata, listSessionsIncremental, type ScannedSessionInfo } from "./session-list-scanner";
 
 export { getAgentDir };
 
@@ -239,6 +239,48 @@ function mapScannedSession(
     transient: false,
     ...(detailsPending ? { detailsPending: true } : {}),
   };
+}
+
+export type SessionArchiveMetadata = Pick<SessionInfo, "id" | "path" | "name" | "relation"> & { relationUnavailable?: boolean };
+/** Shared bounded identity read: parentSession alone also identifies independent forks.
+ * A malformed child marker must not promote a subagent into a main-session candidate. */
+export function readSessionRelationMetadata(
+  session: Pick<ScannedSessionInfo, "id" | "path" | "parentSessionPath">,
+): Pick<SessionArchiveMetadata, "relation" | "relationUnavailable"> {
+  if (!session.parentSessionPath) return {};
+  const prefix = readBoundedLines(session.path, SESSION_RELATION_MAX_BYTES, SESSION_RELATION_MAX_LINES).slice(1);
+  let entries: SessionEntry[];
+  try { entries = prefix.map(line => JSON.parse(line) as SessionEntry); }
+  catch { return { relationUnavailable: true }; }
+  if (!prefix.length || entries.some(entry => !entry || typeof entry !== "object" || Array.isArray(entry) || typeof entry.type !== "string")) {
+    return { relationUnavailable: true };
+  }
+  const child = readSubagentRun(entries, session.id, session.path);
+  if (child) return { relation: { kind: "subagent", parentSessionId: child.parentSessionId,
+    profile: child.profile, description: child.description, status: child.status } };
+  if (entries.some(entry => (entry as unknown as Record<string, unknown>).customType === SUBAGENT_META_TYPE)) {
+    return { relationUnavailable: true };
+  }
+  return { relation: { kind: "fork" } };
+}
+/** Fresh, scoped, bounded metadata for archive confirmation. No transcript hydration, project
+ * resolution or wrapper creation; malformed family markers are never promoted into roots. */
+export async function listSessionArchiveMetadata(agentDir: string): Promise<SessionArchiveMetadata[]> {
+  const scanned = await listSessionMetadata(agentDir);
+  const result: SessionArchiveMetadata[] = [];
+  for (const session of scanned) {
+    try {
+      const stats = await lstat(session.path);
+      if (!stats.isFile() || stats.isSymbolicLink()) continue;
+      const metadata: SessionArchiveMetadata = { id: session.id, path: session.path, ...(session.name ? { name: session.name } : {}) };
+      Object.assign(metadata, readSessionRelationMetadata(session));
+      result.push(metadata);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException)?.code === "ENOENT") continue;
+      throw error;
+    }
+  }
+  return result;
 }
 
 async function buildSessionList(scanned: ScannedSessionInfo[]): Promise<SessionInfo[]> {

@@ -1,5 +1,13 @@
 # 侧边栏键盘导航与面板切换
 
+## F39 检索面板
+
+[统一入口](sidebar-search-filters.md)按需打开，Escape仅在面板内capture、IME候选优先；桌面焦点离开或更高弹窗接管时关闭下层浮层，不清条件。返回/选项切页保持有效焦点，reset后按钮disabled也不逃离Tab循环。Task子页ArrowDown进入选项、Up/Down/Home/End/Enter选择；手机modal约束焦点。普通关闭不清查询，Alt+Left仍是原明确的回树/揭示行为，可清正文关键词；手机sheet局部桥接原AppShell回调，Alt+Right收起sheet/drawer并保留筛选，不放宽其他modal的global guard。跨640px关闭面板，隐藏入口回退可见侧栏开关。新Portal不应误停止Agent，旧列表行与虚拟键盘模型不变。
+
+## F38 Task 行扩展
+
+[可选任务树](sidebar-task-tree.md)添加 `task` / `task-more` 行，继续同一 54px 扁平虚拟窗口。项目 Right 进入 Task，Task Right 展开/进入对话，session Left 回 Task、Task Left 收起再回项目。行 key 使用 Task ID+projectKey 结构化组合，历史跨任务族根也能区分。Alt+Left 揭示当前选择所属 Task/更多并聚焦族根，必要时清除不兼容任务筛选；不改变聊天，不改旧项目更多状态。输入、IME、内联动作优先级不变；关闭树保留原导航。无任务项目不插入 Task 行，使用原 session key；Left 直接回项目，Alt+Left 在 all 模式按原项目更多状态揭示预览外族，不构造不存在的 Task 后缀。浏览器 `e2e/sidebar-task-tree.mjs` 覆盖三层、刷新、手动折叠、正文检索与混合项目回退揭示；原旧源码断言不替代浏览器验证。
+
 ## 目的、用户价值与范围
 
 让用户不依赖鼠标，在虚拟化会话列表中定位/打开会话，并在侧边栏与输入框间切换焦点。修改全局快捷键、行 key、虚拟窗口、项目/更多行或删除确认时使用本契约。聊天区内部 Alt+Up/Down 与空白会话自动聚焦单独见[输入框与消息区焦点导航](chat-focus-navigation.md)。
@@ -23,13 +31,13 @@
 
 1. **精确全局修饰键。** `getSessionPanelShortcut` 只接受 Alt+Left/Right；Ctrl、Meta、Shift 或 `isComposing` 任一存在即不接管。窗口 capture handler 在 composer/终端局部方向键前运行，若事件已被 preventDefault 或存在 `[aria-modal="true"]` / `dialog[open]` 则不切焦点。处理成功时 preventDefault/stopPropagation，防止浏览器后退/前进；仅当应用收到事件时成立。
 2. **面板可见性。** Alt+Left 在 AppShell 打开 sidebar；移动布局下同时关闭右面板/顶部面板。Alt+Right 在移动布局关闭侧边栏及上述覆盖面板，桌面不强制关闭侧边栏。焦点请求通过 requestAnimationFrame 等待布局提交。
-3. **目标揭示。** `pi:focus-session-sidebar` 关闭并清空会话搜索，关闭项目/worktree 下拉；将所选子代理映射到父族根。all 模式展开该项目；若根行尚不在行模型，开启该项目更多状态。current 模式只在当前项目过滤集里寻找。此动作不选中另一个 session，也不发送或清除聊天草稿。
+3. **目标揭示。** `pi:focus-session-sidebar` 关闭并清空会话搜索，关闭项目/worktree 下拉；将所选子代理映射到父族根，并显式切到该族的日常/已归档显示范围（见[对话归档](session-archive.md)，不写归档状态）。all 模式展开该项目；若根行尚不在行模型，开启该项目更多状态。current 模式只在当前项目过滤集里寻找。此动作不选中另一个 session，也不发送或清除聊天草稿。
 4. **逻辑行顺序。** 方向导航使用完整 `listRows`，不是 DOM 中已挂载的子集。Up/Down 到边界钳制而不循环，Home/End 到首/末逻辑行；all 模式中的标题和更多行也算可导航行。折叠隐藏的行不在模型里。
 5. **左右键语义。** Right 在折叠标题上展开，在已展开且有子行标题上进入下一行；空项目无动作。Left 在展开标题上折叠。普通会话 Right 无动作，Left 找最近的前置项目标题；current 模式没有标题则无动作。更多行 Right 展开，已展开的更多行 Left 收起，未展开更多行 Left 返回项目标题。
 6. **更多行身份。** 用 `more:<projectKey>` 而不是展开前的索引记住焦点，Enter/方向键展开或收起后仍请求该更多行；不要落到旧索引处刚插入的 session。其他 key 为 `project:<projectKey>`、`session:<rootId>`。
 7. **虚拟化与编辑安全。** 所有行 54px，overscan 为 8；未测量 viewport 使用 600px。除通常窗口外，保留当前 inline 控件所在族，以及 `keyboardRowKey`/`pendingFocusKey` 对应行。目标挂载后按逻辑 index 调整列表滚动，再 `focus({ preventScroll: true })`；不得为 End 键挂载整个长列表，也不得因滚动卸载正在重命名的输入。
 8. **焦点丢失恢复。** 删除/折叠/刷新移除曾聚焦行后，仅在原元素已断开且 `document.activeElement === document.body` 时，尝试原索引附近的现存行；空模型回退容器。若用户已转去其他控件，不主动抢回焦点。此保证针对移除，非承诺所有重排/重命名后都回到原行。
-9. **局部事件隔离。** 列表导航忽略任何修饰键、native composition、已处理事件；仅处理容器自身或直接带 `data-sidebar-row` 的主控件，不截获重命名 input、删除确认按钮等后代。Tab 使用原生顺序，Space 没有统一的自定义主行激活协议（项目/more 是原生 button，会话行是 `role="group"`）。
+9. **局部事件隔离。** 列表导航忽略任何修饰键、native composition、已处理事件；仅处理容器自身或直接带 `data-sidebar-row` 的主控件，不截获重命名 input、归档/恢复按钮、删除确认按钮等后代。Tab 使用原生顺序，Space 没有统一的自定义主行激活协议（项目/more 是原生 button，会话行是 `role="group"`）。
 10. **Delete 安全。** 仅普通、非 transient、非重命名/确认/删除中的会话根行处理无修饰 Delete。打开确认后不发 DELETE；Escape 取消并在键盘触发路径归还行焦点，确认才执行请求。鼠标 Shift+点击垃圾桶仍是既有跳过确认路径，不能映射成 Shift+Delete。
 11. **删除失败的现实边界。** `performDelete` 对网络异常恢复 `deleting=false`，没有可见错误；对 HTTP 非 2xx 没有检查 `res.ok`，仍会调用删除回调/刷新。这是已知缺口，不可把此文写成“所有删除失败可靠恢复”。只能在可丢弃数据上验收真实删除。
 12. **与聊天内部导航隔离。** 本功能只接管面板间的 Alt+Left/Right；Alt+Up/Down 的条件与验收以[聊天焦点契约](chat-focus-navigation.md)为准。Tab 继续遵循补全、next cue 和原生顺序，不由面板切换重新定义。
@@ -66,6 +74,15 @@ PI_WEB_TEST_URL=http://127.0.0.1:30141 node e2e/session-keyboard.mjs
 ```
 
 [session-keyboard.mjs](../../e2e/session-keyboard.mjs)使用真实 Chromium 和拦截会话/变更 API：隐藏侧栏后 Alt+Left、80 行 End/Home、Enter 打开、Alt+Right、草稿不丢、真实 `<dialog>` 阻断、Delete 尚未发请求、Escape、all 模式标题/更多、刷新后选中末尾根的揭示。注意其变量是 `PI_WEB_TEST_URL`，不是其他脚本的 `E2E_BASE_URL`；浏览器渠道使用 `PLAYWRIGHT_CHANNEL`。未覆盖真实删除成功/失败、inline rename、移动键盘及消息区 Alt+Up/Down 的浏览器联动。该脚本不是 `npm run test:e2e` 的子步骤。
+
+### 会话载入的脚本前置（2026-10-09）
+
+`session-keyboard.mjs` 在 Enter 打开会话后，除等待 session URL，还须等待新 composer 可见
+再发送 Alt+Right；URL 更新早于异步 history 载入，未挂载 composer 时回退 chat container
+本就是合同允许的行为。票据 01 验证中 line53 的间歇超时由此时序复现：按键时 textarea=0，
+之后 textarea=1 但焦点留在 container。350ms fixture 延迟稳定复现，加入前置等待后原焦点
+断言通过；未放宽焦点/草稿/删除/展开断言，不修改产品快捷键。该路线无 `/tasks`，相关产品
+焦点代码与原 HEAD 相同；本轮证据见 `/tmp/pi-web-ticket01-history-fxzcewjw/REPORT.md`。
 
 ## 手工验收
 

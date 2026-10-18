@@ -7,11 +7,13 @@ import { averagePerformance } from "@/lib/message-performance";
 import { SessionSidebar } from "./SessionSidebar";
 import { CHAT_WORKSPACE_KEY } from "@/lib/session-kind";
 import { ChatWindow } from "./ChatWindow";
+import type { NewSessionSeed } from "@/hooks/useAgentSession";
 import type { ChatScrollPosition } from "@/lib/chat-scroll-position";
 import { FileViewer } from "./FileViewer";
 import { TabBar, type Tab } from "./TabBar";
 import { openFileTab, saveFileViewerState } from "./file-tab-state";
 import { SettingsPanel, SettingsSectionIcon } from "./SettingsPanel";
+import { TaskPanel } from "./TaskPanel";
 import { ProjectTrustDialog, type ProjectTrustFailure } from "./ProjectTrustDialog";
 import { BranchNavigator, hasSessionBranches } from "./BranchNavigator";
 import { SystemPromptPanel } from "./SystemPromptPanel";
@@ -165,6 +167,7 @@ export function AppShell() {
   const [newSessionCwd, setNewSessionCwd] = useState<string | null>(null);
   const [chatWorkspaceCwd, setChatWorkspaceCwd] = useState<string | null>(null);
   const [newSessionDraftId, setNewSessionDraftId] = useState("initial");
+  const [newSessionSeed, setNewSessionSeed] = useState<{draftKey: string; value: NewSessionSeed} | null>(null);
   const activeNewSessionDraftKeyRef = useRef<string | null>(null);
   const [initialCwdStatus, setInitialCwdStatus] = useState<"idle" | "validating" | "ready" | "error">(
     () => initialNavigation.requestedCwd ? "validating" : "idle",
@@ -182,6 +185,17 @@ export function AppShell() {
   }, []);
   const [explorerRefreshKey, setExplorerRefreshKey] = useState(0);
   const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
+  const [tasksOpen, setTasksOpen] = useState(() => searchParams.get("tasks") === "1");
+  const [tasksMounted, setTasksMounted] = useState(() => searchParams.get("tasks") === "1");
+  const taskNavigationIntentRef = useRef(0);
+  const [preparedTaskToken, setPreparedTaskToken] = useState<string | null>(() => searchParams.get("taskStart"));
+  const closeTasks = useCallback(() => { taskNavigationIntentRef.current++; setTasksOpen(false); }, []);
+  const [requestedTask, setRequestedTask] = useState<{ id: string; request: number } | null>(null);
+  const taskRequestSequence = useRef(0);
+  const openTasks = useCallback((taskId?: string) => {
+    setRequestedTask(taskId ? { id: taskId, request: ++taskRequestSequence.current } : null);
+    setTasksMounted(true); setTasksOpen(true);
+  }, []);
   const [modelsRefreshKey, setModelsRefreshKey] = useState(0);
   const [projectTrust, setProjectTrust] = useState<ProjectTrustStatus | null>(null);
   const [projectTrustDialogOpen, setProjectTrustDialogOpen] = useState(false);
@@ -574,6 +588,9 @@ export function AppShell() {
   // Guards the async workspace restore so a slow response from an earlier
   // switch cannot resurrect a session into a project the user already left.
   const workspaceRestoreTokenRef = useRef(0);
+  // Unlike restore invalidation, this changes only when chat navigation starts;
+  // promoting a source draft to its real session ID is not a newer user intent.
+  const chatNavigationIntentRef = useRef(0);
 
   const invalidateWorkspaceRestore = useCallback(() => {
     workspaceRestoreTokenRef.current += 1;
@@ -630,7 +647,14 @@ export function AppShell() {
         suppressCwdBumpRef.current = true;
         const draftId = `initial:${requestedCwd ?? "chat"}`;
         setNewSessionDraftId(draftId);
-        activeNewSessionDraftKeyRef.current = `new:${draftId}:${data.cwd}`;
+        const draftKey = `new:${draftId}:${data.cwd}`;
+        const tabOpen = getTabOpen();
+        // Only the explicit dashboard departure parks a draft for remount.
+        // A different URL target or an ordinary New never consumes it.
+        if (tabOpen?.kind === "new" && tabOpen.cwd === data.cwd && tabOpen.parkedDraftKey) {
+          rekeyDraft(tabOpen.parkedDraftKey, draftKey);
+        }
+        activeNewSessionDraftKeyRef.current = draftKey;
         setNewSessionCwd(data.cwd);
         setInitialCwdStatus("ready");
         if (independentChat || !new URLSearchParams(window.location.search).get("cwd")) {
@@ -645,6 +669,25 @@ export function AppShell() {
 
     return () => controller.abort();
   }, [initialNavigation, router]);
+
+  const handleNavigateTasks = useCallback(() => {
+    invalidateWorkspaceRestore();
+    const draftKey = activeNewSessionDraftKeyRef.current;
+    if (!selectedSession && newSessionCwd && draftKey) {
+      // Keep this composer's identity separate from ordinary New's cwd draft,
+      // especially after /new deliberately left an older parked draft behind.
+      const parkedKey = `parked-new:${draftKey}`;
+      rekeyDraft(draftKey, parkedKey);
+      setTabOpenNewSession(newSessionCwd, undefined, parkedKey);
+    }
+  }, [invalidateWorkspaceRestore, newSessionCwd, selectedSession]);
+
+  // Save only on actual /tasks departure (Link or history), not its click.
+  // A pending route leaves this composer editable; retain its latest draft
+  // before the hook's passive abandonment cleanup, exactly once.
+  useLayoutEffect(() => () => {
+    if (window.location.pathname === "/tasks") handleNavigateTasks();
+  }, [handleNavigateTasks]);
 
   // Restore the workspace's last open session after switching to it. Called
   // from handleCwdChange once the outgoing context has been reset. The session
@@ -736,6 +779,8 @@ export function AppShell() {
     }
     // Close any session that belongs to a different project — it no longer
     // matches the selected project directory.
+    chatNavigationIntentRef.current++;
+    setPreparedTaskToken(null);
     const previousDraftKey = activeNewSessionDraftKeyRef.current;
     if (previousDraftKey && currentFreshCwd) {
       rekeyDraft(previousDraftKey, parkedNewSessionDraftKey(currentFreshCwd));
@@ -776,7 +821,10 @@ export function AppShell() {
   }, [activeCwd, activeFileTabId, invalidateWorkspaceRestore, newSessionCwd, router, selectedSession, restoreWorkspaceContext]);
 
   const handleSelectSession = useCallback((session: SessionInfo, isRestore = false, entryId?: string, blockIndex?: number) => {
+    chatNavigationIntentRef.current++;
     setSearchTarget(entryId ? { sessionId: session.id, entryId, blockIndex } : null);
+    // Restoring an old prepared URL must not silently convert it into a send.
+    if (!isRestore) setPreparedTaskToken(null);
     invalidateWorkspaceRestore();
     const activeDraftKey = activeNewSessionDraftKeyRef.current;
     const activeDraftCwd = newSessionCwd ?? (selectedSession === null ? activeCwd : null);
@@ -804,6 +852,7 @@ export function AppShell() {
       const sameProject =
         workspaceKeyOf(selectedSession) === workspaceKeyOf(session);
       if (selectedSession.id === session.id && sameProject) {
+        if (!isRestore) router.replace(`?session=${encodeURIComponent(session.id)}`, { scroll: false });
         if (isMobile) setSidebarOpen(false);
         return;
       }
@@ -836,6 +885,9 @@ export function AppShell() {
   }, [activeCwd, activeFileTabId, invalidateWorkspaceRestore, router, isMobile, newSessionCwd, selectedSession]);
 
   const handleNewSession = useCallback((sessionId: string, cwd: string, restoreParkedDraft = true, independentChat = cwd === chatWorkspaceCwd) => {
+    chatNavigationIntentRef.current++;
+    setNewSessionSeed(null);
+    setPreparedTaskToken(null);
     invalidateWorkspaceRestore();
     const draftKey = `new:${sessionId}:${cwd}`;
     if (restoreParkedDraft) rekeyDraft(parkedNewSessionDraftKey(cwd), draftKey);
@@ -855,6 +907,33 @@ export function AppShell() {
     router.replace(independentChat ? "?chat=1" : `?cwd=${encodeURIComponent(cwd)}`, { scroll: false });
   }, [chatWorkspaceCwd, invalidateWorkspaceRestore, router, isMobile]);
 
+  const handleNewSessionCommand = useCallback(async (cwd: string, prepare: () => Promise<NewSessionSeed | null>) => {
+    // Register the intent before reading metadata: a later asynchronous task
+    // navigation must win even while the source ChatWindow is still mounted.
+    invalidateWorkspaceRestore();
+    const navigationIntent = ++chatNavigationIntentRef.current;
+    const taskIntent = taskNavigationIntentRef.current;
+    const seed = await prepare();
+    if (!seed || navigationIntent !== chatNavigationIntentRef.current || taskIntent !== taskNavigationIntentRef.current) return;
+    const draftId = `command-${Date.now()}`;
+    handleNewSession(draftId, cwd, false);
+    setNewSessionSeed({draftKey: `new:${draftId}:${cwd}`, value: seed});
+  }, [handleNewSession, invalidateWorkspaceRestore]);
+
+  const navigateTaskChat = useCallback(async (href: string) => {
+    const intent = ++taskNavigationIntentRef.current;
+    const workspaceIntent = workspaceRestoreTokenRef.current;
+    const params = new URL(href, window.location.origin).searchParams;
+    const sessionId = params.get("session");
+    if (!sessionId || params.has("taskStart")) throw new Error("Task management only opens existing conversations.");
+    const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`, { cache: "no-store" });
+    const data = await response.json() as { info?: SessionInfo; error?: string };
+    if (intent !== taskNavigationIntentRef.current || workspaceIntent !== workspaceRestoreTokenRef.current) return;
+    if (!response.ok || !data.info) throw new Error(data.error ?? `HTTP ${response.status}`);
+    handleSelectSession(data.info);
+    closeTasks();
+  }, [closeTasks, handleSelectSession]);
+
   const handleNewChat = useCallback((cwd: string) => {
     const previousKey = activeNewSessionDraftKeyRef.current;
     const previousCwd = newSessionCwd ?? (selectedSession === null ? activeCwd : null);
@@ -870,6 +949,9 @@ export function AppShell() {
 
   const handleNewSessionProjectChange = useCallback((cwd: string, projectKey: string) => {
     if (selectedSession || cwd === (newSessionCwd ?? activeCwd)) return;
+    chatNavigationIntentRef.current++;
+    setNewSessionSeed(null);
+    setPreparedTaskToken(null);
     invalidateWorkspaceRestore();
     const draftId = crypto.randomUUID();
     const draftKey = `new:${draftId}:${cwd}`;
@@ -1124,6 +1206,7 @@ export function AppShell() {
   const handleSessionForked = useCallback((newSessionId: string) => {
     invalidateWorkspaceRestore();
     activeNewSessionDraftKeyRef.current = null;
+    setPreparedTaskToken(null);
     setRefreshKey((k) => k + 1);
     setSessionKey((k) => k + 1);
     setNewSessionCwd(null);
@@ -1170,6 +1253,7 @@ export function AppShell() {
         : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
       setNewSessionDraftId(draftId);
       activeNewSessionDraftKeyRef.current = cwd ? `new:${draftId}:${cwd}` : null;
+      setPreparedTaskToken(null);
       setSelectedSession(null);
       setNewSessionCwd(cwd ?? null);
       setSessionKey((k) => k + 1);
@@ -1351,6 +1435,8 @@ export function AppShell() {
   const sidebarContent = (
     <>
       <SessionSidebar
+        onOpenTasks={openTasks}
+        onFocusSessionPanel={handleFocusSessionPanel}
         selectedSessionId={selectedSession?.id ?? null}
         onSelectSession={handleSelectSession}
         onNewSession={handleNewSession}
@@ -2117,6 +2203,8 @@ export function AppShell() {
         <div style={{ display: "flex", alignItems: "center", position: "relative", borderBottom: "1px solid var(--border)", height: "calc(36px + env(safe-area-inset-top))", paddingTop: "env(safe-area-inset-top)" }}>
           <button
             onClick={handleSidebarToggle}
+            aria-controls="session-sidebar"
+            aria-expanded={sidebarOpen}
              title={sidebarOpen ? translate("sidebar.hide") : translate("sidebar.show")}
              aria-label={sidebarOpen ? translate("sidebar.hide") : translate("sidebar.show")}
             style={{
@@ -2510,6 +2598,8 @@ export function AppShell() {
         <div ref={chatPanelRef} tabIndex={-1} style={{ flex: 1, overflow: "hidden", position: "relative" }}>
           {showChat ? (
             <ChatWindow
+              preparedTaskToken={preparedTaskToken}
+              onOpenTasks={openTasks}
               key={sessionKey}
               session={selectedSession}
               searchTarget={searchTarget?.sessionId === selectedSession?.id ? searchTarget : null}
@@ -2520,8 +2610,9 @@ export function AppShell() {
               newSessionCwd={effectiveNewSessionCwd}
               independentChat={independentChat}
               newSessionDraftKey={newSessionDraftKey}
+              newSessionSeed={newSessionSeed?.draftKey === newSessionDraftKey ? newSessionSeed.value : undefined}
               onNewSessionProjectChange={handleNewSessionProjectChange}
-              onNewSession={(cwd) => handleNewSession(`command-${Date.now()}`, cwd, false)}
+              onNewSession={handleNewSessionCommand}
               onAgentEnd={handleAgentEnd}
                 onSessionTitleChange={handleSessionTitleChange}
               onAttentionNeeded={handleAttentionNeeded}
@@ -2722,6 +2813,7 @@ export function AppShell() {
         </div>
       </div>
     </div>
+    {tasksMounted && <TaskPanel open={tasksOpen} onClose={closeTasks} onNavigate={navigateTaskChat} sessionId={selectedSession?.id ?? null} requestedTask={requestedTask} />}
     {settingsSection && (
       <SettingsPanel
         cwd={projectTrustCwd}

@@ -3,6 +3,8 @@ export type SidebarViewMode = "current" | "all";
 export interface SidebarViewPreference {
   mode: SidebarViewMode;
   collapsedProjects: string[];
+  /** Absence preserves older browser preferences and means off. */
+  taskTree?: boolean;
 }
 
 export const SIDEBAR_VIEW_STORAGE_KEY = "pi-web:sidebar-view";
@@ -14,6 +16,7 @@ export function parseSidebarViewPreference(raw: string | null): SidebarViewPrefe
     if (!value || typeof value !== "object") return DEFAULT_SIDEBAR_VIEW;
     return {
       mode: value.mode === "all" ? "all" : "current",
+      ...(value.taskTree === true ? { taskTree: true } : {}),
       collapsedProjects: Array.isArray(value.collapsedProjects)
         ? [...new Set(value.collapsedProjects.filter((key: unknown): key is string => typeof key === "string"))] as string[]
         : [],
@@ -50,6 +53,12 @@ function persist(next: SidebarViewPreference): void {
 
 export function setSidebarViewMode(mode: SidebarViewMode): void {
   persist({ ...getSidebarViewPreference(), mode });
+}
+
+export function setSidebarTaskTree(enabled: boolean): void {
+  const { taskTree: previous, ...rest } = getSidebarViewPreference();
+  if (Boolean(previous) === enabled) return;
+  persist(enabled ? { ...rest, taskTree: true } : rest);
 }
 
 export function setSidebarProjectCollapsed(key: string, collapsed: boolean): void {

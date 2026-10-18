@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo, useReducer } from "react";
+import { useTaskSelection } from "./useTaskSelection";
+import type { TaskPickerItem } from "@/components/TaskPicker";
 import type {
   AgentMessage,
   BlockingExtensionUiRequest,
@@ -20,6 +22,8 @@ import {
   getSessionViewSnapshot,
   setSessionViewSnapshot,
 } from "@/lib/session-view-cache";
+import type { TaskStartSelection, TaskStartPreview } from "@/lib/task-types";
+import { rememberTaskSession } from "@/lib/task-start-client";
 import { clearDraft, getDraft, rekeyDraft, restoreDraftSubmission, type ChatDraft } from "@/lib/draft-store";
 import type { SettingChangeResult } from "@/lib/model-command";
 import { getPreferredToolPreset, setPreferredToolPreset } from "@/lib/tool-preset-preference";
@@ -172,11 +176,16 @@ export type BuiltinSlashCommandResult =
   | { handled: true; message?: string; error?: string; action?: "openSessionStats" | "openSettings" | "openModelSelector" | "openThinkingSelector"; query?: string };
 
 export interface UseAgentSessionOptions {
+  taskStart?: TaskStartSelection | null;
+  taskPreview?: TaskStartPreview | null;
+  taskStartRequired?: boolean;
   session: SessionInfo | null;
   sessionRunning?: boolean;
   newSessionCwd: string | null;
   independentChat?: boolean;
   newSessionDraftKey: string | null;
+  /** One-shot /new snapshot, scoped to this draft by AppShell. */
+  newSessionSeed?: NewSessionSeed;
   onAgentEnd?: () => void;
   onSessionTitleChange?: (sessionId: string, title: string, autoTitleEnabled: boolean, sessionListVersion?: number) => void;
   onAttentionNeeded?: (request: BlockingExtensionUiRequest) => void;
@@ -198,6 +207,12 @@ export interface UseAgentSessionOptions {
 
 export type ThinkingLevelOption = "auto" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 type ConcreteThinkingLevel = Exclude<ThinkingLevelOption, "auto">;
+
+export interface NewSessionSeed {
+  model: { provider: string; modelId: string } | null;
+  thinkingLevel: ConcreteThinkingLevel | null;
+  task: TaskPickerItem | null;
+}
 
 function asConcreteThinkingLevel(value?: string | null): ConcreteThinkingLevel | null {
   if (!value || value === "auto") return null;
@@ -331,6 +346,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   } = opts;
 
   const isNew = session === null && newSessionCwd !== null;
+  const initialSeed = isNew ? opts.newSessionSeed : undefined;
 
   const [data, setData] = useState<SessionData | null>(null);
   const titleEventVersionRef = useRef(0);
@@ -352,10 +368,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [modelScopeWarnings, setModelScopeWarnings] = useState<string[]>([]);
   const [modelThinkingLevels, setModelThinkingLevels] = useState<Record<string, string[]>>({});
   const [modelThinkingLevelMaps, setModelThinkingLevelMaps] = useState<Record<string, Record<string, string | null>>>({});
-  const [newSessionModel, setNewSessionModel] = useState<SelectedModel | null>(null);
+  const [newSessionModel, setNewSessionModel] = useState<SelectedModel | null>(initialSeed?.model ?? null);
   const [newSessionDefaultModel, setNewSessionDefaultModel] = useState<SelectedModel | null>(null);
   const [toolPreset, setToolPreset] = useState<ToolPreset>(CONFIGURED_TOOL_PRESET);
-  const [newSessionThinkingLevel, setNewSessionThinkingLevel] = useState<ConcreteThinkingLevel | null>(null);
+  const [newSessionThinkingLevel, setNewSessionThinkingLevel] = useState<ConcreteThinkingLevel | null>(initialSeed?.thinkingLevel ?? null);
   const [newSessionDefaultThinkingLevel, setNewSessionDefaultThinkingLevel] = useState<ConcreteThinkingLevel | null>(null);
   const [savedDefaultThinkingLevel, setSavedDefaultThinkingLevel] = useState<ConcreteThinkingLevel | null>(null);
   const [currentThinkingOverride, setCurrentThinkingOverride] = useState<ConcreteThinkingLevel | null>(null);
@@ -418,6 +434,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const treeNavigationVersionRef = useRef(0);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const ensuringNewSessionRef = useRef<Promise<string | null> | null>(null);
+  const taskSelection = useTaskSelection(sessionIdRef, session?.cwd ?? newSessionCwd, initialSeed?.task);
+  const { syncPending: syncPendingTask, taskForNewSession } = taskSelection;
   // The command list as last loaded, and the get_commands request under way, if
   // any. A bare /mcp reads them to tell whose /mcp it is (handleBuiltinSlashCommand).
   // The generation moves on with every request and every clear, and only a request
@@ -427,8 +445,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const slashCommandsLoadRef = useRef<Promise<SlashCommandInfo[] | null> | null>(null);
   const slashCommandsGenerationRef = useRef(0);
   const newSessionPromotedRef = useRef(false);
-  const newSessionModelOverrideRef = useRef<SelectedModel | null>(null);
-  const thinkingLevelOverrideRef = useRef<ConcreteThinkingLevel | null>(null);
+  const newSessionModelOverrideRef = useRef<SelectedModel | null>(initialSeed?.model ?? null);
+  const thinkingLevelOverrideRef = useRef<ConcreteThinkingLevel | null>(initialSeed?.thinkingLevel ?? null);
   const thinkingLevelPinsRef = useRef<Record<string, string>>({});
   const defaultThinkingLevelRef = useRef<ConcreteThinkingLevel | null>(null);
   const promptRunIdRef = useRef(0);
@@ -532,6 +550,25 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     ? (newSessionThinkingLevel ?? newSessionDefaultThinkingLevel)
     : currentThinkingLevel ?? (data?.context.messages.length === 0 ? newSessionDefaultThinkingLevel : null);
   const composerDraftKey = session?.id ?? newSessionDraftKey ?? undefined;
+  const newSessionSettingsRef = useRef<Pick<NewSessionSeed, "model" | "thinkingLevel"> | null>(null);
+  newSessionSettingsRef.current = loading || modelSwitching ? null : {
+    model: displayModel,
+    // `off` is a concrete setting too, even when the ordinary display hides it.
+    thinkingLevel: isNew ? displayThinkingLevel
+      : currentThinkingOverride ?? liveThinkingLevel ?? asConcreteThinkingLevel(data?.context.thinkingLevel),
+  };
+  const getNewSessionSeed = useCallback(async (): Promise<NewSessionSeed | null> => {
+    // A runtime may already exist even if its initial task binding failed.
+    // Resolve the confirmed owner/pending choice below rather than losing it.
+    await ensuringNewSessionRef.current?.catch(() => {});
+    const task = await taskForNewSession();
+    if (!sessionHookMountedRef.current) return null;
+    const settings = newSessionSettingsRef.current;
+    if (!settings || modelSwitchPendingRef.current) {
+      throw new Error("Session settings are still loading or changing. Try /new again.");
+    }
+    return { ...settings, task };
+  }, [taskForNewSession]);
 
   const syncLiveModel = useCallback((state?: AgentStateResponse) => {
     setLiveModel(state?.model
@@ -946,6 +983,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         body: JSON.stringify({
           cwd: newSessionCwd,
           type: "ensure_session",
+          ...(opts.taskStart ? { taskStart: opts.taskStart } : {}),
           ...(toolNames !== undefined ? { toolNames } : {}),
           ...(selectedModel ? { provider: selectedModel.provider, modelId: selectedModel.modelId } : {}),
           ...(selectedThinkingLevel
@@ -961,6 +999,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       };
       const realId = result.sessionId;
       sessionIdRef.current = realId;
+      if (opts.taskPreview) rememberTaskSession(realId, opts.taskPreview);
       if (result.model && newSessionModelOverrideRef.current === selectedModel) {
         setPendingModel(result.model);
         if (!selectedModel) setNewSessionDefaultModel(result.model);
@@ -974,6 +1013,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           setNewSessionDefaultThinkingLevel(asConcreteThinkingLevel(result.thinkingLevel));
         }
       }
+      await syncPendingTask(realId);
       return realId;
     })();
 
@@ -983,7 +1023,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } finally {
       ensuringNewSessionRef.current = null;
     }
-  }, [isNew, newSessionCwd, toolPreset]);
+  }, [isNew, newSessionCwd, toolPreset, opts.taskStart, opts.taskPreview, syncPendingTask]);
 
   // Opening the System or Tools panel may initialize an otherwise dormant
   // session. This is deliberately a non-prompt command: it creates no message
@@ -1843,6 +1883,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         return;
       }
     }
+    if (opts.taskStartRequired && !opts.taskStart) {
+      addNotice({ type: "error", message: "Task preparation expired. Return to the task and preview again before sending." });
+      restoreSubmission(message, images, composerDraftKey, video); return;
+    }
     if (!trimmedMessage && !images?.length) return;
     if (agentRunningRef.current || bashRunningRef.current) {
       if (video) addNotice({ type: "error", message: "Video requires an idle session. Nothing was sent." });
@@ -1919,6 +1963,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
         if (!sid) throw new Error("Unable to create a session for the prompt");
         sentSessionId = sid;
+        await syncPendingTask(sid);
         if (selectedModel) {
           setPendingModel(selectedModel);
           if (existingSid) {
@@ -1941,17 +1986,20 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         await sendAgentCommand(sid, {
           type: "prompt",
           message,
+          ...(opts.taskStart ? { taskStart: opts.taskStart } : {}),
           ...(piImages?.length ? { images: piImages } : {}),
           ...(video ? { video } : {}),
         });
         promoteNewSession(1, message);
       } else if (session) {
         sentSessionId = session.id;
+        await syncPendingTask(session.id);
         await ensureEventsConnected(session.id);
         promptRequestStarted = true;
         await sendAgentCommand(session.id, {
           type: "prompt",
           message,
+          ...(opts.taskStart ? { taskStart: opts.taskStart } : {}),
           ...(piImages?.length ? { images: piImages } : {}),
           ...(video ? { video } : {}),
         });
@@ -2004,7 +2052,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setAgentPhase(null);
       dispatch({ type: "end" });
     }
-  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, cancelEventStreamGrace, clearSubmittedDraft, closeEvents, composerDraftKey, reconcileAgentState, restoreSubmission, editEntryId, setEdit]);
+  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, cancelEventStreamGrace, clearSubmittedDraft, closeEvents, composerDraftKey, reconcileAgentState, restoreSubmission, editEntryId, setEdit, opts.taskStart, opts.taskStartRequired, syncPendingTask]);
 
   const executeBash = useCallback(async (command: string, excludeFromContext: boolean) => {
     if (agentRunningRef.current || bashRunningRef.current) return;
@@ -2016,6 +2064,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     try {
       const sid = sessionIdRef.current ?? session?.id ?? await ensureNewSession();
       if (!sid) throw new Error("Unable to create a session for the shell command");
+      await syncPendingTask(sid);
       await sendAgentCommand(sid, {
         type: "bash",
         command,
@@ -2032,7 +2081,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setPendingBash(null);
       setBashRunning(false);
     }
-  }, [addNotice, composerDraftKey, ensureNewSession, loadSession, promoteNewSession, restoreSubmission, session]);
+  }, [addNotice, composerDraftKey, ensureNewSession, loadSession, promoteNewSession, restoreSubmission, session, syncPendingTask]);
   executeBashRef.current = executeBash;
 
   const handleAbort = useCallback(async () => {
@@ -2412,6 +2461,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         return complete({ handled: true, message: result.level ? `Thinking level: ${result.level}` : "Kept current thinking level" });
       }
       const sid = sessionIdRef.current ?? await ensureNewSession();
+      // Only commands that promote/copy a provisional session need its
+      // pending ownership first; settings, inspection and extension dispatch
+      // must not acquire an unrelated task-store dependency.
+      if (sid && ["compact", "name", "clone"].includes(commandName)) await syncPendingTask(sid);
       switch (commandName) {
         case "compact": {
           if (!sid || isCompacting) return complete({ handled: true, error: "No active session to compact" });
@@ -2524,7 +2577,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } finally {
       if (commandName === "compact") setIsCompacting(false);
     }
-  }, [activeLeafId, addNotice, ensureNewSession, handleThinkingLevelChange, isCompacting, loadModels, loadSession, loadSlashCommands, loadTools, promoteNewSession, onOpenSettings, onSessionForked, onSessionStatsPanelOpen, slashCommandsForMcp]);
+  }, [activeLeafId, addNotice, ensureNewSession, handleThinkingLevelChange, isCompacting, loadModels, loadSession, loadSlashCommands, loadTools, promoteNewSession, onOpenSettings, onSessionForked, onSessionStatsPanelOpen, slashCommandsForMcp, syncPendingTask]);
 
   // Let AgentSession.prompt decide atomically whether to queue against the
   // current run or start a new turn if it settled while the request was in
@@ -2540,6 +2593,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     if (streamingSubmissionPendingRef.current || submittedDraftRef.current?.unknown || treeNavigationPendingRef.current || restoringSubmissionRef.current) {
       restore();
       addNotice({ type: "warning", message: "Check the pending submission or wait for navigation before queuing another question. Nothing was sent." });
+      return;
+    }
+    if (opts.taskStartRequired && !opts.taskStart) {
+      restore();
+      addNotice({ type: "error", message: "Task preparation expired. Return to the task and preview again before sending." });
       return;
     }
     // A pending history edit must branch when sent, never join the current run.
@@ -2576,6 +2634,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         type: "prompt",
         message,
         streamingBehavior: behavior,
+        ...(opts.taskStart ? { taskStart: opts.taskStart } : {}),
         ...(piImages?.length ? { images: piImages } : {}),
         ...(video ? { video } : {}),
       });
@@ -2596,7 +2655,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } finally {
       streamingSubmissionPendingRef.current = false;
     }
-  }, [addNotice, clearSubmittedDraft, composerDraftKey, editEntryId, ensureEventsConnected, loadSession, queuedMessages.inputs, restoreSubmission]);
+  }, [addNotice, clearSubmittedDraft, composerDraftKey, editEntryId, ensureEventsConnected, loadSession, queuedMessages.inputs, restoreSubmission, opts.taskStart, opts.taskStartRequired]);
 
   const handleSteer = useCallback(async (message: string, images?: AttachedImage[], video?: VideoReference) => {
     await sendStreamingPrompt(message, "steer", images, video);
@@ -3092,6 +3151,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   return {
     // State
+    taskSelection,
     data, loading, error, activeLeafId, messages, activeToolResults, entryIds, historyCursor, hasEarlierMessages, streamState,
     agentRunning, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, toolPreset, thinkingLevel,
     retryInfo, contextUsage, systemPrompt, forkingEntryId,
@@ -3114,7 +3174,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     lastUserMsgRef, pendingScrollToUserRef, initialScrollDoneRef,
     // Actions
     restoreUnconfirmedSubmission,
-    handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
+    getNewSessionSeed, handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
     handleRecallQueue,
     handleBuiltinSlashCommand,

@@ -133,6 +133,7 @@ test("changing a blank session project updates its reload URL and carries the dr
     invalidateWorkspaceRestore() {},
     crypto: { randomUUID: () => "new-project" },
     rekeyDraft: (...args) => migrations.push(args),
+    chatNavigationIntentRef: { current: 0 },
     activeNewSessionDraftKeyRef: { current: "new:old:/old-project" },
     activeProjectKeyRef: { current: "/old-project" },
     selectedSession: null, newSessionCwd: "/old-project", activeCwd: "/old-project",
@@ -157,6 +158,7 @@ test("new-session navigation reuses AppShell and can leave parked drafts untouch
       invalidateWorkspaceRestore() {},
       parkedNewSessionDraftKey: (cwd) => `parked:${cwd}`,
       rekeyDraft: (...args) => migrations.push(args),
+      chatNavigationIntentRef: { current: 0 },
       activeNewSessionDraftKeyRef: { current: null },
       isMobile: false,
       chatWorkspaceCwd: null,
@@ -177,8 +179,8 @@ test("new-session navigation reuses AppShell and can leave parked drafts untouch
   // Verify the command uses the displayed session's cwd, not the sidebar selection,
   // and opts out of restoring unrelated parked composer text.
   const windowText = readFileSync(new URL("./ChatWindow.tsx", import.meta.url), "utf8");
-  assert.match(windowText, /onNewSession=\{onNewSession\}/);
+  assert.match(windowText, /onNewSession=\{onNewSession \? handleNewSession : undefined\}/);
   assert.match(windowText, /cwd=\{session\?\.cwd \?\? newSessionCwd\}/);
-  assert.match(shellText, /onNewSession=\{\(cwd\) => handleNewSession\(`command-\$\{Date\.now\(\)\}`, cwd, false\)\}/);
+  assert.match(shellText, /onNewSession=\{handleNewSessionCommand\}/);
   assert.match(windowText, /if \(!isNew \|\| loading\) return;[\s\S]*?composerRef\.current\?\.focusComposer\(\)/);
 });

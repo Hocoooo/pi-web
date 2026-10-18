@@ -21,6 +21,7 @@ try {
       mutations.push({ method: request.method(), path: url.pathname });
       return json({ ok: true });
     }
+    if (url.pathname === "/api/tasks/catalog") return json({ tasks: [] });
     if (url.pathname === "/api/sessions") return json({ sessions, sessionListVersion: 1 });
     if (url.pathname.startsWith("/api/sessions/")) {
       const info = sessions.find((session) => session.id === url.pathname.split("/")[3]);
@@ -49,6 +50,9 @@ try {
   await page.keyboard.press("ArrowDown");
   await page.keyboard.press("Enter");
   await page.waitForURL(/session=keyboard-1/);
+  // URL selection precedes async history loading. Until the composer mounts,
+  // Alt+Right correctly falls back to the chat container, not a future textarea.
+  await page.locator("textarea.chat-input-textarea").waitFor({ state: "visible" });
   await page.keyboard.press("Alt+ArrowRight");
   await page.waitForFunction(() => document.activeElement?.matches("textarea.chat-input-textarea"));
   await page.keyboard.type("draft kept");

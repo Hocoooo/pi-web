@@ -1,0 +1,10 @@
+.context { margin-top: 18px; border-top: 1px solid var(--border); padding-top: 8px; min-width: 0; }
+.context h4 { font-size: 13px; margin: 12px 0 6px; }
+.preview { min-width: 0; font-size: 13px; overflow-wrap: anywhere; }
+.preview pre { max-width: 100%; overflow-x: auto; }
+.preview table { display: block; max-width: 100%; overflow-x: auto; }
+.history { margin-top: 14px; }
+.history label { display: grid; gap: 6px; margin-top: 12px; font-size: 13px; }
+.comparison { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.comparison pre { white-space: pre-wrap; overflow-wrap: anywhere; padding: 8px; background: var(--bg-panel); border: 1px solid var(--border); min-width: 0; font-size: 12px; }
+@media (max-width: 600px) { .comparison { grid-template-columns: minmax(0, 1fr); } }

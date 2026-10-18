@@ -1,0 +1,37 @@
+.backdrop { position: fixed; inset: 0; z-index: 900; height: var(--app-viewport-height, 100dvh); box-sizing: border-box; display: flex; align-items: flex-start; justify-content: center; padding: min(12vh, 80px) 16px 16px; background: #0005; }
+.picker { display: flex; flex-direction: column; width: min(440px, 100%); max-height: min(520px, 100%); min-height: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); color: var(--text); box-shadow: 0 8px 32px #0003; font-size: 12px; }
+.header { flex: none; padding: 8px 12px 10px; border-bottom: 1px solid var(--border); }
+.heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.heading h2 { margin: 0; font-size: 12px; font-weight: 600; }
+.iconButton { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--text-muted); cursor: pointer; }
+.iconButton:hover:not(:disabled), .trigger:hover { background: var(--bg-hover); color: var(--text); }
+.search { box-sizing: border-box; width: 100%; min-width: 0; padding: 7px 9px; border: 1px solid var(--border); border-radius: 5px; background: var(--bg-panel); color: var(--text); font: inherit; }
+.search::placeholder { color: var(--text-dim); }
+.picker .search:focus-visible { outline: none; border-color: var(--accent); }
+.list { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 4px 0; }
+.option { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 36px; padding: 8px 12px; border: 0; background: transparent; color: var(--text); text-align: left; font: inherit; cursor: pointer; }
+.option:hover:not(:disabled) { background: var(--bg-hover); }
+.option[data-active="true"] { background: var(--bg-selected); outline: 1px solid var(--accent); outline-offset: -1px; }
+.optionTitle { min-width: 0; flex: 1; overflow-wrap: anywhere; line-height: 1.5; }
+.status { flex: none; max-width: 35%; color: var(--text-dim); font-size: 11px; overflow-wrap: anywhere; text-align: right; }
+.check { display: inline-flex; justify-content: center; flex: none; width: 14px; color: var(--accent); }
+.footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; flex: none; padding: 9px 12px; border-top: 1px solid var(--border); }
+.archiveToggle { display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted); cursor: pointer; }
+.archiveToggle input { margin: 0; accent-color: var(--accent); }
+.keyboardHint { color: var(--text-dim); font-size: 10px; }
+.note { margin: 0; padding: 0 12px 10px; color: var(--text-dim); font-size: 11px; line-height: 1.5; }
+.message { margin: 0; padding: 12px; color: var(--text-muted); line-height: 1.5; }
+.error { margin: 0; padding: 10px 12px; color: var(--error, #ef4444); font-size: 12px; overflow-wrap: anywhere; line-height: 1.5; }
+.retry { margin-top: 8px; padding: 5px 9px; border: 1px solid var(--border); border-radius: 5px; background: var(--bg-panel); color: var(--text); font: inherit; cursor: pointer; }
+.picker :is(button, input):disabled { opacity: .5; cursor: default; }
+.picker :is(button, input):focus-visible, .membership button:focus-visible, .bindingError button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.membership { display: flex; align-items: center; gap: 6px; flex: none; min-width: 0; padding: 3px 12px; border-bottom: 1px solid var(--border); color: var(--text-muted); font-size: 12px; }
+.trigger { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; min-height: 28px; padding: 4px 6px; border: 0; border-radius: 5px; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.trigger svg { flex: none; }
+.triggerLabel { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.membership .iconButton { margin-left: auto; }
+.bindingError { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px 12px; padding: 8px 16px; border-bottom: 1px solid var(--border); font-size: 12px; line-height: 1.5; color: var(--text-muted); }
+.bindingError span { min-width: 0; overflow-wrap: anywhere; }
+.bindingError button { flex: none; padding: 4px 7px; border: 1px solid var(--border); border-radius: 5px; background: var(--bg-panel); color: var(--text); font: inherit; cursor: pointer; }
+@media (max-width: 600px) { .backdrop { padding: 12px; } .search { font-size: 16px; } .option { min-height: 42px; } .iconButton { width: 32px; height: 32px; } }
+@media (pointer: coarse) { .keyboardHint { display: none; } .archiveToggle { min-height: 28px; } .trigger { min-height: 32px; } }

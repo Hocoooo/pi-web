@@ -8,7 +8,7 @@ import { useDraftCompletionPreference } from "@/hooks/useDraftCompletionPreferen
 import type { ModelsData } from "@/lib/models-cache";
 import { loadNextCueModels } from "@/lib/next-cue-models";
 import { useSidebarView } from "@/hooks/useSidebarView";
-import { setSidebarViewMode } from "@/lib/sidebar-view-preference";
+import { setSidebarTaskTree, setSidebarViewMode } from "@/lib/sidebar-view-preference";
 import { THEME_OPTIONS } from "@/lib/theme";
 import { ThemeIcon } from "./ThemeIcon";
 import {
@@ -35,6 +35,7 @@ import {
 } from "@/lib/thinking-expansion-preference";
 import { ModelsConfig } from "./ModelsConfig";
 import { ModelSelector } from "./ModelSelector";
+import { TaskReportSettings } from "./TaskReportSettings";
 import { setupPushSubscription } from "@/lib/push-client";
 import { SkillsConfig } from "./SkillsConfig";
 import { AgentsConfig } from "./AgentsConfig";
@@ -244,6 +245,12 @@ function GeneralSettings({ cwd, active, sessionId, onSessionReloaded, quoteSelec
           />
         </div>
         <p className="settings-general-description">{t("settings.sidebarAllProjectsHelp")}</p>
+        <div className="settings-chat-option settings-chat-switch-option">
+          <span>{t("settings.sidebarTaskTree")}</span>
+          <ConfigSwitch checked={Boolean(sidebarView.taskTree)} label={t("settings.sidebarTaskTree")}
+            onChange={setSidebarTaskTree} />
+        </div>
+        <p className="settings-general-description">{t("settings.sidebarTaskTreeHelp")}</p>
       </section>
 
       <section className="settings-general-section">
@@ -409,6 +416,8 @@ function GeneralSettings({ cwd, active, sessionId, onSessionReloaded, quoteSelec
           </div>
         </div>
       </section>
+
+      <TaskReportSettings active={active} />
 
       {shellSettings?.isWindows && (
         <section className="settings-general-section">

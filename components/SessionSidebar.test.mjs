@@ -1,8 +1,15 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { registerHooks } from "node:module";
 import test from "node:test";
 import { createJiti } from "jiti";
+import ts from "typescript";
 
+// CSS is a bundler artifact. Browser acceptance exercises the actual stylesheet.
+registerHooks({ load(url, context, nextLoad) {
+  if (!url.endsWith("/SidebarSearchControls.module.css")) return nextLoad(url, context);
+  return {format:"module", shortCircuit:true, source:"export default new Proxy({}, {get:(_, key)=>String(key)});"};
+} });
 const jiti = createJiti(import.meta.url, { jsx: { runtime: "automatic" }, tsconfigPaths: true });
 const { getSessionListIndices } = await jiti.import("./SessionSidebar.tsx");
 
@@ -81,6 +88,14 @@ test("exposes the loaded session catalog and its matching version to the shell",
   assert.match(source, /setCatalogSnapshot\(\{ sessions: data\.sessions, sessionListVersion: data\.sessionListVersion \}\)/);
 });
 
+test("confirmed archive updates preserve the title-aware catalog and its matching version", () => {
+  const archiveSource = source.slice(source.indexOf("const changeSessionArchive ="), source.indexOf("const initialLoadDone ="));
+  assert.match(archiveSource, /setCatalogSnapshot\(current =>/);
+  assert.match(archiveSource, /return \{ \.\.\.current, sessions: withSessionArchiveState\(current\.sessions, ids\) \}/);
+  assert.match(archiveSource, /await loadSessions\(false, true\)/);
+  assert.doesNotMatch(source, /setAllSessions/);
+});
+
 test("subagent completion stays silent and never becomes unread", () => {
   assert.match(source, /completionNotificationSuppressedSessionIds\?: string\[\]/);
   assert.match(
@@ -148,8 +163,30 @@ test("does not expose disk-backed actions for transient sessions", () => {
   assert.match(sessionItemSource, /\{hovered && !session\.transient && \(/);
 });
 
+test("archive and restore share the exact hover-only action group with rename and delete", () => {
+  const tree = ts.createSourceFile("SessionItem.tsx", sessionItemSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const buttons = [];
+  const visit = node => {
+    if (ts.isJsxElement(node) && node.openingElement.tagName.getText(tree) === "button") buttons.push(node);
+    ts.forEachChild(node, visit);
+  };
+  visit(tree);
+  const archiveButtons = buttons.filter(button => button.openingElement.getText(tree).includes('"sidebar.archiveSession"'));
+  assert.equal(archiveButtons.length, 1, "no always-visible duplicate archive action");
+  let group = archiveButtons[0].parent;
+  while (group && !(ts.isJsxExpression(group) && group.expression?.getText(tree).startsWith("hovered && !session.transient &&"))) group = group.parent;
+  assert.ok(group, "archive/restore is gated by the same hovered and persistence conditions");
+  const content = group.getText(tree);
+  assert.ok(content.includes("onClick={startRename}"));
+  assert.ok(content.includes("onClick={handleDeleteClick}"));
+  assert.ok(content.includes('"sidebar.restoreSession"'));
+  assert.ok(content.indexOf("onClick={startRename}") < content.indexOf("onArchive(session)"));
+  assert.ok(content.indexOf("onArchive(session)") < content.indexOf("onClick={handleDeleteClick}"));
+  assert.match(archiveButtons[0].getText(tree), /event\.stopPropagation\(\); onArchive\(session\)/);
+});
+
 test("hides subagent rows and aggregates their state into the main session row", () => {
-  assert.match(source, /const sessionFamilies = useMemo\(\(\) => listSessionFamilies\(filteredSessions\)/);
+  assert.match(source, /const sessionFamilies = useMemo\(\(\) => listSessionFamilies\(/);
   assert.match(source, /familySessions\.some\(\(session\) => session\.id === selectedSessionId\)/);
   assert.match(source, /familySessions\.some\(\(session\) => runningSessionIds\.has\(session\.id\)\)/);
   assert.doesNotMatch(source, /function SessionTreeItem/);

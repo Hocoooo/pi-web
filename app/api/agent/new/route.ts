@@ -31,8 +31,9 @@ export async function POST(req: Request) {
     if (Object.hasOwn(command, "video") && command.type !== "prompt") {
       throw new Error("A new session accepts video only with a question prompt, not a standalone queue command. Nothing was sent.");
     }
-
-
+    if (Object.hasOwn(body, "taskStart")) {
+      throw new Error("Task-start and shared context are suspended. Remove taskStart and use ordinary chat; manage task links separately. Nothing was sent.");
+    }
     if (!cwd || typeof cwd !== "string") {
       return NextResponse.json({
         error: "cwd is required",

@@ -1,5 +1,9 @@
 # 空白新会话的项目选择
 
+## 任务预选交点
+
+[F32 `/task`](task-picker.md)提供独立于项目 picker 的任务选择器，只展示当前权威项目的任务（无项目聊天对应无项目任务）。预选保存在当前 ChatWindow/composer 内存，不为选择创建 Agent。切换目录或通过其他入口另开新会话沿用 draft/remount 路径并清除该预选；F09 `/new` 是明确例外，会把当前任务和模型/等级作为新 draft 专属的一次性 seed 自动沿用，界面事先提示。切项目会清 seed，不能把旧任务带入另一范围；聊天草稿仍按本文件迁移规则处理。真实 session 创建后依据其权威项目再次验证，不能由任务选择器暗中改 cwd。
+
 ## 独立聊天交点
 
 [独立聊天](independent-chat.md)与项目会话共用此 picker：进入聊天后 picker 仍挂载，以“无项目”为当前项（`isChat`），切回项目即恢复正常路径。picker 的“无项目”哨兵选项请求 `/api/default-cwd`，以服务端返回的保留 cwd 与 `pi-web:chat` 身份切换；它是普通会话，只是 cwd 固定，权限与项目会话一致。侧栏把它显示为“对话”，picker 不列出内部聊天路径。无指定目标的首页仍直接进入聊天；项目 flow 的浏览器 fixture 以显式 `?cwd=…` 进入验收。
@@ -31,7 +35,7 @@
 8. **保持新会话身份。** 在侧边栏同步前写 `activeProjectKeyRef`，更新 active/new cwd 和 draft ID，递增 `sessionKey` 重新挂载聊天；不按目标项目的 last-open 记忆恢复旧 session。URL 替换为 `?cwd=<encoded cwd>`，聊天哨兵则为 `?chat=1`（均无 session 参数、不滚动），刷新可据此回到新会话目标，但不保证草稿持久化。
 9. **清理上下文。** 切项目清空文件 tabs、活动文件、系统提示/工具信息，关闭右面板和顶部活动面板，防止展示旧项目内容。此路径不专门关闭侧边栏。两种 sidebar 模式都挂载选择器，切换模式不影响它的可见性，也不主动清空已有草稿或改 cwd。
 10. **创建边界。** 仅切目录不会创建会话或发送提示；下一次 `ensureNewSession` 请求 `/api/agent/new` 使用新的 `newSessionCwd`。不要强化成“只有第一条消息才能创建”：既有 System/Tools 等非 prompt 初始化路径也可 ensure/promote 新会话。
-11. **`/new` 交互区别。** 完整 `/new`（trim 后完全相等）在可用 cwd/回调下导航到当前聊天 cwd 的空白新会话，先清源文字/图片；它不携带当前草稿，且通过 `handleNewSession(..., false)` 不恢复 parked 草稿。更换项目则携带草稿。侧边栏新建默认仍可恢复该 cwd 的 parked 草稿。带参数 `/new ...` 不是此导航入口。
+11. **`/new` 交互区别。** 完整 `/new`（trim 后完全相等）在可用 cwd/回调下导航到当前聊天 cwd 的空白新会话，先清源文字/图片；它沿用当前已确认模型、思考等级与任务归属，但不携带当前草稿，且通过 `handleNewSession(..., false)` 不恢复 parked 草稿。更换项目则携带草稿。侧边栏新建默认仍可恢复该 cwd 的 parked 草稿。带参数 `/new ...` 不是此导航入口。
 
 ## 实现地图
 
@@ -86,6 +90,40 @@ E2E_BASE_URL=http://127.0.0.1:30141 node e2e/new-session-project.mjs
 ## 已知限制与未验证区域
 
 候选只在挂载时加载，不实时跟随新项目；最近列表失败静默降级。没有验证超时/POST 取消，也不禁用整个 composer 等待验证；请求竞争依赖卸载检查。草稿只存内存，图片迁移和真实验证失败暂无该浏览器脚本覆盖。此路径调用 `crypto.randomUUID()` 没有侧边栏临时 ID 那样的 fallback，需支持该 API 的浏览器上下文。
+
+## 任务看板交点（票据 01）
+
+[任务看板](task-dashboard.md) 复用服务端目录与项目身份规则。目录存在/类型/`~` 规范化现抽到
+[`validated-cwd.ts`](../../lib/validated-cwd.ts)，`/api/cwd/validate` 的原响应、显式选择授权和
+chat-workspace 分支不变。任务操作只校验目录并解析身份，不调用 allowFileRoot，不改变
+composer 项目选择、草稿迁移、session 创建或原首页导航。
+
+看板往返复用现有 `draft-store.rekeyDraft` 和标签页 cwd 导航，AppShell 仅在真正离开且目标
+为 `/tasks` 的 layout cleanup 按原 composer 身份停放到 `parked-new:<draft-key>`，统一
+覆盖 Link/history。Link 点击不提前停放，慢路由待响应期间的末次编辑/清空/删图仍须保存，
+不能与早期快照重复合并（与普通 New 的 `parked-new:<cwd>` 分开，
+避免 `/new` 后误合并旧草稿）；初始化验证成功且 `parkedDraftKey` 标记/cwd 匹配后迁移到
+当前初始 key；不恢复其他项目的
+停放草稿，也不覆盖显式 session/不同 cwd。该标记不是草稿持久化，图片/文字仍只在内存。
+普通新建清除返回标记，picker 切目录仍沿原迁移路径；`/new` 不恢复 parked 草稿的规则不变。
+`e2e/task-dashboard-drafts.mjs` 在真实浏览器/全 API fixture 覆盖项目具体 cwd、无项目、
+文字+图片字节往返：Link chat 返回后 history 后退入 tasks，再后退原 chat 或前进回 chat，
+各三轮并检查后续编辑不复活旧文字/不重复合并；另验 picker 迁移、普通新建与不同 cwd
+优先，无 Agent 请求。另在真实阻塞路由期间验证两种身份的修改文字、只清文字、只删图
+和全部清空，返回不重复/不复活已删除内容。非 `/tasks` 目标仍使用原弃用清理，不能为了
+history 把所有草稿保留。
+此为看板往返覆盖，不替代 `new-session-project.mjs` 对发送 cwd 的请求断言。
+
+## 已有聊天创建任务交点（04主claimed，待复审/父验收）
+
+来源Link只在已选session出现，不经过空白composer picker，不改session cwd或调用cwd/validate扩大授权。
+服务端来源metadata用await uncached既有worktree身份规则，原sidebar展示SWR cache不能作关系授权。
+详情返回原session URL/加载；空白composer无来源入口，不提前ensure/promote，New/picker/`/new`优先级及
+01最终departure/history/慢导航草稿均保护。主验证及平台缺口见[task-dashboard](task-dashboard.md)。
+
+## 08 任务准备对话交点（主已验收resolved）
+
+[08](task-start-chat.md)以显式原session/cwd + 内存preparation token进入同一ChatWindow，资料在独立被动栏，不写入或合并textarea/image draft。01真正departure/history/慢导航最终草稿、普通New、picker切项目和显式不同URL优先级保留，普通New不继承任务。准备不ensure；只有用户独立Send或既有System/Tools初始化边界创建真实SDK ID，首次prompt关联/版本CAS失败则不发送，原error恢复draft可精确重试。无项目沿固定chat-workspace，不改工具权限。刷新丢失准备token时必须回任务重预览；不把marker当持久draft。prepared非prompt ensure之后、首次provider之前跨Chat-only/恢复configured的资源重建保留原SDK UUID，仍保留文字/图片草稿；不放宽task identity guard，也不另造operationId规避。
 
 ## 维护规则与基线
 

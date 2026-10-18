@@ -1,0 +1,31 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { writeFile, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { randomUUID } from "node:crypto";
+import { createTaskTestJiti } from "../../../lib/__fixtures__/task-jiti.mjs";
+import { taskReportsFixture } from "../../../lib/task-reports.fixture.mjs";
+const jiti = createTaskTestJiti(import.meta.url);
+const { GET } = await jiti.import("./route.ts");
+const { POST } = await jiti.import("../tasks/route.ts");
+const get = query => GET(new Request(`http://localhost/api/task-reports?${query}`));
+const post = input => POST(new Request("http://localhost/api/tasks", { method: "POST", body: JSON.stringify(input) }));
+
+test("real task HTTP commit exposes only committed report summaries and readable empty archive; errors stay ordinary", async t => {
+  const f = await taskReportsFixture(); t.after(() => f.close());
+  const task = await f.create("HTTP metadata archive");
+  const request = { action: "set-archive", id: task.id, archived: true, expectedArchiveRevision: 0, operationId: randomUUID() };
+  const response = await post(request); assert.equal(response.status, 200);
+  const result = await response.json(), id = result.task.reportIds[0];
+  const list = await get(`taskId=${task.id}`); assert.equal(list.status, 200);
+  const summary = (await list.json()).reports[0]; assert.equal(summary.id, id); assert.equal(summary.snapshot, undefined); assert.equal(summary.body, undefined); assert.equal(summary.hasBody, true);
+  const report = await get(`id=${id}`); assert.equal(report.status, 200); assert.equal((await report.json()).snapshot.task.title, task.title);
+  const body = await get(`id=${id}&body=1`); assert.equal(body.status, 200); assert.match(body.headers.get("content-type"), /text\/plain/); assert.match(await body.text(), /Original goal/);
+  assert.deepEqual((await (await post(request)).json()).task.reportIds, [id]);
+  assert.equal((await get("id=../../settings")).status, 400); assert.equal((await get("taskId=invalid")).status, 400); assert.equal((await get(`id=${randomUUID()}`)).status, 404);
+  const queued = await f.create("Not generated"); await f.link(queued.id, [f.session().getSessionId()]);
+  const { result: nonempty } = await f.archive(queued.id); assert.equal((await get(`id=${nonempty.task.reportIds[0]}&body=1`)).status, 404);
+  const file = join(f.agentDir, "task-reports", `${id}.json`);
+  await writeFile(file, "broken"); assert.equal((await get(`taskId=${task.id}`)).status, 500);
+  await rm(file); assert.equal((await get(`id=${id}`)).status, 500); assert.equal(f.requests(), 0);
+});

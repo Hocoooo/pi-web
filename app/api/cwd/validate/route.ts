@@ -1,19 +1,11 @@
 import { NextResponse } from "next/server";
-import { statSync, type Stats } from "fs";
-import { homedir } from "os";
-import { isAbsolute, resolve } from "path";
+import { validatedCwd } from "@/lib/validated-cwd";
 import { allowFileRoot } from "@/lib/file-access";
 import { projectIdentityKey } from "@/lib/project-identity";
 import { resolveProject } from "@/lib/worktree";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { isChatWorkspace } from "@/lib/chat-workspace";
 import { CHAT_WORKSPACE_KEY } from "@/lib/session-kind";
-
-function normalizeCwd(cwd: string): string {
-  if (cwd === "~") return homedir();
-  if (cwd.startsWith("~/")) return resolve(homedir(), cwd.slice(2));
-  return isAbsolute(cwd) ? cwd : resolve(cwd);
-}
 
 // POST /api/cwd/validate  body: { cwd: string }
 // Validates a candidate workspace before the UI selects it.
@@ -26,16 +18,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Path is required" }, { status: 400 });
     }
 
-    const normalizedCwd = normalizeCwd(cwd);
-    let stat: Stats;
+    let normalizedCwd: string;
     try {
-      stat = statSync(normalizedCwd);
-    } catch {
-      return NextResponse.json({ error: `Directory does not exist: ${cwd}` }, { status: 400 });
-    }
-
-    if (!stat.isDirectory()) {
-      return NextResponse.json({ error: `Path is not a directory: ${cwd}` }, { status: 400 });
+      normalizedCwd = validatedCwd(cwd);
+    } catch (error) {
+      return NextResponse.json({ error: (error as Error).message }, { status: 400 });
     }
 
     allowFileRoot(normalizedCwd);

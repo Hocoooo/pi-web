@@ -3,6 +3,8 @@ import { getSupportedThinkingLevels, type Api, type Model } from "@earendil-work
 import { createAgentSessionFromServices, createAgentSessionServices, getAgentDir, initTheme, SessionManager, SettingsManager, Theme, type ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { KeybindingsManager as TuiKeybindingsManager, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
 import { randomUUID } from "crypto";
+import { taskSessionPathInScope } from "./task-sessions";
+import { copySessionWithTask } from "./task-session-copy";
 import { existsSync, realpathSync, writeFileSync } from "fs";
 import { resolve } from "path";
 import { validateAgentImages } from "./image-attachments";
@@ -44,6 +46,7 @@ import {
   readSubagentSessionResources,
   subagentExtensionLoaderOptions,
   SUBAGENT_CONTROL_TOOL_NAMES,
+  SUBAGENT_META_TYPE,
 } from "./subagents";
 import { createSubagentController } from "./subagent-runtime";
 import { isBuiltInSubagentsEnabled } from "./subagent-settings";
@@ -54,6 +57,8 @@ import { createPiWebBuiltinExtensions } from "./builtin-extensions";
 import type { McpHost } from "./mcp-host";
 import { mcpPromptPreparation, type McpCommandCandidate } from "./mcp-command";
 import { createReadOnlyMcpPolicyExtension } from "./mcp-read-only-policy";
+import { createTaskReportToolsExtension } from "./task-report-tools";
+import { TASK_REPORT_TOOL_NAMES } from "./tool-presets";
 import { createSubagentSkillsBinding } from "./subagent-skills";
 import { isNestedToolExecutionEvent } from "./agent-event-wire";
 import { isChatWorkspace } from "./chat-workspace";
@@ -128,6 +133,9 @@ type ExtensionCommandContextActionsLike = {
 };
 
 type AgentSessionWrapperOptions = {
+  /** Cached creation identity; metadata-only listings must not walk session entries. */
+  isSubagent?: boolean;
+  preparedSessionId?: string;
   exactSystemPrompt?: () => string;
   chatOnly?: boolean;
   headless?: boolean;
@@ -211,6 +219,8 @@ const COMMANDS_ALLOWED_DURING_SESSION_REPLACEMENT = new Set([
 ]);
 
 export interface RpcSessionStartOptions {
+  /** Task preparation UUID is a real SDK session ID, not a provisional browser key. */
+  newSessionId?: string;
   /** No extension UI: enables native headless background-work draining. */
   headless?: boolean;
   toolNames?: string[];
@@ -219,7 +229,7 @@ export interface RpcSessionStartOptions {
   thinkingLevel?: ThinkingLevel;
 }
 
-const CODING_TOOL_NAMES = ["read", "bash", "powershell", "edit", "write", "grep", "find", "ls"];
+const CODING_TOOL_NAMES = ["read", "bash", "powershell", "edit", "write", "grep", "find", "ls", ...TASK_REPORT_TOOL_NAMES];
 const THINKING_LEVEL_NAMES = new Set<ThinkingLevel>(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 
 // Extensions require a complete Theme, while the web UI applies its own styling.
@@ -290,6 +300,9 @@ export function resolveActiveToolNames(
 // ============================================================================
 
 export class AgentSessionWrapper {
+  readonly isSubagent: boolean;
+  /** Explicit task preparation identity, retained only for an unflushed rebuild. */
+  readonly preparedSessionId?: string;
   // A Set, not an array: an SSE stream unsubscribes from inside emit() when it
   // closes on session_shutdown, and splicing an array mid-iteration made the
   // next stream miss that same event.
@@ -340,12 +353,16 @@ export class AgentSessionWrapper {
   // Set when shutdown() starts. The SDK session stays usable until destroy(),
   // but lookups must treat the wrapper as gone from this point on.
   private closing = false;
+  private hadSessionFile = false;
 
   constructor(
     public readonly inner: AgentSessionLike,
     options: AgentSessionWrapperOptions = {},
   ) {
     this.videoTransport = createVideoTransport(inner);
+    this.isSubagent = options.isSubagent ?? false;
+    this.preparedSessionId = options.preparedSessionId;
+    this.hadSessionFile = Boolean(inner.sessionFile && existsSync(inner.sessionFile));
     this.exactSystemPrompt = options.exactSystemPrompt;
     this.chatOnly = options.chatOnly ?? false;
     this.headless = options.headless ?? false;
@@ -397,6 +414,20 @@ export class AgentSessionWrapper {
     return this._alive && (this.pendingPromptCount > 0 || this.inner.isStreaming || this.inner.isCompacting || this.inner.isBashRunning);
   }
 
+  /** Distinguishes an unflushed warm manager from a deleted persisted session.
+   * SDK isPersisted() means persistence is enabled, not that the file was flushed. */
+  hasDeletedSessionFile(): boolean {
+    if (this.sessionFile && existsSync(this.sessionFile)) { this.hadSessionFile = true; return false; }
+    return this.hadSessionFile;
+  }
+
+  /** Read-only task hint: no get_state command, context calculation or idle reset. */
+  getActivitySnapshot() {
+    return { running: this.isRunning(), waitingForInput: this.pendingUiResponses.size > 0 || this.activeCustomUis.size > 0,
+      compacting: this.inner.isCompacting, bashRunning: this.inner.isBashRunning,
+      queued: this.inner.pendingMessageCount > 0 };
+  }
+
   /**
    * Drop this idle wrapper when the on-disk JSONL has an entry the in-memory
    * index never saw (another pi process appended). Rechecks isRunning() so a
@@ -439,6 +470,7 @@ export class AgentSessionWrapper {
       if (event.type === "queue_update" && this.videoTransport.queue.installed) return;
       if (event.type === "message_end" && event.message && typeof event.message === "object") {
         performanceTracker.restore(event.message);
+        this.hasDeletedSessionFile();
       }
       if (event.type === "agent_start") {
         this.agentRunNeedsCompletion = true;
@@ -784,6 +816,9 @@ export class AgentSessionWrapper {
   async send(command: Record<string, unknown>): Promise<unknown> {
     const type = command.type as string;
     validateVideoCommand(command);
+    if (Object.hasOwn(command, "taskStart")) {
+      throw new Error("Task-start and shared context are suspended. Remove taskStart and use ordinary chat; manage task links separately. Nothing was sent.");
+    }
     const allowedDuringReplacement = COMMANDS_ALLOWED_DURING_SESSION_REPLACEMENT.has(type);
     if (this.sessionReplacement && !allowedDuringReplacement) {
       throw new Error("Session is being copied to a new session");
@@ -798,11 +833,12 @@ export class AgentSessionWrapper {
       this.titles.cancel();
     }
     if (type === "abort") this.titles.stopRun();
-    // A new explicit queued video after Stop owns a fresh cancellation scope.
-    // Reset before any await so a later Stop can still cancel this submission.
-    if ((type === "steer" || type === "follow_up") && Object.hasOwn(command, "video")
-      && this.extensionUiAbortController.signal.aborted) this.extensionUiAbortController = new AbortController();
+    // Reserve in the original lifecycle before any await. Task management does
+    // not gate work; running hints still reflect all pending session commands.
+    const admitsWork = ["prompt", "steer", "follow_up", "compact", "bash", "extension_ui_input"].includes(type);
+    if (admitsWork) this.pendingPromptCount += 1;
 
+    if (admitsWork && this.extensionUiAbortController.signal.aborted) this.extensionUiAbortController = new AbortController();
     try {
       // Status reconciliation must not postpone forced cleanup after Stop.
       if (type !== "get_state") this.resetIdleTimer();
@@ -1038,6 +1074,7 @@ export class AgentSessionWrapper {
         // idle source is shut down, because the browser moves to the child.
         const keepSource = this.isSessionRunningForReplacement();
         return this.withSessionReplacement("fork", async () => {
+          const result = await copySessionWithTask(getAgentDir(), this.inner.sessionId, command, async () => {
           const entryId = command.entryId as string;
           const sessionManager = this.inner.sessionManager;
           const currentSessionFile = this.inner.sessionFile;
@@ -1079,8 +1116,10 @@ export class AgentSessionWrapper {
           const newSessionId = forkedManager.getSessionId();
           cacheSessionPath(newSessionId, newSessionFile);
           invalidateSessionListCache();
-          if (!keepSource) await this.shutdownAfterSessionReplacement("fork");
           return { cancelled: false, newSessionId };
+          });
+          if (!result.cancelled && !keepSource) await this.shutdownAfterSessionReplacement("fork");
+          return result;
         });
       }
 
@@ -1097,6 +1136,7 @@ export class AgentSessionWrapper {
         if (!existsSync(currentSessionFile)) throw new Error(UNSAVED_SESSION_FORK_ERROR);
 
         const sessionDir = sessionManager.getSessionDir();
+        return copySessionWithTask(getAgentDir(), this.inner.sessionId, command, async () => {
         const sourceManager = SessionManager.open(currentSessionFile, sessionDir);
         const forkedPath = sourceManager.createBranchedSession(entryId);
         if (!forkedPath) throw new Error("Failed to create forked session");
@@ -1105,6 +1145,7 @@ export class AgentSessionWrapper {
         cacheSessionPath(newSessionId, forkedPath);
         invalidateSessionListCache();
         return { cancelled: false, newSessionId };
+        });
       }
 
       case "clone": {
@@ -1122,6 +1163,7 @@ export class AgentSessionWrapper {
         if (!currentSessionFile || !existsSync(currentSessionFile)) return { cancelled: true };
 
         return this.withSessionReplacement("clone", async () => {
+          const result = await copySessionWithTask(getAgentDir(), this.inner.sessionId, command, async () => {
           const sessionDir = sessionManager.getSessionDir();
           const sourceManager = SessionManager.open(currentSessionFile, sessionDir);
           const clonedPath = sourceManager.createBranchedSession(leafId);
@@ -1130,8 +1172,10 @@ export class AgentSessionWrapper {
           const newSessionId = SessionManager.open(clonedPath, sessionDir).getSessionId();
           cacheSessionPath(newSessionId, clonedPath);
           invalidateSessionListCache();
-          await this.shutdownAfterSessionReplacement("clone");
           return { cancelled: false, newSessionId };
+          });
+          if (!result.cancelled) await this.shutdownAfterSessionReplacement("clone");
+          return result;
         });
       }
 
@@ -1308,7 +1352,7 @@ export class AgentSessionWrapper {
       }
 
       case "bash": {
-        if (this.pendingPromptCount > 0 || this.inner.isStreaming || this.inner.isCompacting || this.inner.isBashRunning) {
+        if (this.pendingPromptCount > 1 || this.inner.isStreaming || this.inner.isCompacting || this.inner.isBashRunning) {
           throw new Error("Cannot run a shell command while the session is busy");
         }
         const execution = this.inner.executeBash(
@@ -1343,6 +1387,11 @@ export class AgentSessionWrapper {
       }
     } finally {
       if (tracksMutation) this.activeMutatingCommands = Math.max(0, this.activeMutatingCommands - 1);
+      if (admitsWork) {
+        this.pendingPromptCount = Math.max(0, this.pendingPromptCount - 1);
+        this.resetIdleTimer();
+        this.notifyAgentRunCompleteIfIdle();
+      }
     }
   }
 
@@ -2096,6 +2145,7 @@ const SUBAGENT_CONTROLLER = createSubagentController({
         ? { exactSystemPrompt: options.exactSystemPrompt }
         : {}),
       chatOnly: options?.chatOnly,
+      isSubagent: true,
       suppressCompletionNotifications: true,
     });
     registerRpcWrapper(wrapper);
@@ -2274,6 +2324,7 @@ export async function setRpcSessionTools(
     ? existing.sessionFile
     : undefined;
   const sessionCwd = existing.cwd;
+  const preparedSessionId = existing.hasDeletedSessionFile() ? undefined : existing.preparedSessionId;
   const model = existing.inner.model;
   const currentThinkingLevel = existing.inner.agent.state?.thinkingLevel;
   await existing.shutdown();
@@ -2283,7 +2334,8 @@ export async function setRpcSessionTools(
     return { session: started.session, sessionId: started.realSessionId, recreated: true };
   }
 
-  const started = await startRpcSession(`__recreate__${randomUUID()}`, "", sessionCwd, {
+  const started = await startRpcSession(preparedSessionId ?? `__recreate__${randomUUID()}`, "", sessionCwd, {
+    ...(preparedSessionId ? { newSessionId: preparedSessionId } : {}),
     ...(toolNames !== undefined ? { toolNames } : {}),
     ...(model ? { initialModel: { provider: model.provider, modelId: model.id } } : {}),
     allowInitialModelFallback: true,
@@ -2375,6 +2427,20 @@ export function getRpcSessionInfos(options: { includeTransient?: boolean } = {})
   return sessions;
 }
 
+/** Warm metadata without walking getEntries()/messages. Deleted persisted files do
+ * not reappear from the wrapper; unflushed warm managers remain linkable by real ID. */
+export function getRpcSessionMetadata() {
+  return Array.from(getRegistry().values()).flatMap((session) => {
+    if (typeof session.isAlive !== "function" || !session.isAlive()) return [];
+    const manager = session.inner.sessionManager;
+    const header = manager.getHeader();
+    const path = manager.getSessionFile();
+    if (!header || (typeof session.hasDeletedSessionFile === "function" ? session.hasDeletedSessionFile() : !path || !existsSync(path))) return [];
+    return [{ id: header.id, cwd: header.cwd, path: path ?? "", name: manager.getSessionName(),
+      isSubagent: session.isSubagent === true, ...rpcActivitySnapshot(session) }];
+  });
+}
+
 export function hasBusyRpcSessionForCwd(cwd: string): boolean {
   const targetCwd = normalizeRpcCwd(cwd);
   if (getStartingSessionCwds().has(targetCwd)) return true;
@@ -2390,6 +2456,25 @@ export async function destroyRpcSessionsForCwd(cwd: string): Promise<number> {
   );
   await Promise.all(sessions.map((session) => session.shutdown()));
   return sessions.length;
+}
+
+function rpcActivitySnapshot(session: AgentSessionWrapper): import("./task-types").TaskSessionActivity {
+  // globalThis retains old wrappers across dev HMR; don't command/rebuild them
+  // merely to add a task hint. The original busy predicate remains authoritative.
+  return typeof session.getActivitySnapshot === "function" ? session.getActivitySnapshot() : { running: session.isRunning() };
+}
+export function getTaskSessionActivity(agentDir: string, ids: readonly string[]) {
+  // Unlike browse metadata, retain closing/deleted wrappers while they still own
+  // work. Do not start agents or read transcripts to answer an archive check.
+  return Array.from(getRegistry().values()).flatMap(session => {
+    if (!ids.includes(session.sessionId) || !taskSessionPathInScope(agentDir, session.inner.sessionManager.getSessionFile() ?? "")) return [];
+    return [{ id: session.sessionId, ...rpcActivitySnapshot(session) }];
+  });
+}
+
+export function getRpcSessionActivity() {
+  return Object.fromEntries(Array.from(getRegistry().entries())
+    .map(([id, session]) => [session.sessionId || id, rpcActivitySnapshot(session)]));
 }
 
 export function getRunningRpcSessionIds(): string[] {
@@ -2452,17 +2537,15 @@ export async function startRpcSession(
     sessionManager = SessionManager.open(sessionFile, undefined);
   } else {
     if (!cwd) throw new Error("cwd is required for a new session");
-    sessionManager = SessionManager.create(cwd, undefined);
+    sessionManager = SessionManager.create(cwd, undefined, options.newSessionId ? { id: options.newSessionId } : undefined);
   }
   const sessionCwd = sessionManager.getCwd();
-  const subagentResources = sessionFile
-    ? readSubagentSessionResources(
-        sessionManager.getEntries() as unknown as SessionEntry[],
-      )
-    : null;
+  const initialEntries = sessionManager.getEntries() as unknown as SessionEntry[];
+  const isSubagent = initialEntries.some(entry => entry.type === "custom" && entry.customType === SUBAGENT_META_TYPE);
+  const subagentResources = sessionFile ? readSubagentSessionResources(initialEntries) : null;
   const persistedToolNames = subagentResources
     ? undefined
-    : readSessionToolSelection(sessionManager.getEntries() as unknown as SessionEntry[]);
+    : readSessionToolSelection(initialEntries);
   const selectedToolNames = subagentResources?.tools ?? persistedToolNames ?? requestedToolNames;
   if (!subagentResources && persistedToolNames === undefined && requestedToolNames !== undefined) {
     appendSessionToolSelection(sessionManager, selectedToolNames ?? []);
@@ -2548,6 +2631,7 @@ export async function startRpcSession(
             extensionFactories: [
               ...(builtins?.extensions ?? []),
               createReadOnlyMcpPolicyExtension(),
+              createTaskReportToolsExtension(agentDir),
               createProjectCommandBashExtension({
                 cwd: sessionCwd,
                 settings: settingsManager,
@@ -2632,6 +2716,8 @@ export async function startRpcSession(
         : undefined;
     exactSystemPromptRef.current = exactSystemPrompt;
     const wrapper = new AgentSessionWrapper(inner, {
+      isSubagent,
+      preparedSessionId: options.newSessionId,
       exactSystemPrompt,
       chatOnly,
       headless: options.headless,

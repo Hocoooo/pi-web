@@ -131,6 +131,12 @@ function refreshProjectInBackground(cwd: string): void {
   inflight.set(cwd, task);
 }
 
+/** Await current Git/path identity for write-time scope checks, without touching the display cache.
+ * Reuses the exact sidebar worktree/subdirectory/removed-path rules, but never SWR data. */
+export async function resolveProjectAuthoritatively(cwd: string): Promise<ProjectInfo> {
+  return resolveProjectUncached(cwd);
+}
+
 async function resolveProjectUncached(cwd: string): Promise<ProjectInfo> {
   let info: ProjectInfo;
   try {

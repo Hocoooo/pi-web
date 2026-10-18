@@ -1,4 +1,8 @@
 "use client";
+import { useSearchParams } from "next/navigation";
+import { SessionTaskLink } from "./SessionTaskLink";
+import { TaskSelectionDialog } from "./TaskSelectionDialog";
+import { TaskMembership } from "./TaskMembership";
 import { NewSessionProjectPicker } from "./NewSessionProjectPicker";
 import { registerAbortHandler } from "@/hooks/useKeyboardShortcuts";
 import Image from "next/image";
@@ -20,7 +24,7 @@ import { ExtensionStatusBar } from "./ExtensionStatusBar";
 import { AnsiText } from "./AnsiText";
 import { useI18n } from "@/hooks/useI18n";
 import { phaseLabel } from "@/lib/chat-phase-label";
-import { useAgentSession, type NoticeItem } from "@/hooks/useAgentSession";
+import { useAgentSession, type NewSessionSeed, type NoticeItem } from "@/hooks/useAgentSession";
 import { useNextCuePreference } from "@/hooks/useNextCuePreference";
 import { useDragDrop } from "@/hooks/useDragDrop";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -40,6 +44,8 @@ import {
 } from "@/lib/chat-lazy-load";
 
 interface Props {
+  preparedTaskToken?: string | null;
+  onOpenTasks?: (taskId?: string) => void;
   session: SessionInfo | null;
   searchTarget?: { sessionId: string; entryId: string; blockIndex?: number } | null;
   onSearchTargetHandled?: (target: { sessionId: string; entryId: string }) => void;
@@ -50,7 +56,8 @@ interface Props {
   independentChat?: boolean;
   newSessionDraftKey: string | null;
   onNewSessionProjectChange?: (cwd: string, projectKey: string) => void;
-  onNewSession?: (cwd: string) => void;
+  newSessionSeed?: NewSessionSeed;
+  onNewSession?: (cwd: string, prepare: () => Promise<NewSessionSeed | null>) => Promise<void>;
   onAgentEnd?: () => void;
   onSessionTitleChange?: (sessionId: string, title: string, autoTitleEnabled: boolean, sessionListVersion?: number) => void;
   onAttentionNeeded?: (request: BlockingExtensionUiRequest) => void;
@@ -237,9 +244,12 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, defaultExpanded = fa
   );
 }
 
-export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initialScrollPosition, onScrollPositionChange, sessionRunning, newSessionCwd, independentChat = false, newSessionDraftKey, onNewSessionProjectChange, onNewSession, onAgentEnd, onSessionTitleChange, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onOpenSettings, onContextUsageChange, onOpenFile, onFilesUploaded, onOpenSession, onAskInNewChat, quoteSelectionEnabled = false, initialPrompt, onInitialPromptConsumed, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio }: Props) {
+export function ChatWindow({ preparedTaskToken, onOpenTasks, session, searchTarget, onSearchTargetHandled, initialScrollPosition, onScrollPositionChange, sessionRunning, newSessionCwd, independentChat = false, newSessionDraftKey, newSessionSeed, onNewSessionProjectChange, onNewSession, onAgentEnd, onSessionTitleChange, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onOpenSettings, onContextUsageChange, onOpenFile, onFilesUploaded, onOpenSession, onAskInNewChat, quoteSelectionEnabled = false, initialPrompt, onInitialPromptConsumed, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio }: Props) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
+  const searchParams = useSearchParams();
+  const taskStartToken = preparedTaskToken === undefined ? searchParams.get("taskStart") : preparedTaskToken;
+  // Stale prepared URLs fail closed; task management never supplies model input.
   const fallbackChatInputRef = useRef<ChatInputHandle | null>(null);
   const composerRef = chatInputRef ?? fallbackChatInputRef;
   const completionNotificationsEnabled = session?.relation?.kind !== "subagent";
@@ -285,14 +295,15 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     showScrollToBottom,
     sessionIdRef, scrollContainerRef,
     lastUserMsgRef, promptAnchorActive,
-    handleSend, handleAbort, handleFork, handleEditContent, cancelEdit, handleModelChange,
+    getNewSessionSeed, handleSend, handleAbort, handleFork, handleEditContent, cancelEdit, handleModelChange,
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
     handleRecallQueue,
     handleBuiltinSlashCommand,
     handleToolPresetChange, handleThinkingLevelChange, handleSetDefaultModel, handleSetDefaultThinkingLevel, loadSlashCommands, scrollUserMsgToTop,
-    loadContext, activeLeafId, scrollToBottom, scrollToMessage,
+    loadContext, activeLeafId, scrollToBottom, scrollToMessage, taskSelection,
   } = useAgentSession({
-    session, sessionRunning, newSessionCwd, independentChat, newSessionDraftKey, onAgentEnd: wrappedOnAgentEnd, onSessionTitleChange, onAttentionNeeded, onSessionCreated, onSessionForked,
+    taskStartRequired: !!taskStartToken,
+    session, sessionRunning, newSessionCwd, independentChat, newSessionDraftKey, newSessionSeed, onAgentEnd: wrappedOnAgentEnd, onSessionTitleChange, onAttentionNeeded, onSessionCreated, onSessionForked,
     modelsRefreshKey, chatInputRef: composerRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsPanelOpen,
     onOpenSettings,
     deferInitialScroll: Boolean(pendingScrollRestore),
@@ -304,6 +315,13 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     });
     return () => cancelAnimationFrame(frame);
   }, [composerRef, isNew, loading]);
+  const handleNewSession = useCallback(async (cwd: string) => {
+    try {
+      await onNewSession?.(cwd, getNewSessionSeed);
+    } catch (cause) {
+      addNotice({type: "error", message: `${t("chat.newSessionFailed")} ${cause instanceof Error ? cause.message : String(cause)}`});
+    }
+  }, [addNotice, getNewSessionSeed, onNewSession, t]);
   const sessionBusy = agentRunning || bashRunning;
   const { enabled: nextCueEnabled, model: nextCueModel } = useNextCuePreference();
   const [nextCue, setNextCue] = useState<string | null>(null);
@@ -955,7 +973,8 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
       unconfirmedSubmissionError={error}
       onRestoreUnconfirmedSubmission={restoreUnconfirmedSubmission}
       restoringSubmission={restoringSubmission}
-      onNewSession={onNewSession}
+      onNewSession={onNewSession ? handleNewSession : undefined}
+      onOpenTaskPicker={() => { void taskSelection.open(); }}
       nextCue={nextCue}
       onNextCueAccepted={() => setNextCue(null)}
       draftCompletionContext={!loading && !extensionDialog && !extensionCustomUi
@@ -1037,6 +1056,15 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
       {isEmptyNew && newSessionCwd && onNewSessionProjectChange && (
         <NewSessionProjectPicker cwd={newSessionCwd} isChat={independentChat} onChange={onNewSessionProjectChange} />
       )}
+      {taskStartToken && <p role="alert">{t("tasks.startExpired")}</p>}
+      {sessionIdRef.current && onOpenTasks
+        ? <SessionTaskLink key={sessionIdRef.current} sessionId={sessionIdRef.current} onOpen={onOpenTasks} onChoose={() => { void taskSelection.open(); }} />
+        : newSessionCwd && <TaskMembership onChoose={() => { void taskSelection.open(); }}
+          label={taskSelection.pendingTask ? `${t("tasks.picker.preselected")}: ${taskSelection.pendingTask.title}` : t("tasks.picker.title")} />}
+      <TaskSelectionDialog selection={taskSelection} onClose={() => {
+        taskSelection.close();
+        requestAnimationFrame(() => composerRef.current?.focusComposer());
+      }} />
       {isDragOver && (
         <div className="pointer-events-none absolute inset-0 z-50 flex animate-[drop-zone-in_0.15s_ease_both] items-center justify-center bg-[rgba(37,99,235,0.06)] backdrop-blur-[1px]">
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">

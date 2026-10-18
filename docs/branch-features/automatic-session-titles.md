@@ -94,4 +94,5 @@ Windows / Node 24 命令使用 glob，避免字面 `[id]` 被 Node 当成字符�
 - 不提供全局关闭或独立标题模型；用户通过会话开关控制。没有跨进程绝对一次计费或服务重启任务恢复。两个 Pi 进程同时写同一 JSONL 仍不受支持。
 - 开发 HMR 前已经建立的旧 wrapper 不自动升级功能；部署后应使用新进程/新 wrapper，不能把模块编译成功视作现有运行时已经接入。
 - 高交叉入口为 rpc-manager、标题路由、AppShell、useAgentSession、next-cue。Rebase 必须保留 admission/settlement、Stop/shutdown、手动命名所有权与本功能取消/过期保护；不能只保留触发回调。
+- 与[任务选择器](task-picker.md)、[会话归档](session-archive.md)整合时，保留 ChatWindow → useAgentSession → AppShell 的标题事件回调及 RPC 的取消/Stop 生命周期。归档确认只更新完整目录中的会话投影，保留同一 catalogSnapshot 的 sessionListVersion，再强制回读权威列表；关联/归档本身不启用、关闭或触发命名，不放宽手动标题与过期保护。本分支索引使用 F37，避免与任务看板 F21 重号。
 - 修改默认值、收费模型、文本范围、元数据/API、持久化、事件或 next-cue 例外时，同步本文、[README](README.md)、相关会话说明与回归测试。

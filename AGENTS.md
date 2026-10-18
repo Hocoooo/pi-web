@@ -6,6 +6,26 @@ Before every development iteration (including fixes, refactors, tests, and merge
 
 **Update the corresponding feature documents whenever a feature changes, in the same change as the implementation.** Add a document and README index entry for every new feature; keep implementation links, acceptance steps, and cross-feature contracts current. Do not infer the current contract from old commit titles or treat a conflict-free merge as feature acceptance.
 
+## Agent skills
+
+### Issue tracker
+
+Before creating, reading, claiming, or resolving specs and tickets, read
+[docs/agents/issue-tracker.md](docs/agents/issue-tracker.md).
+This repo uses local Markdown under `.scratch/<feature>/`.
+
+### Triage labels
+
+Before triaging incoming requests, read
+[docs/agents/triage-labels.md](docs/agents/triage-labels.md).
+Triage roles are recorded locally, not as remote labels.
+
+### Domain docs
+
+Before exploring domain concepts or making design decisions, read
+[docs/agents/domain.md](docs/agents/domain.md).
+Use a single root `GLOSSARY.md` and the existing `docs/adr/`.
+
 ## Quick Start
 
 ```bash

@@ -1,5 +1,9 @@
 # 全项目侧边栏
 
+## F38 可选 Task 层
+
+[侧栏任务树](sidebar-task-tree.md)在既有 current/all 范围内增加项目→Task→对话，Settings 同区默认关闭；无新视图。开启后 current 保留项目选择器、下方 Task→对话，all 保留项目标题；每 Task 独立五族预览/折叠，未关联组保留。关树时本合同原有结构/项目更多状态恢复，任务检索/筛选仍可使用。所有 owner 先从完整只读目录建立，任务归档不推导对话归档；搜索选择不改变 cwd 或当前对话。无任何任务的项目即使开启设置也不增加 Task/“未关联任务”层：current 直接显示全部会话族，all 继续项目标题、五族预览与原项目更多状态；可与有任务项目混合显示。空/已归档任务仍属于项目，历史明确 owner 投影不丢。以下原有项目规则在未开启 Task 层或项目无任务时保持。
+
 ## 子目录会话导航回归
 
 - benchmark 等通过 API 在仓库子目录创建的会话仍保留该子目录的独立项目身份；Git 返回的 worktree 列表不表示这些 worktree 属于子目录项目。
@@ -16,6 +20,7 @@
 - 项目内五条预览见[项目会话预览](project-session-previews.md)。
 - 空白新会话中更换 cwd 见[新会话项目选择](new-session-project.md)。项目标题不是该选择器。
 - 焦点和展开快捷键见[侧边栏键盘导航](sidebar-keyboard-navigation.md)。
+- [对话归档](session-archive.md)是独立的日常/已归档显示范围：all 模式先筛选归档范围再分组；完整目录仍用于项目选择器、任务关联、运行/未读追踪，归档不停止后台活动。
 
 ## 独立聊天交点
 
@@ -29,9 +34,9 @@
 
 ## 行为要求与不变量
 
-1. **模式只改变列表呈现。** 切换模式关闭项目/worktree 下拉并将列表滚动位置归零；不直接选择会话或更改 cwd。切回 `current` 时显示当前有效项目的全部会话族，而不是最后一个手动展开的项目。
+1. **模式只改变列表呈现。** 切换模式关闭项目/worktree 下拉并将列表滚动位置归零；不直接选择会话或更改 cwd。切回 `current` 时显示当前有效项目、所选日常/已归档范围的全部会话族，而不是最后一个手动展开的项目。
 2. **稳定身份。** 项目按 `workspaceKeyOf` 分组（优先 `projectKey`，回退 `projectRoot`/`cwd`），显示路径与身份分开。同一项目的 worktree 共组；同 basename、不同 key 的目录保持独立。浏览器不能自行补 Windows 路径归一化来替代服务器身份。
-3. **数据范围与排序。** 分组来自已加载的 `allSessions`，按项目最新 session `modified` 倒序。当前活动项目若尚无会话，在最前补一个空项目标题；不会补出所有历史空项目。失效的折叠 key 不生成幽灵项目。
+3. **数据范围与排序。** 分组来自已加载的 `allSessions` 经日常/已归档范围投影后的集合，按项目最新 session `modified` 倒序。当前活动项目若尚无会话，在最前补一个空项目标题；不会补出所有历史空项目。失效的折叠 key 不生成幽灵项目。
 4. **折叠不是导航。** 项目标题点击只切换该 key 的折叠状态，保持 URL、已选会话及 cwd；标题显示目录末段、路径和项目活动计数。运行/未读计数基于项目内 session ID，不是五条预览的可见行数。
 5. **选择与揭示。** 点击会话行走原有 `handleSelectSessionFromList`，更新到该会话 cwd，并回调父级；在 `all` 模式展开其项目。活动项目 key、所选 session ID 或模式改变时也展开活动项目；手动折叠活动项目不会在同一稳定选择下立即反弹。普通选择仅保证项目展开，不保证超过第五位的会话族可见，后者见预览契约的键盘例外。
 6. **持久化。** `pi-web:sidebar-view` 保存 `{ mode, collapsedProjects }`。未知 mode 回退 `current`，损坏 JSON 回退默认；折叠数组只保留字符串并去重。设置模式不清空折叠数组。读取失败使用默认，写入失败仍在当前模块内存生效，不显示存储错误。
@@ -95,6 +100,24 @@ E2E_BASE_URL=http://127.0.0.1:30141 E2E_SIDEBAR_NON_GIT=1 node e2e/sidebar-view.
 ## 已知限制与未验证区域
 
 没有项目名称过滤、手动排序、固定项目或全局多工作区文件浏览器。折叠 key 没有主动垃圾回收；活动空目录离开后可消失。列表错误后保留旧数据不是离线一致性承诺。现有独立浏览器脚本主要验证 fixture UI；真实多标签存储受限场景、实际 worktree 和目录失败需手工验收。
+
+## 任务看板入口（票据 01）
+
+侧栏头部新增独立 [任务看板](task-dashboard.md) 链接（`/tasks`），不把任务放进项目/session
+列表，不改变分组、折叠、历史会话或显式导航规则。该链接走原生 Tab/Enter，不占用会话行的
+方向键导航；Link 不注册 eager `onNavigate` 草稿回调，慢路由期间仍允许编辑。
+AppShell 仅在真正离开且目标 `/tasks` 的 layout cleanup 保存最终文字/图片一次并记录
+匹配 cwd 的返回标记，统一覆盖 Link/history，避免早期快照与末次内容合并。新标签页/
+修饰点击不卸载源 composer，其他弃用清理不变。返回由既有
+草稿/导航机制恢复，显式 URL/普通新建/项目切换仍优先；不创建 session 或发送消息。
+看板的项目键仍复用服务端身份，但其目录不扩大文件访问权限。
+
+## 已有聊天来源任务入口（04主claimed，待复审/父验收）
+
+已选session时新增原生侧栏Link `/tasks?sourceSession=<id>`，空白composer无来源按钮。
+不插入任务到session/project列表、不改变分组/折叠/selected cwd或发送prompt；关联详情回原session URL。
+服务端await权威项目身份（不使用展示SWR cache作授权），但sidebar原展示cache/性能不变。
+无eager draft接线，保留01真正departure/history/慢导航最终草稿。主验证见[task-dashboard](task-dashboard.md)。
 
 ## 维护规则与基线
 
