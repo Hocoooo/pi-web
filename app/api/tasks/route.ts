@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { taskOperation } from "@/lib/task-operations";
 import { TaskOperationError } from "@/lib/task-types";
+import { startServerPerf } from "@/lib/perf";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -41,6 +42,17 @@ export async function POST(request: Request) {
     || !PUBLIC_ACTIONS.has((input as { action?: string }).action ?? "")) {
     return failure(new TaskOperationError("invalid-input", "Unknown or internal task action."));
   }
-  try { return NextResponse.json(await taskOperation(input, { agentDir: getAgentDir(), signal: request.signal }), { headers }); }
-  catch (error) { return failure(error); }
+  // Only a static action label is logged, never the posted cwd/session/task data.
+  const perf = action === "task-picker" ? startServerPerf("POST /api/tasks task-picker", request) : undefined;
+  try {
+    const result = await taskOperation(input, { agentDir: getAgentDir(), signal: request.signal });
+    perf?.span("operation");
+    const response = NextResponse.json(result, { headers });
+    perf?.span("serialize");
+    return perf?.attach(response) ?? response;
+  } catch (error) {
+    perf?.span("operation");
+    const response = failure(error);
+    return perf?.attach(response) ?? response;
+  }
 }

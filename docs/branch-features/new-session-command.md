@@ -2,6 +2,14 @@
 
 > 功能基线：`63c6e4e`。这是前端导航命令，不是发给模型的提示词，也不是后端清空当前会话。
 
+## 归属快照快路径
+
+`taskForNewSession()` 使用 `task-picker(sessionId, ownerOnly: true)`，只取真实 owner 与其 revision/relation tokens，不获取候选任务。服务端仅解析目标会话的项目，不为 `/new` 启动整个会话目录的 Git 查询；已有选择/初次关联 flight、choice generation、导航及 session ID fence 均保留。任务读失败仍留在原会话，绝不默默丢失继承任务。详见 [task-picker.md](task-picker.md)。
+
+## 可选诊断
+
+新建 POST、runtime 初始化和 SDK 扩展绑定提供独立分段日志；浏览器新建 HTTP 请求通过 trace ID 关联，原 `/new` seed 计时仍保留。记录只含固定标签、随机 ID、时长和计数，不改变导航/草稿/后台运行行为，也不把状态更新调用结束宣称为画面已绘制。开启方式和定位流程见 [navigation-diagnostics.md](navigation-diagnostics.md)。
+
 ## 目的与范围
 
 用户在阅读或等待当前会话时，通过输入 `/new` 快速进入同一 cwd 的空白 composer，**自动沿用当前已确认的 provider/model、具体 thinking level 和同一任务归属**，无需再次指定。新会话不复制历史或附件；原会话历史与运行状态保留，不发生 fork、navigate_tree 或原地重置。
@@ -43,9 +51,26 @@
 | [draft-store.ts](../../lib/draft-store.ts) | 与其他新会话入口共享的草稿持久化和 rekey 机制 |
 | [ChatInput.new-session.test.mjs](../../components/ChatInput.new-session.test.mjs) | handler 抽取执行与接线契约 |
 
+## 可选延迟诊断
+
+在浏览器开发者工具 Console 执行 `localStorage.setItem("pi-web:perf", "1")` 后，再执行 `/new`；无需刷新。过滤 `[pi-web:perf]`，`scope: "new_session"` 的记录使用独立随机 traceId，输出累计 `elapsedMs`：
+
+- `start`→`runtime_ready`：等待已有 `ensuringNewSessionRef`（不存在则接近零），不为诊断启动新运行时。
+- `runtime_ready`→`task_ready`：等待在途任务选择/初始关联以及权威 task-picker 读取（含响应 JSON、必要重读）。
+- `seed_ready` / `end`：已准备好 seed，或 error/cancelled；**不表示新 composer 已渲染/聚焦，也不覆盖 router/paint**。后续被 shell 导航 token 否决的 seed 仍可能记录准备成功。
+- `waiting`：长等待每约 10s 输出；`maxEventLoopDelayMs` 是浏览器 timer 的最大迟到量（后台标签限速也会升高），不是长任务归因。
+
+执行 `localStorage.removeItem("pi-web:perf")` 关闭后续诊断；已经开始的 trace 会在结束时清理。日志仅含固定阶段、随机 ID 和时间，不含任务/会话标识、路径、正文或错误文本。不能拿它监测未执行 `/new` 时的所有 UI 卡顿。
+
+服务端启动前设置 `PI_WEB_PERF=1` 时，`POST /api/tasks` 的 `task-picker` 在通过请求解析/入口校验后记录 `operation`（整个 taskOperation，含锁等待、存储读取和会话/项目目录查询）与 `serialize`，在成功及操作异常响应附上 `Server-Timing`；服务 stdout 的 JSON 使用固定 `route: "POST /api/tasks task-picker"`。不是浏览器全程 RTT，也未细拆锁/目录/Git 阶段。其他 action 不新增日志，入口解析/拒绝不产生该计时。浏览器 Network 面板选择 `/new` 对应请求，对照 Timing 与响应头即可区分服务 operation 慢和更外围的等待。
+
+源码检查发现已有 session 的 task-picker 会在任务存储锁内调用全会话 catalogue，并解析各 cwd 的项目。这只是已确认调用路径，不是现场卡顿根因；本次不通过跳过权威 owner/CAS 来提速。
+
 ## 自动验收
 
 ```bash
+node --test lib/request-latency.test.mjs app/api/tasks/picker.test.mjs
+# 另以 PI_WEB_PERF=1 重跑 picker.test.mjs，覆盖启用时成功/失败响应的 Server-Timing
 node --experimental-strip-types --test components/ChatInput.new-session.test.mjs components/AppShell.workspace-memory.test.mjs components/AppShell.file-viewer-state.test.mjs
 # 复用当前 checkout 的健康 dev，不是全局安装的服务；所有 API 被 fixture 截获
 node e2e/new-session-inheritance.mjs

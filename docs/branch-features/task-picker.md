@@ -1,5 +1,13 @@
 # `/task`：聊天中的任务归属选择
 
+## 单会话读取性能与一致性
+
+- `task-picker(sessionId)` 不再构建带全局项目解析的 `taskSessionCatalogue()`；仅取得目标会话 cwd，再对该 cwd 做 authoritative 项目解析。运行中会话沿用 agentDir 范围内的 runtime 元数据；磁盘会话仍枚举 header/stat 元数据以保留 legacy 文件名、重复 ID 的 last-wins、删除及替换语义，不读取全部历史，也不解析其他 cwd。
+- sessionId 形式支持可选 `ownerOnly: true`，供 `/new` 获取当前 owner 快照；cwd 形式不接受它，false/其他值拒绝。结果形状仍为 tasks/relation，tasks 仅包含同项目的真实 owner（无 owner 则为空）。任务 revision、relation generation/updateRevision 与 owner 在同一次 `withTaskStore` 回调中产生。
+- `/new` 仍等待在途选择/首次关联并检查 choice generation/session ID，不复用旧 picker 快照。归属变化后的重读、归档任务继承、错误保留原会话等语义不变。
+- link/change-session-relation 等写路径仍执行既有 authoritative scope 和 CAS 校验，不使用显示缓存替代。全局项目显示解析由进程级队列限流；见 [navigation-diagnostics.md](navigation-diagnostics.md)。
+- 回归：`lib/task-picker-performance.test.mjs` 验证无关 cwd 不触发 Git、ownerOnly 快照、混合命名重复 ID、删除/替换和 agentDir/chat 隔离；`e2e/new-session-inheritance.mjs` 验证 `/new` 使用窄请求并保留继承与导航竞态。
+
 ## 定位与范围
 
 在聊天输入框执行 `/task`，或点击聊天上方的任务归属按钮，打开同一个轻量选择器；不需要任务面板。支持空白新会话的预选，以及已有 session 的关联、改绑和解除。任务仍只是管理归属，不是执行权限或模型上下文。
@@ -81,6 +89,10 @@ node e2e/task-dashboard-panel.mjs
 - 同时回归模型/思考选择器、首次 prompt 设置、原任务面板详情入口、三语言文案、类型检查和局部 lint。
 
 这些浏览器测试不证明真实 provider、生产 SSE、Windows/Safari/iOS 真机、极端任务数量或生产打包行为；没有 build/install、真实模型计费或用户数据迁移。
+
+## 可选性能观测
+
+`PI_WEB_PERF=1` 沿用服务端现有性能开关，为 task-picker 的 taskOperation 和响应序列化增加分段 stdout 日志与 `Server-Timing`（包括操作失败，不包括请求解析/入口校验失败）；静态 action 标签，不记录请求字段。默认关闭，不改变存储、归属、锁或 CAS 行为。用途及边界见 [F09 延迟诊断](new-session-command.md#可选延迟诊断)。`picker.test.mjs` 在开关关闭/开启两种运行方式下覆盖成功与失败响应。
 
 ## 上游整合与维护
 

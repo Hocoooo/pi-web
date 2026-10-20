@@ -11,6 +11,7 @@ import { basename, join } from "node:path";
 import { createInterface } from "node:readline";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { writePrivateFileAtomicSync } from "./atomic-file";
+import { currentServerPerf, startServerPerf, withServerPerf } from "./perf";
 
 export interface ScannedSessionInfo {
 	path: string;
@@ -343,16 +344,25 @@ function queueIndexPersist(): void {
 	if (globalThis.__piWebScanIndexSaveQueued) return;
 	globalThis.__piWebScanIndexSaveQueued = true;
 	queueMicrotask(() => {
+		// Persistence stays synchronous in this microtask, with its own clock:
+		// it must not consume the scanner's next phase or a sibling's timer.
+		const perf = startServerPerf("session_scanner.index_persist");
 		globalThis.__piWebScanIndexSaveQueued = undefined;
 		try {
 			const entries: Record<string, IndexEntry> = {};
-			for (const [pathKey, entry] of getIndex()) entries[pathKey] = entry;
+			const index = getIndex();
+			for (const [pathKey, entry] of index) entries[pathKey] = entry;
+			perf?.span("snapshot", { entries: index.size });
 			writePrivateFileAtomicSync(
 				indexFilePath(),
 				JSON.stringify({ version: INDEX_FORMAT_VERSION, entries }),
 			);
+			perf?.span("write", { entries: index.size });
 		} catch {
+			perf?.finish("error");
 			// persistence is best-effort; the in-memory index remains authoritative
+		} finally {
+			perf?.finish();
 		}
 	});
 }
@@ -365,8 +375,17 @@ function queueIndexPersist(): void {
 export async function listSessionsIncremental(
 	options: { deferDetails?: boolean } = {},
 ): Promise<ScannedSessionInfo[]> {
+	return withServerPerf(startServerPerf("session_scanner.incremental"), () => listSessionsIncrementalInternal(options));
+}
+
+async function listSessionsIncrementalInternal(
+	options: { deferDetails?: boolean },
+): Promise<ScannedSessionInfo[]> {
+	const perf = currentServerPerf();
+	const indexLoaded = !!globalThis.__piWebScanIndexLoaded;
 	loadPersistedIndex();
 	const deferDetails = options.deferDetails ?? false;
+	perf?.span("index_load", { alreadyLoaded: indexLoaded, deferDetails });
 
 	const sessionsDir = join(getAgentDir(), "sessions");
 	const files = await enumerateSessionFiles(sessionsDir);
@@ -378,7 +397,9 @@ export async function listSessionsIncremental(
 		if (!present.has(known)) stale.push(known);
 	}
 	for (const pathKey of stale) index.delete(pathKey);
+	perf?.span("enumerate", { files: files.length, removed: stale.length });
 
+	let statFailures = 0;
 	const fingerprints = await Promise.all(
 		files.map(async (filePath) => {
 			try {
@@ -388,11 +409,17 @@ export async function listSessionsIncremental(
 					fp: { size: s.size, mtimeMs: s.mtimeMs } as Fingerprint,
 				};
 			} catch {
+				statFailures++;
 				return { filePath, fp: null as Fingerprint | null };
 			}
 		}),
 	);
 
+	perf?.span("stat", { files: files.length, failures: statFailures });
+	let hits = 0;
+	let misses = 0;
+	let deferred = 0;
+	let invalidHeaders = 0;
 	const changed: Array<{ filePath: string; fp: Fingerprint; resultIndex: number }> = [];
 	const results: (ScannedSessionInfo | null)[] = new Array(files.length).fill(null);
 	const mtimes: number[] = new Array(files.length).fill(Number.NEGATIVE_INFINITY);
@@ -404,6 +431,7 @@ export async function listSessionsIncremental(
 		mtimes[resultIndex] = fp.mtimeMs;
 		const cached = index.get(filePath);
 		if (hasMatchingFingerprint(cached, fp)) {
+			hits++;
 			// Complete details are already in memory and the index is persisted
 			// across restarts, so on the common warm path every unchanged file
 			// can paint its real count and first message immediately. Blanking
@@ -411,26 +439,37 @@ export async function listSessionsIncremental(
 			results[resultIndex] = cached.info;
 			continue;
 		}
+		misses++;
 		if (deferDetails) {
+			deferred++;
 			// Header and stat only: a later normal listing fills in the transcript
 			// details, so a first paint does not wait on parsing every file.
 			const summary = deferredSessionInfo(filePath, fp);
 			if (summary) results[resultIndex] = summary;
-			else index.delete(filePath);
+			else {
+				invalidHeaders++;
+				index.delete(filePath);
+			}
 			continue;
 		}
 		changed.push({ filePath, fp, resultIndex });
 	}
 
+	perf?.span("classify", { hits, misses, deferred, invalidHeaders, changed: changed.length });
+	let hydrated = 0;
+	let hydrateFailures = 0;
 	await runPool(changed, async ({ filePath, fp, resultIndex }) => {
 		const info = await scanSessionFileInfo(filePath);
 		if (info) {
+			hydrated++;
 			index.set(filePath, { fp, info });
 			results[resultIndex] = info;
 		} else {
+			hydrateFailures++;
 			index.delete(filePath);
 		}
 	});
+	perf?.span("hydrate", { files: changed.length, hydrated, failures: hydrateFailures });
 
 	if (changed.length > 0 || stale.length > 0) queueIndexPersist();
 
@@ -439,7 +478,7 @@ export async function listSessionsIncremental(
 	// SDK reads files newest-mtime first (then reverse filename) so resume can
 	// show results progressively, and its stable sort keeps that order for
 	// sessions with equal activity time.
-	return results
+	const sorted = results
 		.flatMap((info, resultIndex) => (info ? [{ info, mtimeMs: mtimes[resultIndex] }] : []))
 		.sort((a, b) =>
 			b.info.modified.getTime() - a.info.modified.getTime()
@@ -447,6 +486,16 @@ export async function listSessionsIncremental(
 			|| basename(b.info.path).localeCompare(basename(a.info.path)),
 		)
 		.map(({ info }) => info);
+	perf?.span("sort", { sessions: sorted.length, persistQueued: !!globalThis.__piWebScanIndexSaveQueued });
+	return sorted;
+}
+
+/** Header/stat-only target lookup, without transcript or project resolution.
+ * Keep the catalogue's last-duplicate-wins rule even for mixed standard/legacy
+ * filenames: filename uniqueness cannot prove header identity uniqueness.
+ * Enumeration/stat also prevents deleted cached paths from being resurrected. */
+export async function findSessionMetadata(agentDir: string, sessionId: string): Promise<ScannedSessionInfo | null> {
+	return (await listSessionMetadata(agentDir)).filter(info => info.id === sessionId).at(-1) ?? null;
 }
 
 /** Header/stat-only catalogue for task linking. Never schedules transcript hydration.

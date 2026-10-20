@@ -1,5 +1,5 @@
 import { join, relative, isAbsolute } from "node:path";
-import { listSessionMetadata } from "./session-list-scanner";
+import { findSessionMetadata, listSessionMetadata } from "./session-list-scanner";
 import { readSessionRelationMetadata } from "./session-reader";
 import { resolveProjectAuthoritatively } from "./worktree";
 import { projectIdentityKey } from "./project-identity";
@@ -17,6 +17,20 @@ export interface TaskSessionMetadata extends TaskSessionInfo {
 export function taskSessionPathInScope(agentDir: string, sessionPath: string, paths = { join, relative, isAbsolute }): boolean {
   const path = paths.relative(paths.join(agentDir, "sessions"), sessionPath);
   return !!sessionPath && !path.startsWith("..") && !paths.isAbsolute(path);
+}
+
+/** A picker needs one session's current project, not all candidates' projects.
+ * Match the catalogue's scoped live-runtime overlay and chat identity, while
+ * retaining authoritative (non-display-cache) resolution for this one cwd. */
+export async function taskSessionProject(agentDir: string, sessionId: string): Promise<TaskProject | null | undefined> {
+  const { getRpcSessionMetadata } = await import("./rpc-manager");
+  const runtime = getRpcSessionMetadata().find(session => session.id === sessionId
+    && taskSessionPathInScope(agentDir, session.path));
+  const session = runtime ?? await findSessionMetadata(agentDir, sessionId);
+  if (!session?.cwd) return undefined;
+  if (isChatWorkspace(session.cwd, agentDir)) return null;
+  const { projectRoot } = await resolveProjectAuthoritatively(session.cwd);
+  return { cwd: session.cwd, projectRoot, projectKey: projectIdentityKey(projectRoot) };
 }
 
 /** One server catalogue per operation, never one full-history read per card. */

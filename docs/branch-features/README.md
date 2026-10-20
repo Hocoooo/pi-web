@@ -49,7 +49,7 @@ F09 `/new` 现在以一次性、draft 专属 seed 自动沿用当前已确认 pr
 | F06 | [侧栏键盘导航与面板切换](sidebar-keyboard-navigation.md) | Alt+左右切换面板，虚拟化列表可键盘到达，删除需确认 | useKeyboardShortcuts、sidebar-keyboard、SessionSidebar |
 | F07 | [复制会话 ID](session-id-copy.md) | 从会话菜单获得真实 ID，而非标题、文件路径或 entry ID | SessionSidebar |
 | F08 | [输入框与消息区焦点导航](chat-focus-navigation.md) | Alt+上下切换且不跳阅读位置；空白会话加载后聚焦 | ChatInput、ChatWindow、CSS |
-| F09 | [`/new` 空白会话命令](new-session-command.md) | 当前 cwd 空白 composer，自动沿用模型/思考等级/同一任务；不带历史/附图、不改默认、不打断原会话，其他新建入口不继承 | ChatInput、ChatWindow、AppShell、useAgentSession、useTaskSelection |
+| F09 | [`/new` 空白会话命令](new-session-command.md) | 当前 cwd 空白 composer，自动沿用模型/思考等级/同一任务；ownerOnly 窄快照不解析全局项目；不带历史/附图、不改默认、不打断原会话，其他新建入口不继承 | ChatInput、ChatWindow、AppShell、useAgentSession、useTaskSelection |
 | F10 | [下一轮提示词建议](next-prompt-suggestions.md) | 可配置独立建议请求；Tab 只采纳草稿，绝不自动发送 | next-cue 路由、ChatWindow、ChatInput、SettingsPanel |
 | F11 | [桌面文件操作与 Explorer 复用](desktop-file-actions.md) | 浏览/复制/系统打开文件，授权边界与 Windows 标签页复用 | LocalFileLink、desktop-files、windows-explorer、desktop API |
 | F12 | [开发服务输出断管保护](dev-stdio-guard.md) | 仅忽略 stdout/stderr EPIPE，避免日志递归，不吞其他错误 | bin/stdio-guard、package scripts |
@@ -57,7 +57,7 @@ F09 `/new` 现在以一次性、draft 专属 seed 自动沿用当前已确认 pr
 | F14 | [本地全局安装与个人版本维护](local-global-install.md) | Windows/macOS 隔离构建与直接覆盖，不备份旧包/自动回滚；重启与 no-wait 显式授权，不发布 npm | .pi/skills/pi-web-local-global-install |
 | F15 | [开发环境 Service Worker 清理](dev-service-worker-cleanup.md) | 非生产模式注销遗留 worker、清理 pi-web 缓存，同时保留主题恢复与生产 PWA | PwaRegistration、theme 初始化脚本 |
 | F16 | [Windows 无窗口启动链](windows-silent-start.md) | 隐藏 Next 与浏览器辅助控制台，保留日志和生命周期；区分无窗口与 no-open | bin/pi-web、安装器 launch |
-| F17 | [消息与会话性能统计](message-performance.md) | 服务端首有效输出 TTFT、持久化 tok/s、会话加权速度与平均 TTFT；缺失样本不补零 | request-performance、session-stats、MessageView、AppShell |
+| F17 | [消息与会话性能统计](message-performance.md) | 服务端首有效输出 TTFT、持久化 tok/s、会话加权速度与平均 TTFT；缺失样本不补零；可选 PI_WEB_PERF [新建/切换关联诊断](navigation-diagnostics.md)：runtime、列表扫描、详情/state 分阶段与事件循环/CPU/内存，浏览器响应/JSON/状态更新计时；保留 task-picker Server-Timing；项目解析并发限流/冷读取去重，不宣称网络/上游归因 | request-performance、latency-trace、session-stats、MessageView、AppShell、useAgentSession、tasks API |
 | F18 | [输入时草稿补全](draft-completion.md) | 默认关闭；独立模型续写未发送草稿，Tab 只采纳；新/休眠会话不启动 AgentSession | draft-completion API、useDraftCompletion、ChatInput、SettingsPanel |
 | F19 | [独立聊天与固定隐藏工作区](independent-chat.md) | 无项目直接对话，入口在“会话项目”选择器内；固定 cwd 保持跨日历史，权限与界面均与项目会话一致，侧栏显示“对话” | default-cwd、NewSessionProjectPicker、AppShell、SessionSidebar、rpc-manager、session-reader |
 | F20 | [macOS 服务重启与运行诊断](macos-service-lifecycle.md) | 默认 Terminal 私有交接、显式用户级 LaunchAgent、独立 restart 命令；不转储环境、不自动授予权限，诊断失败不假报 verified | 安装器 mac-terminal/mac-launchagent、service-health API |
@@ -72,7 +72,7 @@ F09 `/new` 现在以一次性、draft 专属 seed 自动沿用当前已确认 pr
 | F29 | [安全删除状态列](task-column-removal.md) | 14 resolved：done/lastunfinished保护、独立完成确认、完整ordered源摘要/有界请求、hidden/archive原子迁移、旧board receipt返回当前派生digest、删todo两create首unfinished；与10联合回归 | TaskColumnSettings、TaskDashboard、task-operations/store/types、tasks API |
 | F30 | [解除/改绑任务关系](task-session-relation.md) | F31 关系只管理归属，不要求任务 active 或 session idle；仍保留同锁权威 scope、唯一 owner、generation/CAS/精确 receipt、旧 pending 清理和复制 ABA 保护，不改 cwd/模型/工具/原生历史 | task-relations/operations/store、TaskSessionMenu/TaskSessions/Dashboard、task-summary/start/context-update-send/session-copy |
 | F31 | [任务 session 管理](task-session-management.md) | 任务详情关联对话默认五条/更多收起、每任务独立内存状态与精确移除重试保留、关联已有对话排除递归子代理且不改既有关系、当前会话归属与直达入口、卡片数量/运行提示；管理与执行解耦，停用共享/启动/更新路径，旧数据与历史兼容保留 | TaskDashboard/Details/Sessions/SessionMenu、SessionTaskLink/ChatWindow/AppShell、task-operations/relations/archive/session-copy、rpc-manager |
-| F32 | [聊天任务选择器 `/task`](task-picker.md) | 紧凑主题选择器、单行归属栏、全键盘/慢保存焦点约束与状态本地化；新会话预选不启动 Agent，正常创建后关联；已有会话关联/改绑/解除；同项目/归档/CAS、失败草稿与 ID 保留、详情独立入口 | TaskPicker/TaskSelectionDialog/SessionTaskLink/ChatInput/ChatWindow、useTaskSelection/useAgentSession、tasks API/task-types/task-operations |
+| F32 | [聊天任务选择器 `/task`](task-picker.md) | 紧凑主题选择器、单行归属栏、全键盘/慢保存焦点约束与状态本地化；新会话预选不启动 Agent，正常创建后关联；已有会话关联/改绑/解除；单会话 picker 仅解析目标 cwd，同项目/归档/CAS、失败草稿与 ID 保留、详情独立入口 | TaskPicker/TaskSelectionDialog/SessionTaskLink/ChatInput/ChatWindow、useTaskSelection/useAgentSession、tasks API/task-types/task-operations |
 | F33 | [任务项目选择与修改](task-projects.md) | 合并 Pi 对话与任务项目、复用目录新增/选择、同项目保留关联、跨项目预览确认后原子解除；项目 CAS/精确重试、不改聊天执行；真实隔离服务浏览器验收 | TaskProject/Dashboard/Details/Inspector、tasks API、task-operations/store/types |
 | F34 | [对话归档与恢复](session-archive.md) | 与改名/删除同区悬停显示且统一 32px 按钮、独立会话显示状态/族范围/搜索；F35 复用同锁 sidecar 批量归档及 v2 回执，单会话接口/恢复不改任务；不改 JSONL/完整历史、任务归属或 Agent 生命周期 | session-archive/view、sessions/archive/list/search API、SessionSidebar/SessionSearch |
 | F35 | [任务一次性关联对话归档](task-session-archive.md) | Dashboard 归档先预览固定会话族，跨任务须额外确认；耐久 pending/批次回执与精确重试，部分失败不假报成功；恢复任务不恢复会话，后来关联/fork 不自动归档，不 Stop/改历史 | task-session-archive、task-archive/store/operations/types、session-archive/reader/family、tasks API、TaskArchivePreview/Dashboard/Inspector |

@@ -121,8 +121,9 @@ export function useTaskSelection(sessionId: RefObject<string | null>, cwd: strin
       if (generation !== choiceGeneration.current) continue;
       const id = sessionId.current;
       if (!id) return pending.current;
-      const current = await request<PickerSnapshot>({action: "task-picker", sessionId: id});
-      if (generation !== choiceGeneration.current) continue;
+      // Same atomic relation/revision snapshot, without fetching every candidate.
+      const current = await request<PickerSnapshot>({action: "task-picker", sessionId: id, ownerOnly: true});
+      if (generation !== choiceGeneration.current || id !== sessionId.current) continue;
       if (!current.relation) throw new Error("Session relationship unavailable. Try /new again.");
       const owner = current.relation.sourceTaskId;
       // A real owner wins over a retained, failed initial selection. An unbound

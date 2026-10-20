@@ -19,7 +19,7 @@ import { resolveProjectAuthoritatively } from "./worktree";
 import { projectIdentityKey } from "./project-identity";
 import { isChatWorkspace } from "./chat-workspace";
 import { publicTask, publicTaskBoard, taskCreationFingerprint, taskColumnRemovalDigest, withTaskStore, type StoredTaskRecord } from "./task-store";
-import { taskSessionCatalogue, sameTaskSessionProject, publicTaskSession } from "./task-sessions";
+import { taskSessionCatalogue, taskSessionProject, sameTaskSessionProject, publicTaskSession } from "./task-sessions";
 import { isTaskSessionId, TASK_SESSION_BATCH_LIMIT, type TaskSessionsResult, DEFAULT_TASK_PRIORITY, isCompletionColumn, isTaskColumn, isTaskColumnId, isTaskColumnLabel, isTaskLabel, isTaskPriority, TASK_COLUMNS, TASK_COLUMN_LIMITS, TASK_ID_PATTERN, TASK_LABEL_LIMITS, TASK_TEXT_LIMITS, TaskOperationError, type TaskBoard, type TaskColumnConfig, type TaskProject, type TaskMutationResult, type TaskRequest } from "./task-types";
 
 function invalid(message: string): never { throw new TaskOperationError("invalid-input", message); }
@@ -36,8 +36,9 @@ function parseRequest(input: unknown, sessionCopy = false): TaskRequest {
   }
   if (value.action === "task-picker") {
     if (Object.hasOwn(value, "sessionId")) {
-      if (Object.keys(value).some(key => !["action", "sessionId"].includes(key)) || !isTaskSessionId(value.sessionId)) return invalid("A valid session ID is required, without a project directory.");
-      return { action: "task-picker", sessionId: value.sessionId };
+      if (Object.keys(value).some(key => !["action", "sessionId", "ownerOnly"].includes(key)) || !isTaskSessionId(value.sessionId)
+        || Object.hasOwn(value, "ownerOnly") && value.ownerOnly !== true) return invalid("A valid session ID is required, without a project directory.");
+      return { action: "task-picker", sessionId: value.sessionId, ...(value.ownerOnly === true ? { ownerOnly: true } : {}) };
     }
     if (Object.keys(value).some(key => !["action", "cwd"].includes(key))
       || value.cwd !== null && (typeof value.cwd !== "string" || !value.cwd.trim() || value.cwd.length > 4096)) return invalid("Select one project directory or no project.");
@@ -189,14 +190,15 @@ export async function taskOperation(input: unknown, options: { agentDir: string;
       let project: TaskProject | null;
       let relation: TaskPickerResult["relation"] = null;
       if (request.sessionId !== undefined) {
-        const session = (await taskSessionCatalogue(options.agentDir)).find(session => session.id === request.sessionId);
-        if (!session) throw new TaskOperationError("not-found", "Session no longer exists.");
-        project = session.project;
+        const resolvedProject = await taskSessionProject(options.agentDir, request.sessionId);
+        if (resolvedProject === undefined) throw new TaskOperationError("not-found", "Session no longer exists.");
+        project = resolvedProject;
         const owner = document.tasks.find(task => task.sessionIds.includes(request.sessionId!));
         relation = { sessionId: request.sessionId, sourceTaskId: owner?.id ?? null,
           generation: relationGeneration(document, request.sessionId), updateRevision: owner ? updateState(owner, request.sessionId).revision : 0 };
       } else project = await selectedProject(request.cwd, options.agentDir);
-      const tasks = document.tasks.filter(task => (task.project?.projectKey ?? null) === (project?.projectKey ?? null))
+      const tasks = document.tasks.filter(task => (task.project?.projectKey ?? null) === (project?.projectKey ?? null)
+        && (!request.ownerOnly || task.id === relation?.sourceTaskId))
         .map(task => {
           const column = document.columns.find(column => column.id === task.columnId)!;
           return { id: task.id, title: task.title, archived: task.archived, revision: task.revision,

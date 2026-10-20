@@ -208,8 +208,8 @@ export type TaskRequest =
   | { action: "prepare-session-copy"; operationId: string; sourceSessionId: string; fingerprint: string }
   | { action: "complete-session-copy"; operationId: string; sourceSessionId: string; fingerprint: string; newSessionId: string | null }
   | { action: "save-view"; id: string; operationId: string; expectedViewsRevision: number; name: string; filter: TaskFilter; sort: TaskSort }
-  | { action: "task-picker"; cwd: string | null; sessionId?: never }
-  | { action: "task-picker"; sessionId: string; cwd?: never }
+  | { action: "task-picker"; cwd: string | null; sessionId?: never; ownerOnly?: never }
+  | { action: "task-picker"; sessionId: string; cwd?: never; ownerOnly?: true }
   | { action: "session-task"; sessionId: string }
   | { action: "sessions"; id: string }
   | { action: "link"; id: string; expectedRevision: number; sessionIds: string[] }

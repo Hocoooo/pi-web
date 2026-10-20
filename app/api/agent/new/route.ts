@@ -6,6 +6,7 @@ import { allowFileRoot } from "@/lib/file-access";
 import { invalidateSessionListCache } from "@/lib/session-reader";
 import { startRpcSession } from "@/lib/rpc-manager";
 import { validateVideoCommand } from "@/lib/video-attachments";
+import { currentServerPerf, instrumentRoute } from "@/lib/perf";
 
 const THINKING_LEVELS = new Set<ThinkingLevel>(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 
@@ -20,11 +21,13 @@ function parseThinkingLevel(value: unknown): ThinkingLevel | undefined {
 // Spawns a brand-new pi session. Most calls immediately send the first command;
 // type:"ensure_session" only creates the runtime so clients can query commands.
 // Returns pi's real session id plus the model/thinking state selected at startup.
-export async function POST(req: Request) {
+export const POST = instrumentRoute("POST /api/agent/new", async (req: Request) => {
+  const perf = currentServerPerf();
   let commandType: string | undefined;
   let promptAccepted = false;
   try {
     const body = await req.json() as { cwd?: string; [key: string]: unknown };
+    perf?.span("body_parse");
     const { cwd, ...command } = body;
     commandType = typeof command.type === "string" ? command.type : undefined;
     validateVideoCommand(command);
@@ -64,6 +67,7 @@ export async function POST(req: Request) {
     // Must be unique per request: startRpcSession coalesces concurrent callers
     // that share a key onto one session. Date.now() (ms resolution) collides for
     // requests in the same millisecond, merging two new sessions into one.
+    perf?.span("validation", { ensureOnly: commandType === "ensure_session" });
     const tempKey = `__new__${randomUUID()}`;
     const { session, realSessionId } = await startRpcSession(tempKey, "", cwd, {
       headless,
@@ -72,18 +76,21 @@ export async function POST(req: Request) {
       ...(explicitThinkingLevel ? { thinkingLevel: explicitThinkingLevel } : {}),
     });
 
+    perf?.span("runtime_ready");
     // Keep the files-route allowed-roots cache (see app/api/files/[...path]/route.ts)
     // in sync so the new cwd is immediately readable via /api/files. Without this,
     // a file request under a brand-new cwd would 403 for up to the cache TTL.
     allowFileRoot(cwd);
     invalidateSessionListCache();
 
+    perf?.span("invalidate_caches");
     const state = await session.send({ type: "get_state" }) as {
       model?: { id: string; provider: string };
       thinkingLevel?: string;
       headless: boolean;
     };
 
+    perf?.span("get_state");
     if (promptCommand.type === "ensure_session") {
       return NextResponse.json({
         success: true,
@@ -98,6 +105,7 @@ export async function POST(req: Request) {
     }
 
     const result = await session.send(promptCommand);
+    perf?.span("first_command");
     promptAccepted = promptCommand.type === "prompt";
 
     return NextResponse.json({
@@ -118,4 +126,4 @@ export async function POST(req: Request) {
         : {}),
     }, { status: 500 });
   }
-}
+});

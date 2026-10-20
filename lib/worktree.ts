@@ -4,6 +4,7 @@ import { basename, dirname, join, resolve } from "path";
 import { promisify } from "util";
 import { allowFileRoot } from "./allowed-roots";
 import { samePath, toNativePath } from "./paths";
+import { queueProjectResolution } from "./project-resolution-queue";
 
 const execFileAsync = promisify(execFile);
 
@@ -38,6 +39,7 @@ declare global {
   var __piProjectCache: Map<string, { info: ProjectInfo; expiresAt: number }> | undefined;
   var __piProjectRefresh: Map<string, Promise<void>> | undefined;
   var __piProjectCacheGeneration: number | undefined;
+  var __piProjectCold: Map<string, Promise<ProjectInfo>> | undefined;
 }
 
 const PROJECT_CACHE_TTL_MS = 60_000;
@@ -51,6 +53,7 @@ export function invalidateProjectCache(): void {
   globalThis.__piProjectCache?.clear();
   globalThis.__piProjectCacheGeneration = (globalThis.__piProjectCacheGeneration ?? 0) + 1;
   globalThis.__piProjectRefresh?.clear();
+  globalThis.__piProjectCold?.clear();
 }
 
 async function git(cwd: string, args: string[], timeoutMs = 10_000): Promise<string> {
@@ -96,28 +99,58 @@ function inferRemovedWorktree(cwd: string): ProjectInfo | null {
  * been resolved once. Concurrent refreshes for the same cwd share one promise.
  * add/removeWorktree invalidate eagerly via invalidateProjectCache().
  */
-export async function resolveProject(cwd: string): Promise<ProjectInfo> {
+export type ProjectResolutionCounters = Partial<Record<
+  "freshHits" | "staleHits" | "coldMisses" | "coldJoins" | "backgroundStarts" | "backgroundJoins" | "gitStarted" | "missingCwd", number>>;
+function countResolution(counters: ProjectResolutionCounters | undefined, key: keyof ProjectResolutionCounters): void {
+  if (counters) counters[key] = (counters[key] ?? 0) + 1;
+}
+
+export async function resolveProject(cwd: string, counters?: ProjectResolutionCounters): Promise<ProjectInfo> {
   const cache = getProjectCache();
   const cached = cache.get(cwd);
   const now = Date.now();
-  if (cached && cached.expiresAt > now) return cached.info;
-
-  // Serve the stale entry now; refresh out of band.
-  if (cached) {
-    refreshProjectInBackground(cwd);
+  if (cached && cached.expiresAt > now) {
+    countResolution(counters, "freshHits");
     return cached.info;
   }
 
-  const info = await resolveProjectUncached(cwd);
-  cache.set(cwd, { info, expiresAt: Date.now() + PROJECT_CACHE_TTL_MS });
-  return info;
+  // Serve the stale entry now; refresh out of band.
+  if (cached) {
+    countResolution(counters, "staleHits");
+    refreshProjectInBackground(cwd, counters);
+    return cached.info;
+  }
+
+  countResolution(counters, "coldMisses");
+  const inflight = (globalThis.__piProjectCold ??= new Map<string, Promise<ProjectInfo>>());
+  const existing = inflight.get(cwd);
+  if (existing) {
+    countResolution(counters, "coldJoins");
+    return existing;
+  }
+  const generation = globalThis.__piProjectCacheGeneration ?? 0;
+  const task = queueProjectResolution("background", () => resolveProjectUncached(cwd, counters))
+    .then(info => {
+      if ((globalThis.__piProjectCacheGeneration ?? 0) === generation) {
+        cache.set(cwd, { info, expiresAt: Date.now() + PROJECT_CACHE_TTL_MS });
+      }
+      return info;
+    }).finally(() => {
+      if (inflight.get(cwd) === task) inflight.delete(cwd);
+    });
+  inflight.set(cwd, task);
+  return task;
 }
 
-function refreshProjectInBackground(cwd: string): void {
+function refreshProjectInBackground(cwd: string, counters?: ProjectResolutionCounters): void {
   const inflight = (globalThis.__piProjectRefresh ??= new Map<string, Promise<void>>());
-  if (inflight.has(cwd)) return;
+  if (inflight.has(cwd)) {
+    countResolution(counters, "backgroundJoins");
+    return;
+  }
+  countResolution(counters, "backgroundStarts");
   const generation = globalThis.__piProjectCacheGeneration ?? 0;
-  const task = resolveProjectUncached(cwd)
+  const task = queueProjectResolution("background", () => resolveProjectUncached(cwd, counters))
     .then((info) => {
       if ((globalThis.__piProjectCacheGeneration ?? 0) !== generation) return;
       getProjectCache().set(cwd, { info, expiresAt: Date.now() + PROJECT_CACHE_TTL_MS });
@@ -134,15 +167,17 @@ function refreshProjectInBackground(cwd: string): void {
 /** Await current Git/path identity for write-time scope checks, without touching the display cache.
  * Reuses the exact sidebar worktree/subdirectory/removed-path rules, but never SWR data. */
 export async function resolveProjectAuthoritatively(cwd: string): Promise<ProjectInfo> {
-  return resolveProjectUncached(cwd);
+  return queueProjectResolution("foreground", () => resolveProjectUncached(cwd));
 }
 
-async function resolveProjectUncached(cwd: string): Promise<ProjectInfo> {
+async function resolveProjectUncached(cwd: string, counters?: ProjectResolutionCounters): Promise<ProjectInfo> {
   let info: ProjectInfo;
   try {
     if (!existsSync(cwd)) {
+      countResolution(counters, "missingCwd");
       return inferRemovedWorktree(cwd) ?? { projectRoot: cwd, branch: null, isWorktree: false, isTopLevel: false };
     }
+    countResolution(counters, "gitStarted");
     const out = await git(cwd, [
       "rev-parse", "--path-format=absolute",
       "--git-common-dir", "--git-dir", "--show-toplevel",

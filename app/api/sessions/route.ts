@@ -12,21 +12,21 @@ import {
   getRpcSessionInfos,
   getRunningRpcSessionIds,
 } from "@/lib/rpc-manager";
-import { startServerPerf } from "@/lib/perf";
+import { currentServerPerf, instrumentRoute } from "@/lib/perf";
 import { readArchivedSessionIds } from "@/lib/session-archive";
 import { withSessionArchiveState } from "@/lib/session-archive-view";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(req: Request) {
-  const perf = startServerPerf("GET /api/sessions");
+export const GET = instrumentRoute("GET /api/sessions", async (req: Request) => {
+  const perf = currentServerPerf();
   try {
     const searchParams = new URL(req.url).searchParams;
     const force = searchParams.get("force") === "1";
     // `summary=1` serves header/stat metadata so the sidebar can paint without
     // waiting for every session transcript to be parsed.
     const summary = searchParams.get("summary") === "1";
-    perf?.span("start");
+    perf?.span("start", { force, summary });
     const persistedSessionsPromise = summary
       ? listSessionSummaries()
       : listAllSessions({ force });
@@ -36,23 +36,15 @@ export async function GET(req: Request) {
       persistedSessionsPromise,
       attachSessionProjectInfo(getRpcSessionInfos()),
     ]);
-    perf?.span("scan+projects");
+    perf?.span("scan+projects", { persisted: persistedSessions.length, runtime: runtimeSessions.length });
     // Keep the canonical catalog complete: tasks, URL restoration and activity
     // tracking still need archived sessions. Only the sidebar/search project it.
     const sessions = withSessionArchiveState(
       mergeSessionLists(persistedSessions, runtimeSessions),
       await readArchivedSessionIds(),
     );
-    return perf?.attach(jsonResponse(
-      req,
-      {
-        sessions,
-        sessionListVersion,
-        runningSessionIds: getRunningRpcSessionIds(),
-        completionNotificationSuppressedSessionIds: getCompletionNotificationSuppressedRpcSessionIds(),
-      },
-      { headers: { "Cache-Control": "no-store" } },
-    )) ?? jsonResponse(
+    perf?.span("archive_and_merge", { sessions: sessions.length });
+    const response = jsonResponse(
       req,
       {
         sessions,
@@ -62,10 +54,12 @@ export async function GET(req: Request) {
       },
       { headers: { "Cache-Control": "no-store" } },
     );
+    perf?.span("serialize");
+    return response;
   } catch (error) {
     return NextResponse.json(
       { error: String(error) },
       { status: 500, headers: { "Cache-Control": "no-store" } },
     );
   }
-}
+});

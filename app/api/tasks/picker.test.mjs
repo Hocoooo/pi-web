@@ -37,6 +37,35 @@ async function session(cwd) {
   return native;
 }
 
+test("picker diagnostics cover success and operation failure without logging scope or content", async () => {
+  const enabled = process.env.PI_WEB_PERF === "1";
+  const logs = [];
+  const original = console.log;
+  console.log = (...args) => logs.push(args.join(" "));
+  try {
+    const success = await post({ action: "task-picker", cwd: null });
+    const failure = await post({ action: "task-picker", sessionId: randomUUID() });
+    assert.equal(success.status, 200);
+    assert.equal(failure.status, 404);
+    for (const response of [success, failure]) {
+      assert.equal(response.headers.has("server-timing"), enabled);
+      if (enabled) assert.match(response.headers.get("server-timing"), /operation;dur=[\d.]+.*total;dur=/);
+    }
+    assert.equal(logs.map(line => JSON.parse(line)).filter(record => record.event === "end").length, enabled ? 2 : 0);
+    if (!enabled) assert.equal(logs.length, 0);
+    for (const line of logs) {
+      const record = JSON.parse(line);
+      assert.equal(record.route, "POST /api/tasks task-picker");
+      assert.ok(["start", "phase", "end"].includes(record.event));
+      assert.match(record.traceId, /^[a-f0-9]{32}$/);
+      assert.equal(typeof record.maxEventLoopDelayMs, "number");
+      if (record.event === "end") assert.equal(typeof record.phases.operation, "number");
+      assert.ok(!line.includes(agentDir));
+      assert.ok(!line.includes("Private"));
+    }
+  } finally { console.log = original; }
+});
+
 let chatTask, archivedTask, projectTask;
 const picker = target => ok({ action: "task-picker", ...target });
 async function rejected(input, status, code) {

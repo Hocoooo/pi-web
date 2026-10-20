@@ -1,5 +1,9 @@
 # 消息与会话性能统计（TTFT / tok/s）
 
+## 新建与切换诊断补充
+
+`PI_WEB_PERF=1` 现在覆盖新建路由、runtime 初始化/扩展绑定、会话列表和详情/state；浏览器 opt-in 通过 trace/request ID 关联响应头、JSON 读取和状态更新。服务端输出阶段、等待心跳、事件循环延迟及进程 CPU/内存；不记录正文/路径/凭证，不改变 TTFT。开关、字段口径、采集方法、测试及限制见 [navigation-diagnostics.md](navigation-diagnostics.md)。
+
 ## 目标与用户口径
 
 在 assistant 消息上显示首 token 延迟与生成速度，完成后、刷新后仍保留；在会话信息面板显示平均生成速度与平均 TTFT。**模型开始输出就算首 token，不要求正文出现**。历史缺失数据不补零，也不反推。
@@ -37,10 +41,43 @@
 - `components/AppShell.tsx`、`components/ChatWindow.tsx`：会话平均值、刷新依赖与样本数 tooltip。
 - `lib/i18n/messages/{en,zh-CN,zh-TW}.ts`：标签与口径说明。静态 `demo/` 未同步本功能。
 
+## 可选延迟诊断（不是性能根因判定）
+
+服务启动前设置 `PI_WEB_PERF=1`，重启到包含此实现的版本。关闭时移除该变量并重启。复用已有 `lib/perf.ts` 开关；模型请求额外输出带 `[pi-web:perf]` 前缀的 JSON 到服务标准输出，不创建独立日志文件。尚未首输出的请求也会每约 10 秒报告 `waiting`（目前生成期间同样报告）；请求结束清理定时器。默认无日志、无采样 timer，原 options 对象直接传给 SDK。
+
+每次模型请求使用独立随机 `traceId`、UTC `timestamp`，`elapsedMs` 是从请求诊断开始的累计单调时钟时间；相邻阶段相减才是分段耗时。日志不包含会话/任务 ID、provider/model 名、cwd、请求 URL、payload、headers、正文、工具参数或原始错误。并发请求按 traceId 分组，以时间窗口与 UI/网关记录人工对照；traceId 不发送给上游，因此不是 sub2api 的 request ID。
+
+| stage | 观测边界与限制 |
+|---|---|
+| `start` | 进入已有 streamFunction 包装器，不包含 HTTP prompt 路由、会话创建或浏览器排队 |
+| `stream_ready` | 原函数返回流对象；**不代表连接建立或收到 HTTP 响应** |
+| `payload` | SDK 的 `onPayload` 回调入口；可能早于鉴权、调用者 payload hook、实际发送和内部重试 |
+| `response` | SDK 的 `onResponse` 回调入口，仅记录 HTTP status，不读取 body/headers；不是所有扩展/provider 都调用 |
+| `provider_event` | 首次 `onProviderStreamEvent` 回调，可能是元数据而非文本；不是原始 socket 首字节 |
+| `first_event` | SDK 首个标准化事件，start/空 delta 也算，不能用来替代 TTFT |
+| `first_output` | 和 TTFT 相同的首个非空 text/thinking/toolcall delta |
+| `end` | 完成/失败/中止，固定 outcome 枚举；无 delta 时不会虚构首输出 |
+
+回调保留原参数、返回值/Promise、错误传播；不覆盖 fetch、不改变认证、headers、重试、超时或流的消费次数。payload/response 可能重复（provider 内部重试等），没有对应回调的阶段保持缺失而不是推算零。
+
+`maxEventLoopDelayMs` 是该次诊断期间每 250ms timer 的最大迟到量，也在阶段到达时检查未执行的到期 timer。它是**粗粒度阻塞/调度延迟信号**，不是 CPU 占用、DNS/TCP/TLS 耗时或精确事件循环 profiler；系统休眠、负载、浏览器后台限速也能使值升高，低值不能排除短暂阻塞。只有开启诊断且请求/seed 准备在途时采样，不是全局卡顿监控。
+
+判读方法：
+
+- start→payload 慢：优先检查 SDK/provider 本地准备（仍需确认该 provider 的回调位置）。
+- payload→response 慢且事件循环延迟小：定位到发送前 hook、网络、网关、上游或内部重试这组候选，**不能只凭客户端日志区分 sub2api 与模型上游**。
+- response→provider_event/first_output 慢：响应流等待、网关缓冲、模型首输出或本机解析/回调仍都是候选；结合事件循环信号。
+- first_output 很早但 UI 很晚：检查 SSE 传输和浏览器渲染，本次日志不覆盖该链路。
+- 最终拆分网络/sub2api/模型上游，需对照 sub2api 的请求接收、转发、上游响应/首块时间；本次不增加全局 fetch monkey patch 或透传诊断头。
+
+`/new` 浏览器日志和任务接口计时见 [F09](new-session-command.md#可选延迟诊断)。本次没有复现用户现场的偶发卡顿，不将诊断能力当成卡顿已修复。
+
+诊断增量验证：request-latency/request-performance/message-performance/agent-event-wire/streaming-message、task-picker API 和 ChatInput.new-session 共 68 项通过；另在 `PI_WEB_PERF=1` 下 task-picker API 6 项通过；tsc、变更代码 ESLint、diff whitespace 检查通过。测试覆盖合成延迟、回调保留、失败收尾、随机 trace 隔离、字段脱敏、浏览器开关/禁用存储、timer 清理和接口响应头。未跑本次真实浏览器 `/new` 计时 E2E 或真实 sub2api 联调；检查到 30141 为全局安装服务而非 checkout dev，未替换、重启或在该服务上冒充验证新代码。
+
 ## 验收
 
 ```bash
-node --test lib/request-performance.test.mjs lib/message-performance.test.mjs lib/session-stats.test.mjs lib/streaming-message.test.mjs lib/agent-event-wire.test.mjs lib/agent-event-stream.test.mjs lib/session-reader.pagination.test.mjs components/MessageView.test.mjs "lib/rpc-manager*.test.mjs"
+node --test lib/request-latency.test.mjs lib/request-performance.test.mjs lib/message-performance.test.mjs lib/session-stats.test.mjs lib/streaming-message.test.mjs lib/agent-event-wire.test.mjs lib/agent-event-stream.test.mjs lib/session-reader.pagination.test.mjs components/MessageView.test.mjs "lib/rpc-manager*.test.mjs"
 node node_modules/typescript/bin/tsc --noEmit
 npm run lint
 ```

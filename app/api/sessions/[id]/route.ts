@@ -21,19 +21,19 @@ import { readSessionTitleState, isStaleSessionTitleError } from "@/lib/auto-sess
 import { projectTreeForResponse, toSummaryTree } from "@/lib/project-tree";
 import { computeSessionTotalActiveMs } from "@/lib/session-timing";
 import { computeSessionStats } from "@/lib/session-stats";
-import { startServerPerf } from "@/lib/perf";
+import { currentServerPerf, instrumentRoute } from "@/lib/perf";
 import { computeSessionRevision } from "@/lib/session-revision";
 import type { SessionEntry } from "@/lib/types";
 import { readSubagentRun, readSubagentSessionResources, SUBAGENT_META_TYPE } from "@/lib/subagents";
 import { readSessionToolSelection } from "@/lib/session-tool-selection";
 import { jsonResponse } from "@/lib/json-response";
 
-export async function GET(
+export const GET = instrumentRoute("GET /api/sessions/[id]", async (
   req: Request,
   { params }: { params: Promise<{ id: string }> }
-) {
+) => {
+  const perf = currentServerPerf();
   const { id } = await params;
-  const perf = startServerPerf("GET /api/sessions/[id]");
   try {
     perf?.span("resolve");
     const rpc = getRpcSession(id);
@@ -58,7 +58,7 @@ export async function GET(
     }
 
     const sm = liveRpc?.inner.sessionManager ?? openSessionManager(resolvedPath!);
-    perf?.span("open");
+    perf?.span("open", { force, live: Boolean(liveRpc), wrapperRebuilt });
     const filePath = liveRpc?.sessionFile || sm.getSessionFile() || resolvedPath || "";
     const entries = sm.getEntries();
     const leafId = sm.getLeafId();
@@ -66,7 +66,7 @@ export async function GET(
     const tree = summaryTree
       ? toSummaryTree(projectTreeForResponse(sm.getTree()))
       : projectTreeForResponse(sm.getTree());
-    perf?.span("tree");
+    perf?.span("tree", { entries: entries.length, summaryTree });
     const deferThinking = searchParams.has("deferThinking");
     const deferToolResultImages = searchParams.has("deferMedia");
     const rawTail = Number(searchParams.get("tail"));
@@ -135,24 +135,8 @@ export async function GET(
       transient: !filePath || !existsSync(filePath),
     }]))[0] : null;
 
-    return perf?.attach(jsonResponse(
-      req,
-      {
-        sessionId: id,
-        filePath,
-        info,
-        leafId,
-        tree,
-        ...(summaryTree ? { treeFormat: "summary" as const } : {}),
-        snapshotRevision,
-        context,
-        stats,
-        totalActiveMs,
-        ...(toolNames !== undefined ? { toolNames } : {}),
-        ...(wrapperRebuilt ? { wrapperRebuilt: true } : {}),
-        sessionListVersion,
-      },
-    )) ?? jsonResponse(
+    perf?.span("revision_and_project");
+    const response = jsonResponse(
       req,
       {
         sessionId: id,
@@ -170,10 +154,12 @@ export async function GET(
         sessionListVersion,
       },
     );
+    perf?.span("serialize");
+    return response;
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }
-}
+});
 
 // PATCH /api/sessions/[id] body: { name: string } OR { autoTitleEnabled: boolean }
 export async function PATCH(

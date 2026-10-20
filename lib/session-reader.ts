@@ -13,6 +13,7 @@ import { projectIdentityKey } from "./project-identity";
 import { isChatWorkspace } from "./chat-workspace";
 import { CHAT_WORKSPACE_KEY } from "./session-kind";
 import { sessionPathKey } from "./session-path";
+import { currentServerPerf, startServerPerf, withServerPerf } from "./perf";
 import { MAX_TOOL_RESULT_IMAGE_BYTES, TOOL_RESULT_IMAGE_MIMES } from "./tool-result-images";
 import { resolveProject, type ProjectInfo } from "./worktree";
 import { readSubagentRun, SUBAGENT_META_TYPE } from "./subagents";
@@ -156,14 +157,26 @@ function readSessionRelationEntries(filePath: string): SessionEntry[] {
 }
 
 export async function attachSessionProjectInfo(sessions: SessionInfo[]): Promise<SessionInfo[]> {
+  return withServerPerf(startServerPerf("session_reader.attach_projects"), () => attachSessionProjectInfoInternal(sessions));
+}
+
+async function attachSessionProjectInfoInternal(sessions: SessionInfo[]): Promise<SessionInfo[]> {
+  const perf = currentServerPerf();
   const agentDir = getAgentDir();
   const uniqueCwds = [...new Set(sessions.map((s) => s.cwd).filter((cwd) => cwd && !isChatWorkspace(cwd, agentDir)))];
   const projectByCwd = new Map<string, ProjectInfo>();
-  await Promise.all(uniqueCwds.map(async (cwd) => {
-    projectByCwd.set(cwd, await resolveProject(cwd));
-  }));
+  perf?.span("unique_cwds", { sessions: sessions.length, cwds: uniqueCwds.length });
+  const counters: Record<string, number> | undefined = perf ? {} : undefined;
+  const resolving = uniqueCwds.map(async (cwd) => {
+    projectByCwd.set(cwd, await resolveProject(cwd, counters));
+  });
+  // Async functions execute synchronously until their first await. A stale
+  // cache can still spend time launching many background Git processes here.
+  perf?.span("launch_project_resolution", counters);
+  await Promise.all(resolving);
 
-  return sessions.map((session) => {
+  perf?.span("resolve_projects", { cwds: uniqueCwds.length, ...counters });
+  const result = sessions.map((session): SessionInfo => {
     if (isChatWorkspace(session.cwd, agentDir)) {
       return { ...session, sessionKind: "chat", projectRoot: session.cwd, projectKey: CHAT_WORKSPACE_KEY };
     }
@@ -177,6 +190,8 @@ export async function attachSessionProjectInfo(sessions: SessionInfo[]): Promise
       ...(project?.isWorktree ? { isWorktree: true } : {}),
     };
   });
+  perf?.span("map_projects", { sessions: result.length });
+  return result;
 }
 
 export function mergeSessionLists(
@@ -284,13 +299,28 @@ export async function listSessionArchiveMetadata(agentDir: string): Promise<Sess
 }
 
 async function buildSessionList(scanned: ScannedSessionInfo[]): Promise<SessionInfo[]> {
-  const pathToId = new Map<string, string>();
-  for (const session of scanned) pathToId.set(sessionPathKey(session.path), session.id);
-  return attachSessionProjectInfo(scanned.map((session) => mapScannedSession(session, pathToId)));
+  return withServerPerf(startServerPerf("session_reader.build_list"), async () => {
+    const perf = currentServerPerf();
+    const pathToId = new Map<string, string>();
+    for (const session of scanned) pathToId.set(sessionPathKey(session.path), session.id);
+    perf?.span("path_index", { sessions: scanned.length });
+    const mapped = scanned.map((session) => mapScannedSession(session, pathToId));
+    perf?.span("map_relations", { sessions: mapped.length });
+    const result = await attachSessionProjectInfo(mapped);
+    perf?.span("projects", { sessions: result.length });
+    return result;
+  });
 }
 
 async function loadAllSessions(): Promise<SessionInfo[]> {
-  return buildSessionList(await listSessionsIncremental());
+  return withServerPerf(startServerPerf("session_reader.load_all"), async () => {
+    const perf = currentServerPerf();
+    const scanned = await listSessionsIncremental();
+    perf?.span("scanner", { sessions: scanned.length });
+    const result = await buildSessionList(scanned);
+    perf?.span("build", { sessions: result.length });
+    return result;
+  });
 }
 
 /**
@@ -299,10 +329,22 @@ async function loadAllSessions(): Promise<SessionInfo[]> {
  * counts, names, and first messages afterwards.
  */
 export async function listSessionSummaries(): Promise<SessionInfo[]> {
-  return buildSessionList(await listSessionsIncremental({ deferDetails: true }));
+  return withServerPerf(startServerPerf("session_reader.summaries"), async () => {
+    const perf = currentServerPerf();
+    const scanned = await listSessionsIncremental({ deferDetails: true });
+    perf?.span("scanner", { sessions: scanned.length });
+    const result = await buildSessionList(scanned);
+    perf?.span("build", { sessions: result.length });
+    return result;
+  });
 }
 
 export async function listAllSessions(options: { force?: boolean; allowStale?: boolean } = {}): Promise<SessionInfo[]> {
+  return withServerPerf(startServerPerf("session_reader.list_all"), () => listAllSessionsInternal(options));
+}
+
+async function listAllSessionsInternal(options: { force?: boolean; allowStale?: boolean }): Promise<SessionInfo[]> {
+  const perf = currentServerPerf();
   if (options.force) invalidateSessionListCache();
   const generation = globalThis.__piSessionListGeneration ?? 0;
 
@@ -310,6 +352,7 @@ export async function listAllSessions(options: { force?: boolean; allowStale?: b
   // and re-spawning git processes on every page load).
   const cache = globalThis.__piSessionListCache;
   if (cache && cache.generation === generation && Date.now() - cache.ts < SESSION_LIST_CACHE_TTL_MS) {
+    perf?.span("fresh", { sessions: cache.data.length, force: !!options.force });
     return cache.data;
   }
 
@@ -319,6 +362,7 @@ export async function listAllSessions(options: { force?: boolean; allowStale?: b
   // every forked and subagent session, and it is triggered by ordinary agent
   // activity rather than by anything the caller did.
   if (options.allowStale && cache) {
+    perf?.span("stale", { sessions: cache.data.length, force: !!options.force });
     void listAllSessions().catch(() => undefined);
     return cache.data;
   }
@@ -326,14 +370,19 @@ export async function listAllSessions(options: { force?: boolean; allowStale?: b
   // Coalescing dedup: concurrent callers share the same in-flight promise
   // only while it belongs to the current cache generation.
   if (globalThis.__piSessionListPromise && globalThis.__piSessionListPromiseGeneration === generation) {
-    return globalThis.__piSessionListPromise;
+    perf?.span("join", { force: !!options.force });
+    const data = await globalThis.__piSessionListPromise;
+    perf?.span("join_wait", { sessions: data.length });
+    return data;
   }
 
+  perf?.span("rebuild", { force: !!options.force, cached: !!cache });
   const loadPromise = loadAllSessions().then((data) => {
     // If a mutation invalidated this scan, make this caller join (or start) a
     // scan for the current generation. Returning the stale result here made a
     // refresh race indistinguishable from a successful refresh.
     if ((globalThis.__piSessionListGeneration ?? 0) !== generation) {
+      perf?.span("superseded");
       return listAllSessions();
     }
     globalThis.__piSessionListCache = { data, ts: Date.now(), generation };
@@ -348,7 +397,9 @@ export async function listAllSessions(options: { force?: boolean; allowStale?: b
 
   globalThis.__piSessionListPromise = trackedPromise;
   globalThis.__piSessionListPromiseGeneration = generation;
-  return trackedPromise;
+  const data = await trackedPromise;
+  perf?.span("rebuild_wait", { sessions: data.length });
+  return data;
 }
 
 // ============================================================================

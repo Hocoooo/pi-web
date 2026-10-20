@@ -38,7 +38,8 @@ async function run(name, options, check) {
       else if (body?.action === "task-picker") {
         if (body.sessionId === sourceId && state.readGate) {state.readStarted(); await state.readGate;}
         if (state.failRead) return route.fulfill({status: 503, json: {error: "Task storage unavailable"}});
-        data = {tasks, relation: body.sessionId ? {sessionId: body.sessionId, sourceTaskId: owner, generation: 0, updateRevision: 0} : null};
+        data = {tasks: body.ownerOnly ? tasks.filter(item => item.id === owner) : tasks,
+          relation: body.sessionId ? {sessionId: body.sessionId, sourceTaskId: owner, generation: 0, updateRevision: 0} : null};
       } else if (body?.action === "link") {
         if (state.failLink) return route.fulfill({status: 503, json: {error: "Task link unavailable"}});
         assert.equal(body.sessionIds[0], newId);
@@ -90,12 +91,15 @@ async function run(name, options, check) {
     else await page.getByText("Source-only history", {exact: true}).waitFor();
     const input = page.locator("textarea").first();
     const navigateNew = async () => {
+      const readsBefore = state.tasks.length;
       await input.fill("/new"); await input.press("Enter");
       await page.waitForURL(url => !url.searchParams.has("session"));
       await page.getByLabel("Session project", {exact: true}).waitFor();
       assert.equal(await input.inputValue(), "");
       assert.equal(await page.getByText("Source-only history", {exact: true}).count(), 0);
       assert.equal(state.created.length, 0, "/new must not create an idle runtime");
+      assert.ok(state.tasks.slice(readsBefore).some(body => body.action === "task-picker" && body.sessionId === sourceId && body.ownerOnly === true),
+        "/new must use the narrow owner snapshot, not the full candidate picker");
     };
     await check({page, state, input, navigateNew});
     assert.deepEqual(state.errors, []);

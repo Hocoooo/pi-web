@@ -1,5 +1,7 @@
 "use client";
 
+import { diagnosticFetch, startClientTrace } from "@/lib/latency-trace";
+
 import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { SessionInfo } from "@/lib/types";
@@ -679,11 +681,13 @@ export function SessionSidebar({ onOpenTasks, onFocusSessionPanel, selectedSessi
 
   const loadSessions = useCallback(async (showLoading = false, force = false, summary = false) => {
     const loadId = ++sessionLoadIdRef.current;
+    const trace = startClientTrace("session_list");
+    let outcome: "ok" | "error" | "cancelled" = "cancelled";
     try {
       if (showLoading) setLoading(true);
-      const res = await fetch(sessionListUrl(summary, force), {
+      const res = await diagnosticFetch("session_list", sessionListUrl(summary, force), {
         cache: "no-store",
-      });
+      }, trace);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json() as {
         sessions: SessionInfo[];
@@ -691,6 +695,7 @@ export function SessionSidebar({ onOpenTasks, onFocusSessionPanel, selectedSessi
         runningSessionIds?: string[];
         completionNotificationSuppressedSessionIds?: string[];
       };
+      trace?.mark("json_ready", { counts: { sessions: data.sessions.length, summary, force } });
       if (loadId !== sessionLoadIdRef.current) return;
       sessionListVersionRef.current = data.sessionListVersion;
       setCatalogSnapshot({ sessions: data.sessions, sessionListVersion: data.sessionListVersion });
@@ -715,9 +720,13 @@ export function SessionSidebar({ onOpenTasks, onFocusSessionPanel, selectedSessi
         return next.size === prev.size ? prev : next;
       });
       setError(null);
+      trace?.mark("state_applied");
+      outcome = "ok";
     } catch (e) {
+      outcome = "error";
       if (loadId === sessionLoadIdRef.current) setError(String(e));
     } finally {
+      trace?.end(outcome);
       if (loadId === sessionLoadIdRef.current) setLoading(false);
     }
   }, []);

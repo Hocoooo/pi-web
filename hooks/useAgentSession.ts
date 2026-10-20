@@ -1,5 +1,7 @@
 "use client";
 
+import { diagnosticFetch, startClientTrace, startNewSessionTrace } from "@/lib/latency-trace";
+
 import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo, useReducer } from "react";
 import { useTaskSelection } from "./useTaskSelection";
 import type { TaskPickerItem } from "@/components/TaskPicker";
@@ -559,16 +561,26 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       : currentThinkingOverride ?? liveThinkingLevel ?? asConcreteThinkingLevel(data?.context.thinkingLevel),
   };
   const getNewSessionSeed = useCallback(async (): Promise<NewSessionSeed | null> => {
-    // A runtime may already exist even if its initial task binding failed.
-    // Resolve the confirmed owner/pending choice below rather than losing it.
-    await ensuringNewSessionRef.current?.catch(() => {});
-    const task = await taskForNewSession();
-    if (!sessionHookMountedRef.current) return null;
-    const settings = newSessionSettingsRef.current;
-    if (!settings || modelSwitchPendingRef.current) {
-      throw new Error("Session settings are still loading or changing. Try /new again.");
+    const trace = startNewSessionTrace();
+    try {
+      // A runtime may already exist even if its initial task binding failed.
+      // Resolve the confirmed owner/pending choice below rather than losing it.
+      await ensuringNewSessionRef.current?.catch(() => {});
+      trace?.mark("runtime_ready");
+      const task = await taskForNewSession();
+      trace?.mark("task_ready");
+      if (!sessionHookMountedRef.current) { trace?.end("cancelled"); return null; }
+      const settings = newSessionSettingsRef.current;
+      if (!settings || modelSwitchPendingRef.current) {
+        throw new Error("Session settings are still loading or changing. Try /new again.");
+      }
+      trace?.mark("seed_ready");
+      trace?.end("ok");
+      return { ...settings, task };
+    } catch (error) {
+      trace?.end("error");
+      throw error;
     }
-    return { ...settings, task };
   }, [taskForNewSession]);
 
   const syncLiveModel = useCallback((state?: AgentStateResponse) => {
@@ -729,13 +741,15 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const inflight = options ? undefined : loadFlightsRef.current.get(flightKey);
     if (inflight) return await inflight;
   const flight = (async (): Promise<unknown> => {
+    const trace = startClientTrace("session_load");
+    let traceOutcome: "ok" | "error" | "cancelled" = "cancelled";
     const titleVersion = titleEventVersionRef.current;
     let messagesLoaded = false;
     try {
       if (showLoading) setLoading(true);
       const params = new URLSearchParams({ deferThinking: "1", deferMedia: "1", tree: "summary" });
       if (options?.force) params.set("force", "1");
-      const res = await fetch(`/api/sessions/${encodeURIComponent(sid)}?${params}`);
+      const res = await diagnosticFetch("session_detail", `/api/sessions/${encodeURIComponent(sid)}?${params}`, undefined, trace);
       if (sessionIdRef.current !== sid || navigationVersion !== treeNavigationVersionRef.current) return null;
       if (res.status === 404) {
         if (showLoading) {
@@ -752,6 +766,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const d = await res.json() as SessionData;
+      trace?.mark("json_ready", { counts: { messages: d.context.messages.length, force: Boolean(options?.force) } });
       if (sessionIdRef.current !== sid || navigationVersion !== treeNavigationVersionRef.current) return null;
       if (titleVersion === titleEventVersionRef.current && d.info && typeof d.info.autoTitleEnabled === "boolean") {
         onSessionTitleChange?.(sid, d.info.name ?? "", d.info.autoTitleEnabled, d.sessionListVersion);
@@ -842,6 +857,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         setLiveThinkingLevel(asConcreteThinkingLevel(d.context.thinkingLevel));
       }
 
+      trace?.mark("state_applied", { counts: { revisionUnchanged } });
+      traceOutcome = "ok";
       messagesLoaded = true;
       if (showLoading) setLoading(false);
       if (!includeState) return null;
@@ -849,7 +866,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       try {
         const runId = promptRunIdRef.current;
         const usageRequestId = ++contextUsageRequestIdRef.current;
-        const stateRes = await fetch(`/api/sessions/${encodeURIComponent(sid)}/state`);
+        const stateRes = await diagnosticFetch("session_state", `/api/sessions/${encodeURIComponent(sid)}/state`, undefined, trace);
         if (!stateRes.ok) throw new Error(`HTTP ${stateRes.status}`);
         const agentState = await stateRes.json() as { running: boolean; state?: AgentStateResponse };
         if (sessionIdRef.current !== sid || navigationVersion !== treeNavigationVersionRef.current) return null;
@@ -869,16 +886,20 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         } else if (!agentState.running) {
           setQueuedMessages({ steering: [], followUp: [] });
         }
+        trace?.mark("state_ready");
         return agentState;
       } catch (e) {
+        traceOutcome = "error";
         console.error("Failed to load agent state:", e);
         return null;
       }
     } catch (e) {
       if (sessionIdRef.current !== sid || navigationVersion !== treeNavigationVersionRef.current) return null;
+      traceOutcome = "error";
       setError(String(e));
       return "error";
     } finally {
+      trace?.end(traceOutcome);
       if (showLoading && !messagesLoaded) setLoading(false);
     }
     })();
@@ -988,7 +1009,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       // so pi resolves settings.json defaultTools instead of being pinned to ours (#700).
       const toolNames = getToolNamesForPreset(toolPreset);
       sessionToolsPinnedRef.current = toolNames !== undefined;
-      const res = await fetch("/api/agent/new", {
+      const res = await diagnosticFetch("new_runtime", "/api/agent/new", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

@@ -3,6 +3,7 @@ import { getSupportedThinkingLevels, type Api, type Model } from "@earendil-work
 import { createAgentSessionFromServices, createAgentSessionServices, getAgentDir, initTheme, SessionManager, SettingsManager, Theme, type ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { KeybindingsManager as TuiKeybindingsManager, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
 import { randomUUID } from "crypto";
+import { currentServerPerf, startServerPerf, withServerPerf } from "./perf";
 import { taskSessionPathInScope } from "./task-sessions";
 import { copySessionWithTask } from "./task-session-copy";
 import { existsSync, realpathSync, writeFileSync } from "fs";
@@ -568,9 +569,11 @@ export class AgentSessionWrapper {
     if (this.extensionBindingPromise) return this.extensionBindingPromise;
 
     this.extensionBindingError = null;
-    this.extensionBindingPromise = (async () => {
+    this.extensionBindingPromise = withServerPerf(startServerPerf("runtime.bind_extensions"), async () => {
       if (!this._alive) return;
+      const perf = currentServerPerf();
       const uiContext = this.createExtensionUiContext();
+      perf?.span("ui_context");
       if (typeof this.inner.bindExtensions === "function") {
         const bindExtensions = this.inner.bindExtensions as (bindings: {
           uiContext?: ExtensionUiContextLike;
@@ -600,9 +603,10 @@ export class AgentSessionWrapper {
       } else {
         this.inner.extensionRunner.setUIContext?.(uiContext, "rpc");
       }
+      perf?.span("bind_extensions");
       this.extensionsBound = true;
       console.log(`[pi-web] session_start dispatched to extensions for session ${this.inner.sessionId}`);
-    })().catch((err) => {
+    }).catch((err) => {
       this.extensionBindingError = err;
       throw err;
     });
@@ -2509,6 +2513,16 @@ export async function startRpcSession(
   cwd: string | undefined,
   options: RpcSessionStartOptions = {},
 ): Promise<{ session: AgentSessionWrapper; realSessionId: string }> {
+  return withServerPerf(startServerPerf("runtime.start"), () => startRpcSessionMeasured(sessionId, sessionFile, cwd, options));
+}
+
+async function startRpcSessionMeasured(
+  sessionId: string,
+  sessionFile: string,
+  cwd: string | undefined,
+  options: RpcSessionStartOptions = {},
+): Promise<{ session: AgentSessionWrapper; realSessionId: string }> {
+  const perf = currentServerPerf();
   const { initialModel, allowInitialModelFallback, thinkingLevel } = options;
   const requestedToolNames = options.toolNames === undefined
     ? undefined
@@ -2517,13 +2531,22 @@ export async function startRpcSession(
   const locks = getLocks();
 
   const existing = registry.get(sessionId);
-  if (existing?.isAlive()) return { session: existing, realSessionId: sessionId };
+  if (existing?.isAlive()) {
+    perf?.span("registry_hit");
+    return { session: existing, realSessionId: sessionId };
+  }
 
   const inflight = locks.get(sessionId);
-  if (inflight) return inflight;
+  if (inflight) {
+    perf?.span("join_start");
+    const result = await inflight;
+    perf?.span("join_wait");
+    return result;
+  }
 
   const closingWait = closingRpcSessionWait(sessionId);
   if (closingWait) {
+    perf?.span("closing_wait_start");
     // Concurrent starts share this lock, then the one start that follows it.
     const waiting: Promise<{ session: AgentSessionWrapper; realSessionId: string }> = closingWait.then(() => {
       if (locks.get(sessionId) === waiting) locks.delete(sessionId);
@@ -2540,6 +2563,7 @@ export async function startRpcSession(
     if (!cwd) throw new Error("cwd is required for a new session");
     sessionManager = SessionManager.create(cwd, undefined, options.newSessionId ? { id: options.newSessionId } : undefined);
   }
+  perf?.span("session_manager", { reopening: Boolean(sessionFile) });
   const sessionCwd = sessionManager.getCwd();
   const initialEntries = sessionManager.getEntries() as unknown as SessionEntry[];
   const isSubagent = initialEntries.some(entry => entry.type === "custom" && entry.customType === SUBAGENT_META_TYPE);
@@ -2558,6 +2582,7 @@ export async function startRpcSession(
     subagentResources?.loadExtensions || subagentResources?.loadSkills,
   );
   const chatOnly = selectedToolNames?.length === 0 && !subagentLoadsResources;
+  perf?.span("persisted_selection", { entries: initialEntries.length, chatOnly, isSubagent });
   const finishStartingSession = trackStartingSession(sessionCwd);
   const starting = (async () => {
     // Some extensions access the SDK's global theme even outside the terminal UI.
@@ -2589,7 +2614,9 @@ export async function startRpcSession(
       : chatOnly
         ? undefined
         : projectTrustReloadOptions(sessionCwd, agentDir);
+    perf?.span("theme_and_trust");
     const settingsManager = SettingsManager.create(sessionCwd, agentDir, {});
+    perf?.span("settings");
     // Chat-only sessions and subagents that replace Pi's prompt send an exact
     // system prompt. The prompt is resolved at prompt time through this inline
     // extension: it may read the session's context files, which exist only
@@ -2601,6 +2628,7 @@ export async function startRpcSession(
     const builtins = subagentResources || chatOnly
       ? undefined
       : await createPiWebBuiltinExtensions({ agentDir });
+    perf?.span("builtin_extensions");
     const skillsBinding = subagentResources ? createSubagentSkillsBinding({
       loadSkills: subagentResources.loadSkills,
       skills: subagentResources.skills,
@@ -2657,10 +2685,12 @@ export async function startRpcSession(
           },
       ...(trustReloadOptions ? { resourceLoaderReloadOptions: trustReloadOptions } : {}),
     });
+    perf?.span("sdk_services_and_resources");
     const scope = await resolveVisibleModels(
       services.modelRuntime,
       services.settingsManager.getEnabledModels(),
     );
+    perf?.span("visible_models", { visibleModels: scope.visible.length });
     // A provider an extension registers only at session_start (lib/deferred-provider-models.ts)
     // has no model in this runtime yet: build on the default, switch once extensions are bound.
     const deferredInitialModel = initialModel && !services.modelRuntime.getModel(initialModel.provider, initialModel.modelId)
@@ -2698,6 +2728,7 @@ export async function startRpcSession(
         ? findDeferredModel(services.modelRuntime, savedModel.provider, savedModel.modelId)
         : undefined
       : deferredInitialModel;
+    perf?.span("model_selection");
     const { session: inner } = await createAgentSessionFromServices({
       services,
       sessionManager,
@@ -2708,6 +2739,7 @@ export async function startRpcSession(
       ...(subagentResources ? { excludeTools: [...SUBAGENT_CONTROL_TOOL_NAMES] } : {}),
     });
 
+    perf?.span("sdk_session");
     // A pinned selection replaces only the coding tools of the SDK's initial loadout, which
     // already holds the extension tools pi activates on registration and whatever
     // `defaultTools` names (such as `+codemode`), so installed extensions stay usable in
@@ -2741,8 +2773,10 @@ export async function startRpcSession(
       automaticTitles: !subagentResources,
       ...(builtins?.mcpHost ? { mcpHost: builtins.mcpHost } : {}),
     });
+    perf?.span("wrapper_and_tools");
     const realSessionId = inner.sessionId as string;
     registerRpcWrapper(wrapper);
+    perf?.span("register_wrapper");
 
     if (!chatOnly) {
       if (deferredModel) {
@@ -2759,6 +2793,7 @@ export async function startRpcSession(
         .catch(() => undefined);
     }
 
+    perf?.span("deferred_model");
     return { session: wrapper, realSessionId };
   })().finally(() => {
     locks.delete(sessionId);

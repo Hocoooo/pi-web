@@ -1,6 +1,7 @@
 import type { StreamFn } from "@earendil-works/pi-agent-core";
 import { createAssistantMessageEventStream, type AssistantMessage } from "@earendil-works/pi-ai";
 import type { MessagePerformance } from "./message-performance";
+import { startLatencyTrace, type LatencySink } from "./latency-trace";
 
 type TimedMessage = AssistantMessage & { piWebPerformance?: MessagePerformance };
 
@@ -10,12 +11,36 @@ type TimedMessage = AssistantMessage & { piWebPerformance?: MessagePerformance }
  * Measure before downstream extension/UI processing; keep the SDK's original
  * stream function so authentication, request options and cache warming survive.
  */
-export function createRequestPerformanceTracker(now: () => number = () => performance.now()) {
+export function createRequestPerformanceTracker(
+  now: () => number = () => performance.now(),
+  diagnosticSink?: LatencySink,
+) {
   const completed = new WeakMap<object, MessagePerformance>();
   return {
     wrap(original: StreamFn): StreamFn {
       return (model, context, options) => {
         const started = now();
+        const sink = diagnosticSink ?? (process.env.PI_WEB_PERF === "1"
+          ? (record => console.info("[pi-web:perf]", JSON.stringify(record))) as LatencySink
+          : undefined);
+        const trace = sink ? startLatencyTrace("model_request", sink, now) : undefined;
+        let firstEvent = false;
+        let firstProviderEvent = false;
+        const tracedOptions = trace ? {
+          ...options,
+          onPayload: (...args: Parameters<NonNullable<NonNullable<typeof options>["onPayload"]>>) => {
+            trace.mark("payload");
+            return options?.onPayload?.(...args);
+          },
+          onResponse: (...args: Parameters<NonNullable<NonNullable<typeof options>["onResponse"]>>) => {
+            trace.mark("response", { status: args[0].status });
+            return options?.onResponse?.(...args);
+          },
+          onProviderStreamEvent: (...args: Parameters<NonNullable<NonNullable<typeof options>["onProviderStreamEvent"]>>) => {
+            if (!firstProviderEvent) { firstProviderEvent = true; trace.mark("provider_event"); }
+            return options?.onProviderStreamEvent?.(...args);
+          },
+        } : options;
         let first: number | undefined;
         let partial: TimedMessage | undefined;
         const relay = createAssistantMessageEventStream();
@@ -31,15 +56,23 @@ export function createRequestPerformanceTracker(now: () => number = () => perfor
         const finish = (message: TimedMessage, measured: MessagePerformance) => {
           message.piWebPerformance = measured;
           completed.set(message, measured);
+          const reason = message.stopReason;
+          trace?.end(reason === "stop" || reason === "toolUse" || reason === "length"
+            || reason === "error" || reason === "aborted" ? reason : "other");
           return message;
         };
         void (async () => {
           try {
-            const upstream = await original(model, context, options);
+            const upstream = await original(model, context, tracedOptions);
+            trace?.mark("stream_ready");
             for await (const event of upstream) {
+              if (!firstEvent) { firstEvent = true; trace?.mark("first_event"); }
               if (first === undefined
                 && (event.type === "text_delta" || event.type === "thinking_delta" || event.type === "toolcall_delta")
-                && event.delta.length > 0) first = now();
+                && event.delta.length > 0) {
+                first = now();
+                trace?.mark("first_output");
+              }
               if (event.type === "done" || event.type === "error") {
                 const measured = timing();
                 const message = finish(await upstream.result(), measured);
