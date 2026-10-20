@@ -8,6 +8,12 @@ import vm from "node:vm";
 const source = await readFile(new URL("./AgentsConfig.tsx", import.meta.url), "utf8");
 const cssSource = await readFile(new URL("../app/settings.css", import.meta.url), "utf8");
 const chatInputSource = await readFile(new URL("./ChatInput.tsx", import.meta.url), "utf8");
+
+test("video uses the shared subagent whitelist in both editor choices and new-profile defaults", () => {
+  assert.match(source, /import \{ SUBAGENT_TOOL_NAMES \} from "@\/lib\/tool-presets"/);
+  assert.match(source, /const TOOL_OPTIONS = SUBAGENT_TOOL_NAMES/);
+  assert.match(source, /tools: \[\.\.\.SUBAGENT_TOOL_NAMES\]/);
+});
 const modelSelectorSource = await readFile(new URL("./ModelSelector.tsx", import.meta.url), "utf8");
 const modelPickerSource = await readFile(new URL("./ModelPicker.tsx", import.meta.url), "utf8");
 

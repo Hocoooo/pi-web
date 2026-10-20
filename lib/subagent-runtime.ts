@@ -34,6 +34,7 @@ import {
 import type { SessionEntry } from "./types";
 import { buildSubagentPromptPlan } from "./subagent-prompt";
 import { createSubagentSkillsBinding } from "./subagent-skills";
+import { subagentVideoToolExtensions, withVideoToolPrecedence } from "./video-tools";
 import { appendSubagentInputFiles, loadSubagentInputFiles } from "./subagent-input";
 import { projectTrustReloadOptions } from "./project-trust";
 import { resolveShellTools } from "./powershell-settings";
@@ -259,14 +260,20 @@ export function createSubagentController(
         exactSystemPrompt: promptPlan.exactSystemPrompt,
       });
       if (!chatOnly) initTheme();
+      const extensionOptions = subagentExtensionLoaderOptions(profile);
       const services = await createAgentSessionServices({
         cwd: childCwd,
         agentDir,
         modelRuntime: parentModelRuntime,
         settingsManager,
         resourceLoaderOptions: {
-          ...subagentExtensionLoaderOptions(profile),
+          ...extensionOptions,
           ...skillsBinding.loaderOptions,
+          extensionsOverride: withVideoToolPrecedence(extensionOptions.extensionsOverride),
+          extensionFactories: [
+            ...skillsBinding.loaderOptions.extensionFactories ?? [],
+            ...subagentVideoToolExtensions(profile.tools),
+          ],
           noPromptTemplates: true,
           noThemes: true,
           noContextFiles: true,
@@ -293,7 +300,9 @@ export function createSubagentController(
           : services.resourceLoader.getExtensions().extensions.flatMap((extension) => [...extension.tools.keys()])
         : [];
       const activeTools = resolveShellTools(
-        withSubagentExtensionTools(profile.tools, extensionToolNames),
+        withSubagentExtensionTools(profile.tools, extensionToolNames,
+          profile.tools.includes("read_video") || (Boolean(profile.extensionTools?.length)
+            && !profile.disallowedTools?.includes("read_video"))),
         settingsManager.getDefaultTools(),
       );
 

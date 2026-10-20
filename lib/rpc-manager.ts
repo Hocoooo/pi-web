@@ -58,7 +58,7 @@ import type { McpHost } from "./mcp-host";
 import { mcpPromptPreparation, type McpCommandCandidate } from "./mcp-command";
 import { createReadOnlyMcpPolicyExtension } from "./mcp-read-only-policy";
 import { createTaskReportToolsExtension } from "./task-report-tools";
-import { createVideoToolsExtension } from "./video-tools";
+import { createVideoToolsExtension, subagentVideoToolExtensions, withVideoToolPrecedence } from "./video-tools";
 import { TASK_REPORT_TOOL_NAMES } from "./tool-presets";
 import { createSubagentSkillsBinding } from "./subagent-skills";
 import { isNestedToolExecutionEvent } from "./agent-event-wire";
@@ -2544,6 +2544,9 @@ export async function startRpcSession(
   const initialEntries = sessionManager.getEntries() as unknown as SessionEntry[];
   const isSubagent = initialEntries.some(entry => entry.type === "custom" && entry.customType === SUBAGENT_META_TYPE);
   const subagentResources = sessionFile ? readSubagentSessionResources(initialEntries) : null;
+  if (isSubagent && !subagentResources) {
+    throw new Error("Cannot reopen subagent: its resource snapshot is missing or invalid. No tools were enabled.");
+  }
   const persistedToolNames = subagentResources
     ? undefined
     : readSessionToolSelection(initialEntries);
@@ -2604,14 +2607,20 @@ export async function startRpcSession(
       exactSystemPrompt: subagentResources.exactSystemPrompt
         ?? (chatOnly ? subagentResources.appendSystemPrompt[0] ?? "" : undefined),
     }) : undefined;
+    const subagentExtensionOptions = subagentResources ? subagentExtensionLoaderOptions(subagentResources) : undefined;
     const services = await createAgentSessionServices({
       cwd: sessionCwd,
       agentDir,
       settingsManager,
       resourceLoaderOptions: subagentResources
         ? {
-            ...subagentExtensionLoaderOptions(subagentResources),
+            ...subagentExtensionOptions,
             ...skillsBinding!.loaderOptions,
+            extensionsOverride: withVideoToolPrecedence(subagentExtensionOptions?.extensionsOverride),
+            extensionFactories: [
+              ...skillsBinding!.loaderOptions.extensionFactories ?? [],
+              ...subagentVideoToolExtensions(subagentResources.tools),
+            ],
             noPromptTemplates: true,
             noThemes: true,
             noContextFiles: true,

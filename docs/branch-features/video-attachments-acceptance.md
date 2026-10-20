@@ -2,6 +2,29 @@
 
 状态：视频01–09已于2026-10-15分别独立 review / resolved。实现契约见 [F40](video-attachments.md)。这是从本地票据/验收记录提炼的持久摘要，不保存私有路径、会话正文/ID、凭证、真实 payload、捕获 JSON、临时探针或调度日志。原本地 scratch 不属于提交内容；下列命令可在仓库中直接定位。
 
+## 2026-10-19：子会话内置视频工具接入
+
+标准子会话的新建、reload、live/cold resume 现按工具白名单提供宿主 `read_video`，不依赖加载用户扩展。默认三个 profile 和新建 profile 包含它，显式窄/空名单不扩权；旧快照按冻结名单恢复，缺失/无效快照拒绝重开。合法 Windows `powershell` 快照被单独接受，不将它加入 profile 默认值，也不按当前全局 shell 重写冻结名单。实现与兼容策略见 [F40](video-attachments.md#子会话的新建重开与工具白名单2026-10-19)。
+
+实际离线回归命令（Windows / Node 24 / SDK 1.0，Git Bash）：
+
+```bash
+PI_OFFLINE=1 node --experimental-strip-types --test \
+  lib/subagent-video.integration.test.mjs lib/video-tools.test.mjs \
+  lib/subagents.test.mjs lib/subagent-runtime.integration.test.mjs \
+  lib/subagent-extension-scope.integration.test.mjs lib/subagent-skills.integration.test.mjs \
+  lib/subagent-extension.test.mjs lib/subagent-extension.integration.test.mjs \
+  lib/subagent-prompt.test.mjs lib/tool-presets.test.mjs \
+  components/AgentsConfig.test.mjs lib/video-transport.test.mjs lib/independent-chat.test.mjs
+```
+
+- 新增 `subagent-video.integration` 与 `video-tools` 合计16项全部通过。使用隔离 agentDir、合成 MP4/AVI、真实 SDK 子会话及截获最终 fetch，不读用户凭证、不发外部请求。覆盖工具读取后的原 bytes/顺序、完整 functionResponse＋独立媒体 user 段、引用持久化/当前 bytes、replace prompt＋named skills、三个默认 profile、显式 deny/空名单、profile 修改不扩大旧快照、scope 后同名去重/fallback、扩展移除后恢复宿主、Windows PowerShell 冻结工具和损坏快照拒绝。
+- 上述聚焦回归共261项：251通过、0失败、10平台跳过。8项因 Windows 文件 symlink 权限不足跳过，2项不可读权限检查只在 POSIX 运行；这些跳过不算行为通过。既有 junction 越界检查仍执行。
+- `tsc --noEmit`、`git diff --check` 通过。全仓 ESLint 0错误；两处既有 `test-results/keyboard/baseline-file-viewer*.test.mjs` 的 unused-import warning 未更改。
+- 本轮未运行全量 `npm test`、浏览器验收、生产构建、全局安装/服务重启或真实 Gemini 子会话请求。普通会话历史真实小样本验收不等于子会话已获得真实网关验收；第三方同名工具的实现契约也不由宿主保证。
+
+人工验收（仅在用户另行授权真实模型请求后）：在包含可读小视频的测试目录，新建/选择含 `read_video` 的 profile，显式选受支持的 TapSVC Gemini 与可用 thinking，委派读取 MP4/AVI；应显示一次原生工具读取和正常答案，冷重开/继续追问不重新上传也仍可访问当前文件。另建 `tools: read` 或 `none` 的 profile，不应出现视频工具；只打开“加载扩展”不能补授它。不要用真实用户会话破坏 snapshot，损坏场景由上述隔离测试覆盖。
+
 ## 2026-10-16：Windows 安装前测试修复
 
 在 `feature/gemini-native-video-input` 的 `ecd8067` 上按锁文件执行 `npm ci --include=dev` 后，定向复现8项失败：6项复制/重开混合测试及附件、`read_video` 各1项文件 symlink 测试均在创建链接时返回 EPERM。不是媒体传输逻辑失败，也没有通过放宽生产权限修复。

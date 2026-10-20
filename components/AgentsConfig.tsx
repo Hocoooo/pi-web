@@ -9,6 +9,7 @@ import { displayPathWithin, shortenPath } from "@/lib/display-path";
 import type { ModelsData } from "@/lib/models-cache";
 import { isSubagentProfileOverridden } from "@/lib/subagent-profile-precedence";
 import type { SubagentProfile, SubagentScope, SubagentWritableScope } from "@/lib/subagents";
+import { SUBAGENT_TOOL_NAMES } from "@/lib/tool-presets";
 import {
   getLastSettingsSelection,
   setLastSettingsSelection,
@@ -39,7 +40,7 @@ import {
 import { ModelSelector } from "./ModelSelector";
 import { projectTrustReloadKey } from "./settings-ui-helpers";
 
-const TOOL_OPTIONS = ["read", "bash", "edit", "write", "grep", "find", "ls"];
+const TOOL_OPTIONS = SUBAGENT_TOOL_NAMES;
 const THINKING_OPTIONS = ["", "off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 
 type EditableProfile = Omit<SubagentProfile, "scope" | "filePath">;
@@ -50,7 +51,7 @@ const EMPTY_PROFILE: EditableProfile = {
   displayName: "Custom agent",
   description: "",
   systemPrompt: "",
-  tools: ["read", "bash", "edit", "write", "grep", "find", "ls"],
+  tools: [...SUBAGENT_TOOL_NAMES],
   loadSkills: false,
   loadExtensions: false,
   promptMode: "append",

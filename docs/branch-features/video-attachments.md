@@ -1,6 +1,6 @@
 # 原视频附件：多视频拖入、按路径读取、上下文与队列
 
-核对基线：2026-10-15，SDK 1.0.0。视频 tickets 01–09 已独立 review / resolved。本文保留稳定行为；历史验收、命令与未验边界见[公开验收摘要](video-attachments-acceptance.md)，不依赖本地 scratch 或临时捕获。
+核对基线：2026-10-19，SDK 1.0.0。视频 tickets 01–09 已独立 review / resolved；本次增加子会话工具接入，只有离线 SDK/final-fetch 验证，不代表真实子会话 provider 验收。本文保留稳定行为；历史验收、命令与未验边界见[公开验收摘要](video-attachments-acceptance.md)，不依赖本地 scratch 或临时捕获。
 
 ## 目的与范围
 
@@ -13,6 +13,16 @@
 - 只给目录时，模型复用现有文件/命令工具递归发现相关视频，遵守忽略规则与现有访问边界；数量过多先列候选并缩小范围，不自动分批。没有新增扫描服务或无条件读取整个目录。
 - 普通文字里的路径不会自行触发传输，只有显式附件或成功的 `read_video` 结果会注入原媒体。Chat-only 仍零工具，可使用多视频拖入，不提供主动路径读取。
 - 不兼容开发期旧 `video` / `piWebVideo` 单对象格式；不新增资产存储、转码、哈希/变更快照。文件变动沿用原行为：每次读当前bytes，缺失/无效时明确失败。
+
+## 子会话的新建、重开与工具白名单（2026-10-19）
+
+- `read_video` 是宿主提供的可选子会话工具，无须 `load_extensions: true`。内置 `general-purpose`、`explore`、`plan` 和 Settings 新建 profile 默认包含它；`tools: all` / `*` 同样包含，编辑器提供独立选项。只读 profile 不因此获得 shell/写工具，普通会话的公共预设不变。
+- 显式 `tools: read` / `none` 不自动加视频。只开扩展开关或自动收集扩展工具也不能补授 `read_video`；保留显式 `ext:<name>/read_video`、`ext:<name>` / `ext:*` 选择器的授权语义，但 `disallowed_tools: read_video` 优先拒绝。用户扩展仍遵守原信任/资源范围规则，不是沙箱。
+- spawn 按 profile 工具名单注册命名 inline 工厂，和 skills/exact-prompt 工厂合并；它不是 SDK `builtin: true`，也不是 SDK `replaceable` 工厂。先执行子会话 `extensions:` scope，再为保留的同名用户工具让位；用户实现被 scope 排除或文件移除时保留/恢复宿主工具。仅清理由宿主去重解决的同名诊断，不吞其他错误；reload 每次重算。
+- 最终 active tools 写入既有 `resourceSnapshot`。冷 reopen/resume 按冻结工具名单恢复，不读取当前 profile 来扩大权限；有效旧快照未含视频就不新增。`loadExtensions: false` 的快照也能接受 `read_video`，并继续识别原只读预设的报告工具名及 Windows 已解析的 `powershell`（只供快照恢复，不增加 profile 默认工具或按当前 shell 重写）；缺失/损坏快照明确拒绝重开，不落回普通会话加载工具。
+- 子会话复用原 `AgentSessionWrapper` 视频 transport：成功工具结果的 `details.piWebVideos` 进入该子会话下一次 Google 请求，保留完整 functionResponse 和紧随的独立媒体 user contents，JSONL 只存引用。MP4/AVI、4个/20 MiB、完整120 MiB、具体模型/auth/文件访问检查完全不变；不自动选 Gemini、降级 thinking 或扩大文件根。
+- `inherit_context` 只是父上下文的文字投影，`input_files` 仍为 UTF-8 文本；两者不携带原视频。子会话需自己显式读取获授权路径；不修改用户已有的临时视频扩展/profile，其实现不兼容不能算宿主实现失败或已被修复。
+- 离线覆盖：新建、reload、live/cold resume、三个默认 profile、窄/空名单、旧快照、损坏快照拒绝、扩展显式授权/拒绝/去重/fallback，以及 replace prompt＋named skills 与原 MP4/AVI final-fetch。命令及真实请求边界见[验收摘要](video-attachments-acceptance.md#2026-10-19子会话内置视频工具接入)。
 
 ## 入口与原生引用
 
@@ -67,7 +77,7 @@
 
 ## 08：模式、当前模型与权限
 
-项目沿所选 cwd，无项目沿固定 chat-workspace；普通/Chat-only 共用 wrapper 安装，不依赖 extension factory。Chat-only 原 context-only 精确 system 与零工具不变，普通会话新增 read_video 工具；不因附件 set_tools/授予 shell/MCP，主动读取仍受会话工具选择约束。
+项目沿所选 cwd，无项目沿固定 chat-workspace；普通/Chat-only/子会话共用 wrapper 安装，不依赖 extension factory。Chat-only 原 context-only 精确 system 与零工具不变，普通会话及白名单允许的子会话提供 read_video 工具；不因附件 set_tools/授予 shell/MCP，主动读取仍受会话工具选择约束。
 
 能力精确为 `tapsvc / google/gemini-3.8-flash`、origin `https://llm-proxy.tapsvc.com`，源 API 仅 anthropic-messages 或 google-generative-ai。UI provider/ID 只是早期提示，服务端核对具体组合。只含有效视频的请求局部用原生 Google streamSimple，URL 保留 google/ 前缀与 /v1beta；无视频仍原 SDK stream，不整体改模型配置或独立 cache warmer。
 
@@ -88,11 +98,12 @@ SDK ModelRuntime.getAuth 先解析 key；缺 key、解析到其他 origin 则零
 ## 实现地图与维护
 
 - [video-attachments](../../lib/video-attachments.ts)：client-safe schema/MIME/能力/命令/共享限制；[video-transport](../../lib/video-transport.ts)：owner/SDK conversion/auth/read/Google fail-closed；[video-input-binding](../../lib/video-input-binding.ts)：公开队列边界绑定/投影；[video-tools](../../lib/video-tools.ts)：read_video 原生工具结果引用。
+- [子会话运行时](../../lib/subagent-runtime.ts)、[profile/快照](../../lib/subagents.ts)、[工具名单](../../lib/tool-presets.ts)、[AgentsConfig](../../components/AgentsConfig.tsx)：spawn/reopen、白名单/默认值与编辑器；[子会话视频集成测试](../../lib/subagent-video.integration.test.mjs)、[工厂/去重测试](../../lib/video-tools.test.mjs)。
 - [RPC](../../lib/rpc-manager.ts)、[pi-types](../../lib/pi-types.ts)、[types](../../lib/types.ts)、[new route](../../app/api/agent/new/route.ts)、[existing route](../../app/api/agent/[id]/route.ts)：薄接线/共享结构类型/启动前拒绝，normal/Chat-only 不漏校验。
 - [Picker](../../components/VideoAttachmentPicker.tsx)、[file-upload-client](../../lib/file-upload-client.ts)、[ChatInput](../../components/ChatInput.tsx)、[ChatWindow](../../components/ChatWindow.tsx)：共用上传/分类、门禁、draft/恢复与引用。
 - [hook](../../hooks/useAgentSession.ts)、[draft-store](../../lib/draft-store.ts)、[MessageView](../../components/MessageView.tsx)、[reader](../../lib/session-reader.ts)、[context route](../../app/api/sessions/[id]/context/route.ts)：原生展示、有效状态、分支读取隔离与内存恢复。三语言同步。
 - [合成夹具](../../lib/fixtures/video-attachments/README.md)及[自动/人工验收入口](video-attachments-acceptance.md)。Windows 文件 symlink 能力限制只影响独立链接测试；复制/冷重开、丢文件零请求、修复后追问继续执行，附件与 `read_video` 另测真实 junction 越界拒绝，不将跳过记为安全行为通过。平台策略见 [Windows 测试契约](windows-test-portability.md)。修改同时维护[文件边界](../agents/files-and-access.md)、[模型契约](model-thinking-picker.md)、[会话说明](../agents/sessions.md)、[独立聊天](independent-chat.md)、[Headless](headless-rpc.md)与[索引](README.md)。
 
-Rebase/SDK 升级必须复验 message_end 先于 appendMessage、请求投影 clone、native metadata、公开 enqueue/consume/clear、canonical projection 和 adapter onPayload 的可靠终止，以及最终 URL/鉴权/完整体积。不能整文件覆盖高交叉 hook/composer/RPC，不能把视频放普通 extension factory 漏掉 Chat-only。保留原 admission/Stop/整轮完成/草稿/设置与分支复制语义；不引入任务依赖。
+Rebase/SDK 升级必须复验 message_end 先于 appendMessage、请求投影 clone、native metadata、公开 enqueue/consume/clear、canonical projection 和 adapter onPayload 的可靠终止，以及最终 URL/鉴权/完整体积。不能整文件覆盖高交叉 hook/composer/RPC，不能把视频 transport 放普通 extension factory 漏掉 Chat-only；保留子会话 spawn/reopen 的白名单、skills 工厂合并、scope 后去重与缺失/损坏快照拒绝，不能靠 SDK replaceable 提前移除宿主 fallback。保留原 admission/Stop/整轮完成/草稿/设置与分支复制语义；不引入任务依赖。
 
 已知限制：路径可修改/丢失，未发草稿/未知快照仅内存；无播放器/剪辑、跨刷新未发恢复、不可变资产、转码或全 provider 支持。真实网关已验证两段4秒无音轨MP4的同消息附件、目录发现/read_video续轮与追问；大体积/长视频/音轨/任意 codec/复杂付费组合/全平台未验，详见[验收边界](video-attachments-acceptance.md#限制与保留风险)。

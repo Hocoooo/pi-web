@@ -1,9 +1,38 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { Type } from "@earendil-works/pi-ai";
-import { defineTool, type ExtensionFactory } from "@earendil-works/pi-coding-agent";
+import { defineTool, type ExtensionFactory, type InlineExtension, type LoadExtensionsResult } from "@earendil-works/pi-coding-agent";
 import { assertVideoModel, MAX_VIDEO_ATTACHMENTS, parseVideoReferences, videoMimeTypeForName } from "./video-attachments";
 import { readVideo } from "./video-transport";
+
+const HOST_VIDEO_EXTENSION_NAME = "pi-web-video-tools";
+const HOST_VIDEO_EXTENSION_PATH = `<inline:${HOST_VIDEO_EXTENSION_NAME}>`;
+
+/** Keep this host capability independent of user-extension loading and explicit in the tool scope. */
+export function subagentVideoToolExtensions(tools: readonly string[]): InlineExtension[] {
+  return tools.includes("read_video") ? [{
+    name: HOST_VIDEO_EXTENSION_NAME,
+    factory: createVideoToolsExtension(),
+  }] : [];
+}
+
+/** Resolve duplicates AFTER the child's extension scope, also on reload. SDK replaceable
+ * factories are removed before that scope and could lose the host fallback altogether. */
+export function withVideoToolPrecedence(scope?: (base: LoadExtensionsResult) => LoadExtensionsResult) {
+  return (base: LoadExtensionsResult): LoadExtensionsResult => {
+    const scoped = scope ? scope(base) : base;
+    const host = scoped.extensions.find(extension => extension.path === HOST_VIDEO_EXTENSION_PATH);
+    if (!host?.tools.has("read_video")) return scoped;
+    const userTool = scoped.extensions.some(extension => extension !== host && extension.tools.has("read_video"));
+    return {
+      ...scoped,
+      extensions: userTool ? scoped.extensions.filter(extension => extension !== host) : scoped.extensions,
+      // Only the host's now-resolved single-tool conflicts; unrelated diagnostics stay.
+      errors: scoped.errors.filter(error => error.path !== HOST_VIDEO_EXTENSION_PATH
+        || !error.error.startsWith('Tool "read_video" conflicts with ')),
+    };
+  };
+}
 
 /** The result stores paths, not Base64. The normal stream adapter supplies the original media. */
 export function createVideoToolsExtension(): ExtensionFactory {

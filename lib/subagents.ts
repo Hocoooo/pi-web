@@ -8,7 +8,7 @@ import { parseNpmSource } from "./npm-source";
 import { writePrivateFileAtomicSync } from "./atomic-file";
 import { isExistingPathWithinRoots } from "./path-security";
 import { disabledBuiltInSubagents } from "./subagent-settings";
-import { PRESET_READ_ONLY } from "./tool-presets";
+import { PRESET_READ_ONLY, SUBAGENT_TOOL_NAMES, TASK_REPORT_TOOL_NAMES } from "./tool-presets";
 import type { SessionEntry, SubagentSessionStatus } from "./types";
 
 export const SUBAGENT_META_TYPE = "pi-web:subagent";
@@ -27,6 +27,8 @@ export interface SubagentProfile {
   systemPrompt: string;
   tools: string[];
   extensionTools?: string[];
+  /** Built-in denials also bar a same-name extension from regranting video access. */
+  disallowedTools?: string[];
   /** Raw `ext:` deny selectors, resolved against the loaded extensions at spawn time. */
   disallowedExtensionTools?: string[];
   /** Omitted = SDK on-demand discovery; [] = explicitly no selected skills. */
@@ -120,8 +122,10 @@ export interface SubagentRunInfo {
   resumed?: boolean;
 }
 
-const DEFAULT_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls"];
-const BUILTIN_TOOLS = new Set(DEFAULT_TOOLS);
+const DEFAULT_TOOLS: string[] = [...SUBAGENT_TOOL_NAMES];
+const BUILTIN_TOOLS = new Set([...DEFAULT_TOOLS, ...TASK_REPORT_TOOL_NAMES]);
+// Snapshots freeze the resolved shell; the editor still selects the logical bash tool.
+const SNAPSHOT_BUILTIN_TOOLS = new Set([...BUILTIN_TOOLS, "powershell"]);
 const SUBAGENT_CONTROL_TOOLS = new Set<string>(SUBAGENT_CONTROL_TOOL_NAMES);
 const THINKING_LEVELS = new Set<ThinkingLevel>(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 
@@ -179,7 +183,7 @@ const BUILTIN_PROFILES: SubagentProfile[] = [
     displayName: "Explore",
     description: "Quickly inspect a codebase without modifying it",
     systemPrompt: "Explore the codebase to answer the delegated question. Do not modify files. Report concrete findings with file paths and relevant symbols.",
-    tools: [...PRESET_READ_ONLY],
+    tools: [...PRESET_READ_ONLY, "read_video"],
     loadSkills: false,
     loadExtensions: false,
     promptMode: "append",
@@ -193,7 +197,7 @@ const BUILTIN_PROFILES: SubagentProfile[] = [
     displayName: "Plan",
     description: "Design an implementation plan without modifying files",
     systemPrompt: "Produce an implementation-ready plan for the delegated task. Inspect the repository as needed, do not modify files, and call out dependencies, risks, and verification steps.",
-    tools: [...PRESET_READ_ONLY],
+    tools: [...PRESET_READ_ONLY, "read_video"],
     loadSkills: false,
     loadExtensions: false,
     promptMode: "append",
@@ -359,6 +363,7 @@ function parseProfileFile(filePath: string, scope: SubagentScope): SubagentProfi
       description: stringValue(data?.description) ?? name,
       systemPrompt: rest.trim(),
       tools: tools.filter((tool) => !disallowedTools.has(tool)),
+      ...(disallowedTools.size > 0 ? { disallowedTools: [...disallowedTools] } : {}),
       ...(extensionTools.length > 0 ? { extensionTools } : {}),
       ...(disallowedExtensionTools.length > 0 ? { disallowedExtensionTools } : {}),
       ...(skills !== undefined ? { skills } : {}),
@@ -615,7 +620,7 @@ export function readSubagentSessionResources(
       typeof item === "string"
       && item.length > 0
       && !SUBAGENT_CONTROL_TOOLS.has(item)
-      && (BUILTIN_TOOLS.has(item) || loadExtensions)
+      && (SNAPSHOT_BUILTIN_TOOLS.has(item) || loadExtensions)
     )
   ) {
     return {
@@ -634,10 +639,12 @@ export function readSubagentSessionResources(
 export function withSubagentExtensionTools(
   profileTools: readonly string[],
   extensionToolNames: Iterable<string>,
+  allowVideo = profileTools.includes("read_video"),
 ): string[] {
   return [...new Set([
     ...profileTools,
-    ...[...extensionToolNames].filter((name) => !SUBAGENT_CONTROL_TOOLS.has(name)),
+    ...[...extensionToolNames].filter((name) => !SUBAGENT_CONTROL_TOOLS.has(name)
+      && (name !== "read_video" || allowVideo)),
   ])];
 }
 

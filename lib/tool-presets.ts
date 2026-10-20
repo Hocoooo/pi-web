@@ -22,6 +22,8 @@ export const TOOL_PRESET_VALUES = ["configured", "none", "read-only", "default",
 export type ToolPreset = typeof TOOL_PRESET_VALUES[number];
 
 export const TASK_REPORT_TOOL_NAMES = ["search_task_reports", "read_task_report"] as const;
+/** Host capabilities selectable in a subagent profile, without loading user extensions. */
+export const SUBAGENT_TOOL_NAMES = ["read", "bash", "edit", "write", "grep", "find", "ls", "read_video"] as const;
 export const PRESET_NONE: string[] = [];
 export const PRESET_READ_ONLY: string[] = ["read", "grep", "find", "ls", ...TASK_REPORT_TOOL_NAMES];
 export const PRESET_DEFAULT: string[] = ["read", "bash", "edit", "write", ...TASK_REPORT_TOOL_NAMES];
