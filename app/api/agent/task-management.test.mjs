@@ -29,6 +29,8 @@ async function routes() {
     },
     "@/lib/task-session-copy": { SessionCopyError: class SessionCopyError extends Error {} },
     "@/lib/video-attachments": { validateVideoCommand },
+    // Diagnostics do not participate in task admission or filesystem grants.
+    "@/lib/perf": { currentServerPerf: () => undefined, instrumentRoute: (_route, handler) => handler },
   };
   const load = async path => {
     const source = await readFile(new URL(path, import.meta.url), "utf8");

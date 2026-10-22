@@ -83,6 +83,8 @@
 
 `app/api/agent/task-management.test.mjs` 的有界 VM dependency registry 登记真实的 client-safe `validateVideoCommand`，不 stub 为 no-op；否则视频校验 import 会使原四项在加载阶段失败，无法执行 taskStart 早拒绝与普通启动/权限断言。集成在原 video＋task 快照复现同一缺依赖错误后补齐，原断言保持，不修改任务/视频业务。对应 F40 [公开验收](video-attachments-acceptance.md)与[复制接缝](task-session-copy.md)；此夹具修正不修复或掩盖原 task-copy 三项故障注入失败。
 
+路由新增性能诊断后，该有界 registry 也登记 `@/lib/perf`：无上下文、原 handler 透传，只隔离诊断接缝，保留早拒绝/启动/工具/权限断言；诊断本身由独立 perf/navigation 测试验证。安装前复现与 `PI_WEB_PERF` 双模式夹具回归见 [2026-10-22 验证说明](windows-test-portability.md#性能诊断分支安装前夹具修复2026-10-22)。
+
 ## 维护
 
 修改时同步本合同、F21 索引及受影响的专属合同。共享 UI 与后台入口必须一起停用，不能只隐藏按钮却保留旧 pending 投递。未来恢复共享功能须明确新契约，不因兼容字段或历史 helper 仍存在而自动恢复执行。

@@ -84,7 +84,7 @@ npm run lint
 
 新增自动化验证：
 
-1. text/thinking/tool 参数首增量、空增量、空白、无 delta、异步 provider 初始化、消费延迟、重试/工具间隔。
+1. text/thinking/tool 参数首增量、空增量、空白、无 delta、异步 provider 初始化、消费延迟、重试/工具间隔。请求夹具同时验证 `PI_WEB_PERF` 开/关：关闭保留 options 引用，开启仅新增三个观察回调、原选项引用/值不变；两种模式都必须成功并保留精确计时，不能把 fixture 自身断言失败产生的 error 流当成成功样本。见 [安装前夹具修复](windows-test-portability.md#性能诊断分支安装前夹具修复2026-10-22)。
 2. provider 抛错、abort、无终止事件的 `end(result)` 均能结束 relay；恢复被删除的 metadata。
 3. 使用隔离临时目录、假 provider 和真实 SDK：wrapper 计时 → message_end → SessionManager 写盘 → 重新打开 → UI 历史/分支复制；RPC 会话统计。
 4. SSE 投影与重连 snapshot 的 reducer 保留计时；无完整 partial 泄漏。

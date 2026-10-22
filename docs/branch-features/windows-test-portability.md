@@ -79,6 +79,17 @@ Windows 无文件符号链接权限的检查是明确的验证缺口，需在允
 
 生产代码/授权逻辑未变，未修改系统链接权限，未使用安装器测试跳过。文件 symlink 安全断言仍需允许该能力的 Windows 或非 Windows 环境补验；这两轮测试不是全局安装/服务重启成功证明，后续仍由F14独立核验。
 
+## 性能诊断分支安装前夹具修复（2026-10-22）
+
+`584828c` 的隔离安装检查共3,283项，3,207通过、10失败、66跳过；失败在切换前阻止安装，不能视为全量通过。定向测试稳定复现两处夹具接缝：
+
+- `app/api/agent/task-management.test.mjs` 的有界 VM registry 缺少新路由的 `@/lib/perf` 依赖。补齐无诊断上下文和原 handler 透传，不调用 SDK/真实文件系统；保留全部 taskStart 早拒绝、普通启动、工具重建及授权顺序断言。诊断包装本身继续由 perf/navigation 专项测试覆盖。
+- 当前运行环境的 `PI_WEB_PERF=1` 会按既有合同复制 options 并包装三个观察回调；`lib/request-performance.test.mjs` 原先无条件要求 options 引用不变，导致 fixture provider 自身抛断言，被正常转换为 error 流。现在关闭诊断仍严格要求引用相同；开启时严格检查新增回调键和函数类型、原 signal/temperature 引用和值。新增开/关双模式用例检查成功终态和精确 TTFT/生成时长，原计时、错误、持久化与 SSE 断言全部保留，finally 恢复原环境值。
+
+生产行为、安装器策略和运行时环境均不改变，不通过关闭诊断或跳过全量测试来安装。定向复验：`node --experimental-strip-types --test app/api/agent/task-management.test.mjs lib/request-performance.test.mjs lib/request-latency.test.mjs`，分别在 `PI_WEB_PERF=0` 和 `PI_WEB_PERF=1` 下执行；提交后安装器仍须独立完成隔离全量测试、生产构建、包及服务验证。
+
+本轮在 Windows / Node 24.19.0 下保留 `PI_WEB_PERF=1`，仅像安装器一样移除继承的 build-only `NODE_OPTIONS` / `TURBOPACK` 后，完整 `npm test` 为 **3,284项：3,218通过、0失败、66跳过**，约73秒退出；类型检查、两份修改测试的 ESLint 与 diff 检查通过。原始开发进程携带的相对 stdio preload 会使临时 cwd 的 MCP 子进程找不到 `./bin/stdio-guard.js`；该未清理环境下的19项失败保留在本地日志，不改 MCP 生产策略，也不以此给安装器加测试跳过。上述普通环境测试不是隔离生产构建或安装成功证明，真实安装另行记录。
+
 ## 维护与整合
 
 修改 fixture 必须保留原断言语义；MCP shutdown 或进程生命周期 API 改变时重新核对 cleanup helper。修改 installer temp 必须同步 F14、skill 与恢复指南，并验证运行时环境未被 build-only 环境污染。新源码文件继承 LF 策略；不得绕过 Git 属性让 source-contract 测试重新依赖操作者的 autocrlf 设置。
