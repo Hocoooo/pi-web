@@ -236,7 +236,7 @@ interface Props {
   skipInitialProjectSelection?: boolean;
   onInitialRestoreDone?: () => void;
   refreshKey?: number;
-  onSessionDeleted?: (sessionId: string) => void;
+  onSessionDeleted?: (deletedSessionIds: string[]) => void;
   selectedCwd?: string | null;
   onCwdChange?: (
     cwd: string | null,
@@ -514,6 +514,9 @@ export function SessionSidebar({ onOpenTasks, onFocusSessionPanel, selectedSessi
   const [archiveScope, setArchiveScope] = useState<SessionArchiveScope>("active");
   const [archivingSessionId, setArchivingSessionId] = useState<string | null>(null);
   const archiveRequestRef = useRef(false);
+  const deleteRequestsRef = useRef(new Set<string>());
+  const [deletingSessionIds, setDeletingSessionIds] = useState<Set<string>>(() => new Set());
+  const [deleteFailure, setDeleteFailure] = useState<{ session: SessionInfo; message: string } | null>(null);
   const [archiveFailure, setArchiveFailure] = useState<{ session: SessionInfo; archived: boolean } | null>(null);
   const archiveFingerprint = useMemo(() => allSessions.filter(session => session.archived).map(session => session.id).sort().join(","), [allSessions]);
   const sidebarView = useSidebarView();
@@ -554,6 +557,7 @@ export function SessionSidebar({ onOpenTasks, onFocusSessionPanel, selectedSessi
   // decide whether the list needs reloading, and no render reads it.
   const sessionListVersionRef = useRef<number | null>(null);
   const sessionLoadIdRef = useRef(0);
+  const listRequestPendingRef = useRef<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedCwd, setSelectedCwd] = useState<string | null>(null);
@@ -681,6 +685,7 @@ export function SessionSidebar({ onOpenTasks, onFocusSessionPanel, selectedSessi
 
   const loadSessions = useCallback(async (showLoading = false, force = false, summary = false) => {
     const loadId = ++sessionLoadIdRef.current;
+    listRequestPendingRef.current = loadId;
     const trace = startClientTrace("session_list");
     let outcome: "ok" | "error" | "cancelled" = "cancelled";
     try {
@@ -727,9 +732,58 @@ export function SessionSidebar({ onOpenTasks, onFocusSessionPanel, selectedSessi
       if (loadId === sessionLoadIdRef.current) setError(String(e));
     } finally {
       trace?.end(outcome);
+      if (listRequestPendingRef.current === loadId) listRequestPendingRef.current = null;
       if (loadId === sessionLoadIdRef.current) setLoading(false);
     }
   }, []);
+
+  const deleteSession = useCallback(async (session: SessionInfo) => {
+    if (session.transient || deleteRequestsRef.current.has(session.id)) return;
+    deleteRequestsRef.current.add(session.id);
+    setDeletingSessionIds(current => new Set(current).add(session.id));
+    setDeleteFailure(null);
+    try {
+      const response = await fetch(`/api/sessions/${encodeURIComponent(session.id)}`, { method: "DELETE" });
+      const result = await response.json() as {
+        ok?: unknown; error?: unknown; deletedSessionIds?: unknown; sessionListVersion?: unknown;
+      } | null;
+      const deletedIds = Array.isArray(result?.deletedSessionIds)
+        && result.deletedSessionIds.every((id: unknown) => typeof id === "string" && id.length > 0)
+        ? result.deletedSessionIds as string[] : null;
+      if (!response.ok) {
+        if (deletedIds?.length) {
+          // Partial failure is not root-delete success. Reconcile once without
+          // invoking navigation or guessing which family survived.
+          sessionLoadIdRef.current++;
+          if (detailsHydrationTimerRef.current) clearTimeout(detailsHydrationTimerRef.current);
+          detailsHydrationTimerRef.current = null;
+          void loadSessions();
+        }
+        throw new Error(typeof result?.error === "string" ? result.error : `HTTP ${response.status}`);
+      }
+      if (result?.ok !== true || !deletedIds?.includes(session.id)
+        || typeof result.sessionListVersion !== "number" || !Number.isSafeInteger(result.sessionListVersion)
+        || result.sessionListVersion < 0) {
+        throw new Error(t("sidebar.sessionDeleteUnconfirmed"));
+      }
+      // Acknowledge before any list/poll response can apply. Other catalogue
+      // metadata keeps its original version until the full read returns.
+      sessionLoadIdRef.current++;
+      sessionListVersionRef.current = result.sessionListVersion;
+      if (detailsHydrationTimerRef.current) clearTimeout(detailsHydrationTimerRef.current);
+      detailsHydrationTimerRef.current = null;
+      const removed = new Set(deletedIds);
+      setCatalogSnapshot(current => ({ ...current, sessions: current.sessions.filter(item => !removed.has(item.id)) }));
+      onSessionDeleted?.(deletedIds);
+      // Sidebar owns the refresh; AppShell must not also bump refreshKey.
+      void loadSessions();
+    } catch (error) {
+      setDeleteFailure({ session, message: error instanceof Error ? error.message : String(error) });
+    } finally {
+      deleteRequestsRef.current.delete(session.id);
+      setDeletingSessionIds(current => { const next = new Set(current); next.delete(session.id); return next; });
+    }
+  }, [loadSessions, onSessionDeleted, t]);
 
   const changeSessionArchive = useCallback(async (session: SessionInfo, archived = !session.archived) => {
     if (session.transient || archiveRequestRef.current) return;
@@ -771,8 +825,10 @@ export function SessionSidebar({ onOpenTasks, onFocusSessionPanel, selectedSessi
       // Header/stat metadata is enough to select the URL session and paint the
       // sidebar. Hydrate exact counts, names, and first messages once the
       // selected chat has had a chance to start loading.
-      void loadSessions(true, false, true).then(() => {
-        if (!active) return;
+      const initialLoad = loadSessions(true, false, true);
+      const initialLoadId = sessionLoadIdRef.current;
+      void initialLoad.then(() => {
+        if (!active || initialLoadId !== sessionLoadIdRef.current) return;
         detailsHydrationTimerRef.current = setTimeout(() => {
           detailsHydrationTimerRef.current = null;
           if (active) void loadSessions(false, true);
@@ -873,6 +929,7 @@ export function SessionSidebar({ onOpenTasks, onFocusSessionPanel, selectedSessi
       const current = new AbortController();
       controller?.abort();
       controller = current;
+      const pollLoadId = sessionLoadIdRef.current;
       try {
         const res = await fetch("/api/agent/running", {
           cache: "no-store",
@@ -890,7 +947,8 @@ export function SessionSidebar({ onOpenTasks, onFocusSessionPanel, selectedSessi
           data.completionNotificationSuppressedSessionIds ?? [],
         );
         setRunningSessionIds(new Set(data.runningSessionIds ?? []));
-        if (data.sessionListVersion !== sessionListVersionRef.current) {
+        if (data.sessionListVersion !== sessionListVersionRef.current
+          && pollLoadId === sessionLoadIdRef.current && listRequestPendingRef.current === null) {
           // Reuse the invalidated cache; forcing a scan would change the version again.
           await loadSessions();
         }
@@ -954,7 +1012,7 @@ export function SessionSidebar({ onOpenTasks, onFocusSessionPanel, selectedSessi
     const hasUnlistedRunningSession = newlyRunning.some(
       (id) => !allSessions.some((session) => session.id === id),
     );
-    if (completedInBackground.length > 0 || hasUnlistedRunningSession) {
+    if ((completedInBackground.length > 0 || hasUnlistedRunningSession) && listRequestPendingRef.current === null) {
       loadSessions(false, true);
     }
     if (completedWithNotifications.length > 0) {
@@ -2211,6 +2269,11 @@ export function SessionSidebar({ onOpenTasks, onFocusSessionPanel, selectedSessi
             <option value="active">{t("sidebar.activeSessions")}</option>
             <option value="archived">{t("sidebar.archivedSessions", { count: archivedCount })}</option>
           </select>
+          {deleteFailure && <div role="alert" className="mt-2 text-xs text-red-400">
+            {t("sidebar.sessionDeleteFailed", { title: deleteFailure.session.name || deleteFailure.session.id })} {deleteFailure.message}
+            <button type="button" disabled={deletingSessionIds.has(deleteFailure.session.id)} className="ml-2 cursor-pointer underline disabled:opacity-50"
+              onClick={() => void deleteSession(deleteFailure.session)}>{t("sidebar.retryDelete")}</button>
+          </div>}
           {archiveFailure && <div role="alert" className="mt-2 text-xs text-red-400">
             {t("sidebar.sessionArchiveFailed")}
             <button type="button" disabled={archivingSessionId !== null} className="ml-2 cursor-pointer underline disabled:opacity-50"
@@ -2354,10 +2417,8 @@ export function SessionSidebar({ onOpenTasks, onFocusSessionPanel, selectedSessi
                     onRenamed={loadSessions}
                     onArchive={session => { void changeSessionArchive(session); }}
                     archiving={archivingSessionId !== null}
-                    onDeleted={(id) => {
-                      onSessionDeleted?.(id);
-                      loadSessions();
-                    }}
+                    onDelete={deleteSession}
+                    deleting={deletingSessionIds.has(family.root.id)}
                     onOpenMenu={setSessionMenu}
                   />
                 </div>
@@ -2678,7 +2739,8 @@ function SessionItem({
   isUnread,
   onClick,
   onRenamed,
-  onDeleted,
+  onDelete,
+  deleting = false,
   onArchive,
   archiving = false,
   onOpenMenu,
@@ -2696,7 +2758,8 @@ function SessionItem({
   isUnread?: boolean;
   onClick: () => void;
   onRenamed?: () => void;
-  onDeleted?: (id: string) => void;
+  onDelete: (session: SessionInfo) => Promise<void>;
+  deleting?: boolean;
   onArchive?: (session: SessionInfo) => void;
   archiving?: boolean;
   onOpenMenu?: (menu: SessionContextMenuState) => void;
@@ -2711,7 +2774,6 @@ function SessionItem({
   const [renaming, setRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [deleting, setDeleting] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const rowRef = useRef<HTMLDivElement>(null);
   const deleteCancelRef = useRef<HTMLButtonElement>(null);
@@ -2787,18 +2849,12 @@ function SessionItem({
   }, [renameValue, session.id, session.name, onRenamed, title]);
 
   const performDelete = useCallback(async () => {
-    if (session.transient) return;
+    if (session.transient || deleting) return;
     setConfirmDelete(false);
     if (keyboardDeleteRef.current) rowRef.current?.focus();
     keyboardDeleteRef.current = false;
-    setDeleting(true);
-    try {
-      await fetch(`/api/sessions/${encodeURIComponent(session.id)}`, { method: "DELETE" });
-      onDeleted?.(session.id);
-    } catch {
-      setDeleting(false);
-    }
-  }, [session.id, session.transient, onDeleted]);
+    await onDelete(session);
+  }, [session, deleting, onDelete]);
 
   const handleDeleteClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
@@ -2886,6 +2942,7 @@ function SessionItem({
           <div style={{ display: "flex", gap: 5, flexShrink: 0 }}>
             <button
               onClick={handleDeleteConfirm}
+              disabled={deleting}
               style={{
                 display: "flex", alignItems: "center", justifyContent: "center", gap: 4,
                 height: 30, padding: "0 11px",
@@ -3059,6 +3116,7 @@ function SessionItem({
               </button>}
               <button
                 onClick={handleDeleteClick}
+                disabled={deleting}
                 title={t("sidebar.deleteWithShiftClick")}
                 style={{
                   display: "flex", alignItems: "center", justifyContent: "center",

@@ -108,6 +108,10 @@ PI_WEB_TEST_URL=http://127.0.0.1:30141 node e2e/session-keyboard.mjs
 
 没有 F2 重命名或统一 Space 打开会话的协议；行内 hover 操作按钮仍受原 UI 可见性影响。焦点主行用 group 而非完整 ARIA tree/listbox，屏幕阅读器体验未由现有测试证明。非模态右键菜单不是 global modal guard 的阻断对象。HTTP 删除失败检测、无数据加载时焦点、真实浏览器/操作系统 Alt 快捷键差异仍需实测。
 
+## 删除确认与列表一致性
+
+删除成功后按服务端实际 deletedSessionIds 立即移除本地行，再统一做一次权威刷新；不会等全局列表刷新才让行消失。HTTP/网络/异常成功响应显示可重试错误，失败不触发成功导航。保留既有 Delete/Escape、行内按钮、Shift-click 与焦点语义，不增加右键菜单删除入口。删除中切换会话时仅在最新选中 ID 属于实际删除集合时清空聊天。协议、级联范围及回归见 [session-deletion.md](session-deletion.md)。
+
 ## 维护规则与基线
 
 固定基线 **`63c6e4e`**，本次对照的 `origin/main` 为 `96966e5`。新增键盘状态/桥接建立在上游固定高虚拟列表和 inline 操作之上。改变键位、焦点目的地或窗口模型时同时更新纯函数测试、源码/VM 契约和浏览器脚本覆盖说明；明确重验后才改基线，不让文档隐式代表未来 HEAD。

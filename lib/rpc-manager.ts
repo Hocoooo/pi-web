@@ -4,6 +4,7 @@ import { createAgentSessionFromServices, createAgentSessionServices, getAgentDir
 import { KeybindingsManager as TuiKeybindingsManager, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
 import { randomUUID } from "crypto";
 import { currentServerPerf, startServerPerf, withServerPerf } from "./perf";
+import { createExtensionLifecycle } from "./extension-lifecycle-perf";
 import { taskSessionPathInScope } from "./task-sessions";
 import { copySessionWithTask } from "./task-session-copy";
 import { existsSync, realpathSync, writeFileSync } from "fs";
@@ -138,6 +139,7 @@ type AgentSessionWrapperOptions = {
   /** Cached creation identity; metadata-only listings must not walk session entries. */
   isSubagent?: boolean;
   preparedSessionId?: string;
+  extensionLifecycle?: Pick<ReturnType<typeof createExtensionLifecycle>, "close">;
   exactSystemPrompt?: () => string;
   chatOnly?: boolean;
   headless?: boolean;
@@ -328,6 +330,7 @@ export class AgentSessionWrapper {
   private extensionsBound = false;
   private extensionBindingPromise: Promise<void> | null = null;
   private extensionBindingError: unknown = null;
+  private readonly extensionLifecycle?: Pick<ReturnType<typeof createExtensionLifecycle>, "close">;
   private readonly exactSystemPrompt?: () => string;
   private readonly chatOnly: boolean;
   private readonly headless: boolean;
@@ -364,6 +367,7 @@ export class AgentSessionWrapper {
     this.videoTransport = createVideoTransport(inner);
     this.isSubagent = options.isSubagent ?? false;
     this.preparedSessionId = options.preparedSessionId;
+    this.extensionLifecycle = options.extensionLifecycle;
     this.hadSessionFile = Boolean(inner.sessionFile && existsSync(inner.sessionFile));
     this.exactSystemPrompt = options.exactSystemPrompt;
     this.chatOnly = options.chatOnly ?? false;
@@ -1473,9 +1477,11 @@ export class AgentSessionWrapper {
     // Closing starts before the first await, so a request that arrives while
     // extensions shut down starts a fresh wrapper instead of prompting this one.
     this.closing = true;
+    this.extensionLifecycle?.close();
     this.titles.cancel();
 
-    this.shutdownPromise = (async () => {
+    this.shutdownPromise = withServerPerf(startServerPerf("runtime.shutdown"), async () => {
+      const perf = currentServerPerf();
       try {
         try {
           await this.waitForExtensionsBound();
@@ -1485,17 +1491,21 @@ export class AgentSessionWrapper {
             error instanceof Error ? error.message : error,
           );
         }
+        perf?.span("extensions_bound");
         // After binding, so the host's session_start has run and finds nothing to record later.
         this.disposeMcpHost();
+        perf?.span("mcp_dispose");
         if (!this.sessionShutdownEmitted) {
           this.sessionShutdownEmitted = true;
           const emit = this.inner.extensionRunner?.emit;
           if (typeof emit === "function") await this.emitSessionShutdown(emit);
         }
       } finally {
+        perf?.span("extension_shutdown");
         this.destroy();
+        perf?.span("destroy");
       }
-    })();
+    });
     return this.shutdownPromise;
   }
 
@@ -1518,7 +1528,9 @@ export class AgentSessionWrapper {
     // A synchronous throw becomes a rejection, and a rejection that arrives
     // after the deadline is still handled by the race below.
     const handled = (async () => {
-      await emit.call(this.inner.extensionRunner, { type: "session_shutdown", reason: "quit" });
+      const pending = emit.call(this.inner.extensionRunner, { type: "session_shutdown", reason: "quit" });
+      currentServerPerf()?.span("extension_shutdown_dispatch");
+      await pending;
       return "handled" as const;
     })();
     try {
@@ -2636,6 +2648,7 @@ async function startRpcSessionMeasured(
         ?? (chatOnly ? subagentResources.appendSystemPrompt[0] ?? "" : undefined),
     }) : undefined;
     const subagentExtensionOptions = subagentResources ? subagentExtensionLoaderOptions(subagentResources) : undefined;
+    const extensionLifecycle = createExtensionLifecycle();
     const services = await createAgentSessionServices({
       cwd: sessionCwd,
       agentDir,
@@ -2681,7 +2694,7 @@ async function startRpcSessionMeasured(
                 isBuiltInSubagentsEnabled,
               ),
             ],
-            extensionsOverride: (base) => preferUserBashExtension(preferPiWebSubagentExtension(base)),
+            extensionsOverride: (base) => extensionLifecycle.wrap(preferUserBashExtension(preferPiWebSubagentExtension(base))),
           },
       ...(trustReloadOptions ? { resourceLoaderReloadOptions: trustReloadOptions } : {}),
     });
@@ -2761,6 +2774,7 @@ async function startRpcSessionMeasured(
     const wrapper = new AgentSessionWrapper(inner, {
       isSubagent,
       preparedSessionId: options.newSessionId,
+      extensionLifecycle,
       exactSystemPrompt,
       chatOnly,
       headless: options.headless,

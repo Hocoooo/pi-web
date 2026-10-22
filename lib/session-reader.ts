@@ -261,8 +261,9 @@ export type SessionArchiveMetadata = Pick<SessionInfo, "id" | "path" | "name" | 
  * A malformed child marker must not promote a subagent into a main-session candidate. */
 export function readSessionRelationMetadata(
   session: Pick<ScannedSessionInfo, "id" | "path" | "parentSessionPath">,
+  options: { probeParentless?: boolean } = {},
 ): Pick<SessionArchiveMetadata, "relation" | "relationUnavailable"> {
-  if (!session.parentSessionPath) return {};
+  if (!session.parentSessionPath && !options.probeParentless) return {};
   const prefix = readBoundedLines(session.path, SESSION_RELATION_MAX_BYTES, SESSION_RELATION_MAX_LINES).slice(1);
   let entries: SessionEntry[];
   try { entries = prefix.map(line => JSON.parse(line) as SessionEntry); }
@@ -304,7 +305,16 @@ async function buildSessionList(scanned: ScannedSessionInfo[]): Promise<SessionI
     const pathToId = new Map<string, string>();
     for (const session of scanned) pathToId.set(sessionPathKey(session.path), session.id);
     perf?.span("path_index", { sessions: scanned.length });
-    const mapped = scanned.map((session) => mapScannedSession(session, pathToId));
+    const mapped: SessionInfo[] = [];
+    for (let index = 0; index < scanned.length; index++) {
+      mapped.push(mapScannedSession(scanned[index], pathToId));
+      // A post-delete refresh must not block the next DELETE behind hundreds
+      // of synchronous relation/tail reads. Keep order and generation semantics,
+      // but service other requests between small batches.
+      if ((index + 1) % 16 === 0 && index + 1 < scanned.length) {
+        await new Promise<void>(resolve => setImmediate(resolve));
+      }
+    }
     perf?.span("map_relations", { sessions: mapped.length });
     const result = await attachSessionProjectInfo(mapped);
     perf?.span("projects", { sessions: result.length });

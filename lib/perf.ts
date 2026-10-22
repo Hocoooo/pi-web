@@ -38,7 +38,9 @@ export function startServerPerf(route: string, request?: Request): ServerPerf | 
     try {
       sample();
       const usage = process.cpuUsage(cpu);
+      const memorySampleStartedAt = performance.now();
       const memory = process.memoryUsage();
+      const memorySampleMs = round(performance.now() - memorySampleStartedAt);
       console.log(JSON.stringify({
         perf: true, route, requestId, traceId, parentRequestId: parent?.requestId,
         timestamp: new Date().toISOString(), event, pid: process.pid, lastPhase,
@@ -47,7 +49,7 @@ export function startServerPerf(route: string, request?: Request): ServerPerf | 
         cpuUserMs: round(usage.user / 1000), cpuSystemMs: round(usage.system / 1000),
         eventLoopUtilization: round(nodePerformance.eventLoopUtilization(elu).utilization * 100) / 100,
         heapUsedMB: round(memory.heapUsed / 1048576), heapTotalMB: round(memory.heapTotal / 1048576),
-        rssMB: round(memory.rss / 1048576), ...extra,
+        rssMB: round(memory.rss / 1048576), memorySampleMs, ...extra,
       }));
     } catch { /* Diagnostics must not break requests. */ }
   };

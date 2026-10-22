@@ -1237,16 +1237,17 @@ export function AppShell() {
     setInitialSessionRestored(true);
   }, []);
 
-  const handleSessionDeleted = useCallback((sessionId: string) => {
+  const handleSessionDeleted = useCallback((deletedSessionIds: string[]) => {
     invalidateWorkspaceRestore();
-    setRefreshKey((k) => k + 1);
+    // SessionSidebar already removed the confirmed IDs and owns reconciliation.
+    for (const sessionId of deletedSessionIds) clearTabOpenSession(sessionId);
     // The DELETE can outlive a session switch: this callback's captured
     // selectedSession is from the delete click. Read the latest selection
     // and only fall back to the empty composer when the user is still on
     // the deleted session at the moment removal completes.
     const active = selectedSessionRef.current;
-    if (active?.id === sessionId) {
-      clearTabOpenSession(sessionId);
+    if (active && deletedSessionIds.includes(active.id)) {
+      chatNavigationIntentRef.current++;
       const cwd = active.cwd;
       const draftId = typeof crypto.randomUUID === "function"
         ? crypto.randomUUID()

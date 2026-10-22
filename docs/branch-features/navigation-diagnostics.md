@@ -48,6 +48,14 @@
 
 `GET /api/sessions/[id]/state`：lookup（live/found）→ get_state（仅 live）。task-picker 保留 operation / serialize 诊断和响应关联头。
 
+### 删除
+
+`DELETE /api/sessions/[id]`：resolve → metadata_scan → relation_prefix → local_headers → legacy_scan → runtime_relations → family_graph → discover（删除族/需重挂 fork 数量）→ shutdown → reparent → unlink（确认删除数量）。详情见 [session-deletion.md](session-deletion.md)。删除使用关系元数据，不触发完整展示列表的扫描；前端确认后立即应用实际 IDs，只保留一次后台刷新。活跃 runtime 的 shutdown、相关大 fork 的重挂仍可能真实耗时，不应把这些阶段全部算成磁盘 unlink 成本。
+
+`legacy_scan` 增加聚合 `cacheHits/cacheMisses/unstableFiles/bytesRead/lines/candidateLines/parsedLines`；候选数不等于实际重读文件数。`candidateLines` 是字节预筛后解码的行数，`parsedLines` 才是 JSON.parse 尝试数；bytesRead 为实际传入扫描器的块字节数，可能含 marker 所在块的余下字节。`family_graph` 同样记录累计计数，含后续跨目录检查。冷扫描在独立 Worker 运行；phase 耗时包括排队、线程启动/通信等，不是纯磁盘读耗时。错误返回时不承诺完整扫描计数。
+
+关闭链新增 `abort_dispatch` / `abort_wait` / `shutdown_dispatch`，以及子 trace `runtime.shutdown`（extensions_bound、mcp_dispose、extension_shutdown_dispatch、extension_shutdown、destroy）。普通会话的 `runtime.extension.session_start/session_shutdown/resources_discover` 子 trace 记录 handler 序号、固定扩展类别布尔值、同步 dispatch 与异步 wait；不记录扩展路径或参数。索引只在本次加载顺序内有效，不是稳定插件 ID。`memorySampleMs` 记录内存采样本身耗时，帮助排除测量开销。父 shutdown span 在细分后只代表最后一次标记后的剩余等待，分析整个阶段需合并子阶段或看子 trace total。
+
 ## 浏览器数据
 
 实现：`lib/latency-trace.ts`、`hooks/useAgentSession.ts`、`components/SessionSidebar.tsx`。

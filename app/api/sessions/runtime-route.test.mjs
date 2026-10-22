@@ -140,7 +140,10 @@ test("deleting an unpersisted session shuts down its runtime and invalidates cac
     );
 
     assert.equal(response.status, 200);
-    assert.deepEqual(await response.json(), { ok: true });
+    const deletion = await response.json();
+    assert.equal(deletion.ok, true);
+    assert.deepEqual(deletion.deletedSessionIds, [id]);
+    assert.ok(deletion.sessionListVersion > before);
     assert.equal(shutdownCalled, true);
     assert.equal(globalThis.__piSessions.has(id), false);
     assert.equal(globalThis.__piSessionPathCache.has(id), false);

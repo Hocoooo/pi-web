@@ -23,7 +23,7 @@
 
 1. **显式启用，不改变默认。** 缺省或 `false` 走现有 Web UI；只有 `true` 使 `createExtensionUiContext()` 返回 `undefined`。`"true"`、`1`、`null` 不是合法替代值。当前新会话路由对此抛错后返回 HTTP 500，不要在文档里误写为所有参数错误都返回 400；缺失/不存在的 `cwd` 则有显式 400 分支。
 2. **无 UI 仍绑定扩展。** `ensureExtensionsBound()` 继续调用 SDK `bindExtensions`，保持 `mode: "rpc"`、command actions、错误回报等绑定。改变的是 `uiContext`，不是 `noExtensions`。SDK 扩展应观察到 `ctx.hasUI === false`，并采用其无 UI 路径。旧 SDK 兼容分支 `extensionRunner.setUIContext` 也必须传入同样的上下文值。
-3. **先 ready，再承诺可用。** 新会话读取 `get_state` 时等待扩展绑定；`beginExtensionBinding` 的日志不是成功确认。绑定失败继续沿既有错误路径暴露，不能假装已经建立一个可交互会话。
+3. **先 ready，再承诺可用。** 普通会话在首次绑定未完成时进入有序 shutdown，会关闭后续启动/资源发现 handler 的准入，但仍等待当前 handler 收尾并执行关闭 hook；此时不是一个可继续交互的 ready 会话。该优化不改变专用 subagent/chat-only loader，也不解决并发 reload 或直接 destroy 的既有边界，详见 [删除契约](session-deletion.md)。 新会话读取 `get_state` 时等待扩展绑定；`beginExtensionBinding` 的日志不是成功确认。绑定失败继续沿既有错误路径暴露，不能假装已经建立一个可交互会话。
 4. **接收不等于完成。** `send({type:"prompt"})` 在 SDK preflight 接受后返回；它不是等待所有生成结束的同步接口。等待过程中 `pendingPromptCount > 0` 使 `isRunning()` 为真，即使某一轮 `isStreaming` 已经变成 false。HTTP success、单次 `agent_end`、流式文本暂时停止均不足以认定全部工作结束。
 5. **完成包含父会话续写。** 对普通、非 streamingBehavior prompt，wrapper 等待 SDK `inner.prompt()` 的 promise settle 后才发 `prompt_done`。真实 SDK 回归夹具覆盖：第一轮 `agent_end` 等待后台 promise → 扩展发 `triggerTurn: true` 消息 → 父会话生成第二轮 → 仅一次 `prompt_done`，最终 `isRunning() === false`。headless 本身没有额外轮询器；能否 drain 依赖 SDK 与扩展合作，不能泛化为等待任意未注册异步任务。
 6. **失败与结束分开。** preflight 拒绝由提交请求返回；新会话 `prompt` 未被接受时还包含 `code: "prompt_rejected"`、`accepted: false`。接受后才发生的运行异常通过 `prompt_error` 回报，普通 prompt 随后仍会发 `prompt_done`。因此 `prompt_done` 表示结束边界，不保证业务成功；`steer`/`followUp` 队列路径也不能套用「每次提交都有独立 prompt_done」的规则。
