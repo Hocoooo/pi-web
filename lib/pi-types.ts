@@ -153,6 +153,8 @@ export interface AgentSessionLike {
   readonly agent: {
     streamFunction?: StreamFn;
     convertToLlm?: Agent["convertToLlm"];
+    prepareRequest?: Agent["prepareRequest"];
+    prepareNextTurnWithContext?: Agent["prepareNextTurnWithContext"];
     steer?: Agent["steer"];
     followUp?: Agent["followUp"];
     clearSteeringQueue?: Agent["clearSteeringQueue"];

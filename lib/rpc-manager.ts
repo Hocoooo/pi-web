@@ -13,6 +13,7 @@ import { validateAgentImages } from "./image-attachments";
 import { createRequestPerformanceTracker } from "./request-performance";
 import { validateVideoCommand } from "./video-attachments";
 import { createVideoTransport } from "./video-transport";
+import { createImageContextBudget } from "./image-context-budget";
 import { AutoSessionTitleController, renameSessionTitle, setSessionAutoTitleEnabled, StaleSessionTitleError } from "./auto-session-title";
 import { computeSessionStats } from "./session-stats";
 import { invalidateModelsCache } from "./models-cache";
@@ -340,6 +341,7 @@ export class AgentSessionWrapper {
   private readonly automaticTitles: boolean;
   private readonly titles: AutoSessionTitleController;
   private readonly videoTransport: ReturnType<typeof createVideoTransport>;
+  private readonly imageContextBudget: ReturnType<typeof createImageContextBudget>;
   private readonly mcpHost?: Pick<McpHost, "prepareForPrompt" | "dispose">;
   private mcpHostDisposed = false;
   // The MCP wait of the prompt being admitted; Stop ends it.
@@ -365,6 +367,7 @@ export class AgentSessionWrapper {
     options: AgentSessionWrapperOptions = {},
   ) {
     this.videoTransport = createVideoTransport(inner);
+    this.imageContextBudget = createImageContextBudget(inner);
     this.isSubagent = options.isSubagent ?? false;
     this.preparedSessionId = options.preparedSessionId;
     this.extensionLifecycle = options.extensionLifecycle;
@@ -459,12 +462,13 @@ export class AgentSessionWrapper {
 
   start(): void {
     const performanceTracker = createRequestPerformanceTracker();
+    this.imageContextBudget.install();
     this.videoTransport.queue.install(() => {
       const inputs = this.videoTransport.queue.snapshot();
       this.emit({ type: "queue_update", steering: inputs.steering.map(i => i.text), followUp: inputs.followUp.map(i => i.text), inputs });
     });
     if (this.inner.agent.streamFunction) {
-      this.inner.agent.streamFunction = performanceTracker.wrap(this.videoTransport.wrap(this.inner.agent.streamFunction));
+      this.inner.agent.streamFunction = performanceTracker.wrap(this.imageContextBudget.wrap(this.videoTransport.wrap(this.inner.agent.streamFunction)));
     }
     if (this.inner.agent.convertToLlm) {
       this.inner.agent.convertToLlm = this.videoTransport.wrapConversion(this.inner.agent.convertToLlm);
@@ -859,6 +863,7 @@ export class AgentSessionWrapper {
       if (type === "prompt" || type === "steer" || type === "follow_up") {
         const imageError = validateAgentImages(command.images);
         if (imageError) throw new Error(imageError);
+        this.imageContextBudget.validateInput(command.images);
       }
 
       switch (type) {
@@ -875,6 +880,7 @@ export class AgentSessionWrapper {
             this.extensionUiAbortController = new AbortController();
           }
           const promptImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
+          this.imageContextBudget.validatePrompt(command.message as string, promptImages);
           const streamingBehavior = command.streamingBehavior as "steer" | "followUp" | undefined;
           let preflightAccepted = false;
           let preflightSettled = false;

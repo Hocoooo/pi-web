@@ -10,6 +10,10 @@
 
 相对上游，本分支新增 `headless` 参数、状态回显及无 UI 绑定；prompt admission、SSE、已有扩展生命周期仍由现有实现承担。不要把这些共享机制全部改写成分支专用实现。
 
+## 图片预算交点（F41）
+
+[图片上下文预算](image-context-budget.md)在 wrapper 公共 SDK request hooks 和最终 stream 边界安装，headless/默认 UI 都适用，不依赖 extension UI/factory。默认20 MiB图片 Base64；新组超限尽量 preaccept 拒绝，工具/custom/转换后失败是已接受运行的 assistant error，仍保持原整轮 draining 与 prompt_done 语义。compact 恢复入口不被历史大图堵住；不新增后台任务或模型调用。
+
 ## 入口和默认值
 
 | 入口 | 应观察的符号与行为 |

@@ -89,6 +89,10 @@ SDK ModelRuntime.getAuth 先解析 key；缺 key、解析到其他 origin 则零
 
 读取复用原 allowed roots（含当前已授权未 flush cwd）、词法/realpath/link 检查，canonical regular file 有界读；不借 session 文本预览例外授权外传。拒绝缺失/目录/FIFO/越界，MP4 检查 ftyp，AVI 检查 RIFF/AVI；签名不是 codec 解码保证，不声称消除恶意并发文件修改的 TOCTOU。
 
+## 图片预算交点（F41）
+
+[图片 Base64 预算](image-context-budget.md)另行限制最终 SDK image blocks，默认20 MiB；旧图片可通过原生 content-only context_edit 卸载，但本功能的原视频不被卸载或重编码。保留 user 的 piWebVideos、toolResult 的 details/配对及 converter owner 对象身份；外层 performance relay → image stream guard → video transport，不改已有 auth、取消和 Google payload 检查。image guard 在超限时零调用 video transport；视频的20 MiB单文件/120 MiB完整请求预算仍独立生效。新增 `video-transport.test.mjs` 的 image offload 场景用实际 SDK/Google final-fetch 验证旧视频与新图片共存，不代表真实网关验收。
+
 ## 请求出口的失败闭合
 
 - 用 adapter 自身 convertMessages 确定所属 user/toolResult 的 contents 位置（连续工具结果可能合并，按完整转换结果校验），不能假设消息下标＝Google 下标。converter 换掉/原地剥除/改写 owner 都拒绝；独立完整 tuple 快照不能被扩展改 path 借壳。
