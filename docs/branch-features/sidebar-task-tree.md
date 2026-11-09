@@ -22,7 +22,7 @@
 5. **任务搜索与选择。** 搜索标题、说明、完成标准（trim、大小写不敏感字面包含），复用 F23 `taskMatchesText`；不搜索原始对话、标签、归档报告。面板的任务列表候选按当前项目范围，all 标注项目路径；已归档 Task 带标记但仍可选。选择仅筛选左侧，不切换聊天、不修改关系/状态，不写 savedViews。选中 Task 或未关联组连同包含的项目自动展开，有明确清除入口；空态按折叠前的匹配族集合判断，不能把折叠误报为空。已有选择即使不匹配新的关键词/项目仍保留可见，不能静默放宽。
 6. **正文搜索。** 已选择 Task 时添加 `taskId`，选择未关联时添加 `taskId=unlinked`；清除后恢复原全局检索。服务端先解析完整 owner/祖先，再交集对话归档 scope，再执行原 500 文件/30 结果/3 秒扫描限制。任务不存在 404、task store 无法读 503，均不退回全局。相同关键词切换任务、归属变化或归档变化会重搜；迟到/取消结果不得覆盖当前条件。不把全局截断结果拿到客户端后过滤。
 7. **归档与错误。** Task 与 Session 归档独立。归档范围控制会话可见性，不推导 Task owner；计数使用当前项目/Task 会话族集合。读取失败保留旧完整目录、选择和结果，并提示可能过期及 Reload；初次目录失败时回退既有项目列表并提示错误，任务选择不可用。session refreshKey（含复制/fork）/focus/online/visibility/tasks-changed 校准不自动重绑、恢复、归档或重试报告。不存在跨文件事务快照承诺。
-8. **键盘与虚拟化。** 项目、Task、session、各自更多行进入同一固定 54px 行模型，逻辑导航不限挂载窗口。Right 展开/进入下一层，Left 收起/回父 Task/项目；Home/End/Enter 继续工作，局部输入/IME/菜单优先。Alt+Left 揭示选中族及其 Task/更多，必要时清除不兼容的任务筛选，不改变当前聊天。无任务项目继续使用无 Task 后缀的 session key、项目更多状态与原导航：session Left 直接回项目，Alt+Left 必须揭示五条预览外的选中族；不能因全局 taskTree 开启而等待不存在的 Task 行。非树的旧键盘/预览行为保持。
+8. **键盘与虚拟化。** 项目、Task、session、各自更多行进入同一固定 54px 行模型，逻辑导航不限挂载窗口。Right 展开/进入下一层，Left 收起/回父 Task/项目；Home/End/Enter 继续工作，局部输入/IME/菜单优先。Alt+Left 揭示选中族及其 Task，必要时清除不兼容的任务筛选，不改变当前聊天。复用行模型判断展开 Task 后的可见性；选中族已在五族预览内时不展开更多，超出预览才展开所属 Task 的更多。项目或 Task 折叠不能视为超出预览；保留手动更多状态及其他 Task 状态。无任务项目继续使用无 Task 后缀的 session key、项目更多状态与原导航：session Left 直接回项目，Alt+Left 必须揭示五条预览外的选中族；不能因全局 taskTree 开启而等待不存在的 Task 行。非树的旧键盘/预览行为保持。
 9. **副作用边界。** 只有任务详情按钮显式打开既有 TaskPanel。搜索/设置/树折叠不写任务、发送 prompt、生成报告、自动分类或修改 JSONL。默认关树不是关任务搜索；`demo/` 不在本次同步范围。
 
 ## 接口与实现导航
@@ -48,6 +48,7 @@ E2E_BASE_URL=http://127.0.0.1:30142 node e2e/sidebar-task-tree.mjs
 
 - HTTP：完整目录/空目录/合法 legacy 内存解码/锁存在/坏数据无写盘，私有和历史字段排除；UUID/未关联/缺失/坏 store/空 query；subagent 最近 owner、显式 override、fork、循环；archive 交集；500-file 和 30-result 截断前过滤。
 - Chromium：默认关闭/开关即时/持久/跨标签；Task 五族/更多/收起；Right/Left/选中揭示；搜索资料/空任务/不导航/未关联；目录失败恢复；同关键词 taskId 更新；关树恢复单项目全量与 all 项目五条；同名 task/归档独立/子代理与历史跨任务上下文根/运行提示；多级跨Task族的关树标记/上下文根、清筛选后的第六根揭示、折叠不误报空、复制继承后立即刷新；390px 三语言无横向溢出，保存浅/深色截图；Task 更多/收起的行与标题几何对齐；混合有/无任务项目、无任务 current 全量/all 五族、项目折叠、归档/未关联筛选、空目录及 Alt+Left 回退揭示。
+- 焦点揭示回归：`sidebar-task-tree.mjs` 验证 current/all 下已展开和折叠 Task、折叠项目中的前五族不展开更多，第六族仍能揭示；保留其他 Task 折叠、手动更多和未发送草稿。Ctrl+Left 保留输入编辑，面板切换仍只使用 Alt+Left/Right。
 - 旧回归：`E2E_BASE_URL=... node e2e/sidebar-view.mjs`、`PI_WEB_TEST_URL=... node e2e/session-keyboard.mjs`；已给目录添加空 fixture，不向真实 Task 数据发新读取。
 - 现有源码断言只检查调用存在，不代替浏览器证明；不新增私有函数测试 seam。
 

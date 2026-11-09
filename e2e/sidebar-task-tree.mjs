@@ -206,6 +206,15 @@ try {
   assert.equal(await group("Task Alpha").getAttribute("aria-expanded"), "false", "ordinary refresh respects manual collapse");
   await page.keyboard.press("Alt+ArrowLeft");
   await page.waitForFunction(() => document.activeElement?.dataset.sidebarRow?.startsWith("session:task-chat-1:task:"));
+  assert.equal(await page.getByText("Conversation 6", {exact:true}).count(), 0, "focusing a collapsed task keeps the five-family preview when the selected family is already in it");
+  await page.getByRole("button", {name:"Show more (1)", exact:true}).waitFor();
+  assert.equal(await group("Task Beta").getAttribute("aria-expanded"), "false", "focus reveal leaves other tasks collapsed");
+  await projectRow.click();
+  await page.keyboard.press("Alt+ArrowRight");
+  await page.waitForFunction(() => document.activeElement?.matches("textarea.chat-input-textarea"));
+  await page.keyboard.press("Alt+ArrowLeft");
+  await page.waitForFunction(() => document.activeElement?.dataset.sidebarRow?.startsWith("session:task-chat-1:task:"));
+  assert.equal(await page.getByText("Conversation 6", {exact:true}).count(), 0, "opening a collapsed project does not expand the selected task preview");
   await page.keyboard.press("ArrowLeft");
   assert.match(await page.evaluate(() => document.activeElement.dataset.sidebarRow), /^task:/);
   await page.keyboard.press("ArrowLeft");
@@ -265,6 +274,36 @@ try {
   assert.deepEqual(unexpected, []);
   assert.deepEqual(errors, []);
   console.log("PASS: task tree, five-family preview, keyboard/reveal, task search/filter, scoped body requests, failures, compatibility, persistence and cross-tab setting sync");
+
+  const currentReveal = await context.newPage();
+  currentReveal.on("pageerror", error => errors.push(error.message));
+  await currentReveal.addInitScript(() => {
+    localStorage.setItem("pi-web:sidebar-view", JSON.stringify({mode:"current", collapsedProjects:[], taskTree:true}));
+  });
+  await currentReveal.goto(`${base}/?session=task-chat-1`, {waitUntil:"networkidle"});
+  const currentGroup = currentReveal.getByRole("button", {name:"Task Alpha", exact:true});
+  await currentReveal.locator("textarea.chat-input-textarea").fill("Unsent draft");
+  await currentReveal.keyboard.press("Control+ArrowLeft");
+  assert.equal(await currentReveal.evaluate(() => document.activeElement?.matches("textarea.chat-input-textarea")), true, "Ctrl+Left keeps native editing, not panel navigation");
+  await currentReveal.keyboard.press("Alt+ArrowLeft");
+  await currentReveal.waitForFunction(() => document.activeElement?.dataset.sidebarRow?.startsWith("session:task-chat-1:task:"));
+  assert.equal(await currentReveal.getByText("Conversation 6", {exact:true}).count(), 0, "focusing an open current-project task keeps its preview");
+  await currentGroup.click();
+  await currentReveal.keyboard.press("Alt+ArrowRight");
+  await currentReveal.waitForFunction(() => document.activeElement?.matches("textarea.chat-input-textarea"));
+  await currentReveal.keyboard.press("Alt+ArrowLeft");
+  await currentReveal.waitForFunction(() => document.activeElement?.dataset.sidebarRow?.startsWith("session:task-chat-1:task:"));
+  assert.equal(await currentReveal.getByText("Conversation 6", {exact:true}).count(), 0, "focusing a collapsed current-project task keeps its preview");
+  assert.equal(await currentReveal.locator("textarea.chat-input-textarea").inputValue(), "Unsent draft", "focus reveal preserves the composer draft");
+  await currentReveal.getByRole("button", {name:`Show more (${tasks[0].sessionIds.length - 5})`, exact:true}).click();
+  await currentReveal.keyboard.press("Alt+ArrowRight");
+  await currentReveal.waitForFunction(() => document.activeElement?.matches("textarea.chat-input-textarea"));
+  await currentReveal.keyboard.press("Alt+ArrowLeft");
+  await currentReveal.waitForFunction(() => document.activeElement?.dataset.sidebarRow?.startsWith("session:task-chat-1:task:"));
+  await currentReveal.getByRole("button", {name:"Show fewer", exact:true}).waitFor();
+  assert.equal(await currentReveal.getByText("Conversation 6", {exact:true}).count(), 1, "focus reveal preserves an explicitly expanded preview");
+  await currentReveal.close();
+  console.log("PASS: current/all task focus reveal preserves five-family previews, explicit more state and drafts; Ctrl+Left keeps native editing");
 
   // Archive scope is session state, not task state. An active family under an
   // archived task remains visible and must never be relabeled as unlinked.

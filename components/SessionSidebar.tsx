@@ -1504,10 +1504,17 @@ export function SessionSidebar({ onOpenTasks, onFocusSessionPanel, selectedSessi
         }
       }
       let key = family ? `session:${family.root.id}` : rowKeys[0] ?? "";
-      if (family && familyHasTaskTree) {
+      if (family && familyHasTaskTree && tasks) {
         const taskKey = sidebarTaskKey(workspaceKeyOf(family.root), owner);
+        // Test visibility after opening the group, not against its collapsed rows.
+        const revealedRows = buildSidebarTaskRows(allSessions, tasks, {
+          allProjects: showAllProjects, activeProject: selectedProject, archived: Boolean(family.root.archived),
+          collapsedProjects: [], expandedTasks: new Set([taskKey]), expandedPreviews: expandedTaskPreviews, expandedProjects, taskFilter: null,
+        });
         setExpandedTasks(current => new Set(current).add(taskKey));
-        setExpandedTaskPreviews(current => new Set(current).add(taskKey));
+        if (!revealedRows.some(row => row.kind === "session" && row.taskKey === taskKey && row.family.root.id === family.root.id)) {
+          setExpandedTaskPreviews(current => new Set(current).add(taskKey));
+        }
         key = `session:${family.root.id}:task:${taskKey}`;
       }
       setKeyboardRowKey(key);
