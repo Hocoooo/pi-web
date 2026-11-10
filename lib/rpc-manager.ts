@@ -484,7 +484,11 @@ export class AgentSessionWrapper {
       }
       if (event.type === "agent_start") {
         this.agentRunNeedsCompletion = true;
-        if (this.automaticTitles) {
+        if (!this.automaticTitles) this.titles.cancel();
+        // A queued follow-up or extension continuation starts its own low-level
+        // run inside the same logical run: only the first one sets the reply
+        // baseline the settle compares against.
+        else if (!this.titleRunStarted) {
           this.titleRunStarted = true;
           this.titles.beginRun();
         } else this.titles.cancel();

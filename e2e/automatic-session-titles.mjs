@@ -94,10 +94,10 @@ try {
       await page.getByText("Feature delivered", { exact: true }).waitFor();
       await page.getByRole("button", { name: "Session info", exact: true }).click();
       const panel = page.locator(".session-info-popover");
-      const toggle = panel.getByRole("checkbox", { name: "Update title after each completed turn", exact: true });
+      const toggle = panel.getByRole("checkbox", { name: "Name the session automatically", exact: true });
       await toggle.waitFor();
       assert.equal(await toggle.isChecked(), true);
-      await panel.getByText(/one extra request per successful turn/).waitFor();
+      await panel.getByText(/one extra request on each completed turn until a title is generated/).waitFor();
       const input = page.locator("textarea").first();
       await input.fill("Unsent draft stays");
       await heldList.promise;

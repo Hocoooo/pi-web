@@ -148,7 +148,11 @@ export class AutoSessionTitleController {
   }
 
   completeRun(): void {
-    if (this.stopped || !this.host.isAlive() || this.host.isRunning() || !this.getState().enabled) return;
+    const state = this.getState();
+    if (this.stopped || !this.host.isAlive() || this.host.isRunning() || !state.enabled) return;
+    // One automatic title per session: every completed turn retries until one
+    // lands, and a generated title is never replaced automatically afterwards.
+    if (state.source === "generated") return;
     const reply = latestSuccessfulTitleReply(this.manager.getBranch());
     if (!reply || reply === this.runStartReply || reply === this.lastAttemptedReply) return;
     this.lastAttemptedReply = reply;
