@@ -26,7 +26,7 @@ test("opens one settings panel from direct sidebar shortcuts", () => {
 });
 
 test("keeps every requested configuration surface inside the settings panel", () => {
-  for (const section of ["general", "models", "skills", "agents", "plugins", "mcp"]) {
+  for (const section of ["general", "models", "skills", "agents", "plugins", "mcp", "config-sync"]) {
     assert.match(panelSource, new RegExp(`id: "${section}"`));
   }
   for (const component of ["ModelsConfig", "SkillsConfig", "AgentsConfig", "PluginsConfig", "McpConfig"]) {
@@ -49,6 +49,13 @@ test("Settings › MCP works without a project, and only project sections fall b
   // Its own glyph, not the Plugins fallback.
   assert.match(panelSource, /if \(section === "mcp"\) return <svg \{\.\.\.common\}>/);
   for (const source of [enSource, zhSource]) assert.match(source, /"settings\.mcp": "MCP"/);
+});
+
+test("Config sync is a global pane immediately after MCP with the existing session reload callback", () => {
+  assert.match(panelSource, /\{ id: "mcp", label: t\("settings\.mcp"\) \},\s*\{ id: "config-sync", label: t\("settings\.configSync"\) \}/);
+  assert.match(panelSource, /\{sectionHost\("config-sync", <ConfigSync sessionId=\{sessionId\} onReloaded=\{onSessionReloaded\} \/>\)\}/);
+  assert.doesNotMatch(panelSource, /cwd && sectionHost\("config-sync"/);
+  assert.match(panelSource, /if \(section === "config-sync"\) return <svg \{\.\.\.common\}>/);
 });
 
 test("restores the settings section and each list detail selection", async () => {

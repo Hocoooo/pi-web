@@ -86,6 +86,7 @@ F09 `/new` 现在以一次性、draft 专属 seed 自动沿用当前已确认 pr
 | F39 | [统一侧栏搜索与筛选入口](sidebar-search-filters.md) | Task/正文复用原搜索按钮与desktop浮层/mobile底部面板，Task不常驻；日常/归档保留原生范围选择，清除筛选不改范围；添加条件、实时生效/关闭保留、单行摘要，正文/归属语义不变 | SidebarSearchControls/CSS、SessionSidebar、i18n、sidebar-search-filters/Task-tree/session-archive E2E |
 | F40 | [原视频附件与主动读取](video-attachments.md) | 多 MP4/AVI 拖入/追加（最多4个）、read_video 原视频工具（含子会话新建/重开与显式白名单、scope后同名去重；工具媒体独立Google user段；普通会话真实小样本已验，子会话仅离线验收）；20 MiB/完整120 MiB应用预算；原生引用、SDK auth＋Google、失败恢复、有效上下文/压缩/分支/复制、SDK 队列/Stop/Recall；Chat-only 保持零工具 | VideoAttachmentPicker、ChatInput/ChatWindow/MessageView、useAgentSession/draft-store、video-transport/input-binding/tools、session-reader、agent routes |
 | F41 | [图片 Base64 预算与耐久卸载](image-context-budget.md) | 默认20 MiB最终 SDK 图片 Base64；原生分支 context_edit 卸载最老图片，保留最新含图消息完整组，超大新组零下游调用拒绝；原图/工具配对/视频 owner 保留 | image-context-budget、rpc-manager、pi-types |
+| F42 | [Git 配置同步](config-sync.md) | MCP 后的全局设置页签；可信仓库手动 Push/Pull、允许清单与资源、固定插件版本、本机凭证/路径保留、冲突拒绝/管理删除、显式重载 | ConfigSync、config-sync API、config-sync/data/git/types、settings-navigation、atomic-file/global-settings-file |
 
 ## 任务功能历史快照（2026-10-09 文档收尾；当前范围见 F31/F32/F33/F35）
 
